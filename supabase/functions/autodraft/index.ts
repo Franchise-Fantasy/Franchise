@@ -11,6 +11,7 @@ import { parseBody, z } from '../_shared/validate.ts';
 import { effectiveDraftPts } from '../../../utils/draft/draftRanking.ts';
 import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
 import { isEligibleForSlot } from '../../../utils/roster/rosterSlotsShared.ts';
+import { getSportModule } from '../../../utils/sports/registry.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
@@ -168,7 +169,10 @@ Deno.serve(async (req) => {
     const draftedIds = (draftedResult.data ?? []).map((p: { player_id: string }) => String(p.player_id));
     const isRookieDraft = draft.type === 'rookie';
 
-    const sport: 'nba' | 'wnba' = leagueResult.data?.sport === 'wnba' ? 'wnba' : 'nba';
+    const sport: 'nba' | 'wnba' | 'nfl' =
+      leagueResult.data?.sport === 'wnba' || leagueResult.data?.sport === 'nfl'
+        ? leagueResult.data.sport
+        : 'nba';
     const posLimits = leagueResult.data?.position_limits as Record<string, number> | null;
     const teamRoster: { position: string; roster_slot: string }[] = teamRosterResult.data ?? [];
     const useLimits = posLimits && Object.keys(posLimits).length > 0;
@@ -237,7 +241,7 @@ Deno.serve(async (req) => {
 
       // Current season (live, from season_config) pins the season-horizon
       // projections — that view also carries next-year rows — and derives the
-      // previous season label for the last-season fallback (WNBA "2026" →
+      // previous season label for the last-season fallback (WNBA/NFL "2026" →
       // "2025"; NBA "2025-26" → "2024-25", matching constants/LeagueDefaults).
       const { data: seasonRow } = await supabaseAdmin
         .from('season_config')
@@ -245,9 +249,10 @@ Deno.serve(async (req) => {
         .eq('sport', sport)
         .eq('is_current', true)
         .maybeSingle();
-      const currentSeason = seasonRow?.season ?? (sport === 'wnba' ? '2026' : '2025-26');
+      const singleYear = getSportModule(sport).seasonFormat === 'single-year';
+      const currentSeason = seasonRow?.season ?? (singleYear ? '2026' : '2025-26');
       const prevStartYear = parseInt(currentSeason.split('-')[0], 10) - 1;
-      const previousSeason = sport === 'wnba'
+      const previousSeason = singleYear
         ? String(prevStartYear)
         : `${prevStartYear}-${String((prevStartYear + 1) % 100).padStart(2, '0')}`;
 
@@ -304,87 +309,50 @@ Deno.serve(async (req) => {
       if (!topPlayer) topPlayer = ranked[0];
     }
 
-    const timestamp = new Date().toISOString();
-
-    // Claim the pick ATOMICALLY: the `.is('player_id', null)` predicate makes
-    // Postgres row-lock and match only if the pick is still open, so two
-    // concurrent deliveries (a late QStash message racing the stalled-draft
-    // sweeper's republish, or an autopick racing a human) can't both write.
-    // The loser matches 0 rows and returns before the league_players insert /
-    // pick advance, so no double roster add. Guards the phase-1 read→write
-    // gap that had no protection before.
-    const { data: claimed, error: updatePickError } = await supabaseAdmin
-      .from('draft_picks')
-      .update({ player_id: topPlayer.player_id, selected_at: timestamp, auto_drafted: true })
-      .eq('draft_id', draft_id)
-      .eq('pick_number', pick_number)
-      .is('player_id', null)
-      .select('id');
-    if (updatePickError) throw updatePickError;
-    if (!claimed || claimed.length === 0) {
-      return jsonResponse({ message: 'Pick already made' });
-    }
-
     const rosterSlot = findBestSlot(rosterConfigs, teamRoster, topPlayer.position);
-
-    const { error: insertPlayerError } = await supabaseAdmin
-      .from('league_players')
-      .insert({
-        league_id: draft.league_id,
-        player_id: topPlayer.player_id,
-        team_id: currentPick.current_team_id,
-        acquired_via: isRookieDraft ? 'rookie_draft' : 'draft',
-        acquired_at: timestamp,
-        position: topPlayer.position,
-        roster_slot: rosterSlot,
-      });
-    if (insertPlayerError) throw insertPlayerError;
-
     const nextPickNumber = pick_number + 1;
-    const totalPicks = draft.rounds * draft.picks_per_round;
-    const isDraftComplete = nextPickNumber > totalPicks;
-
     // Effective clock for the new current pick (honors round acceleration).
     const nextLimit = effectiveTimeLimit(nextPickNumber, draft);
 
-    const draftUpdate: Record<string, unknown> = {
-      current_pick_number: nextPickNumber,
-      current_pick_timestamp: timestamp,
-      // Snapshot the limit for the new current pick so a mid-draft time change
-      // only affects future picks (client countdown reads this snapshot).
-      current_pick_time_limit: nextLimit,
-    };
-    if (isDraftComplete) draftUpdate.status = 'complete';
-
-    const { error: advanceDraftError } = await supabaseAdmin
-      .from('drafts')
-      .update(draftUpdate)
-      .eq('id', draft_id);
-    if (advanceDraftError) throw advanceDraftError;
-
-    // When rookie draft completes, update offseason step
-    if (isDraftComplete && isRookieDraft) {
-      await supabaseAdmin
-        .from('leagues')
-        .update({ offseason_step: 'rookie_draft_complete' })
-        .eq('id', draft.league_id);
+    // Claim + roster-add + queue-cleanup + draft-advance in ONE transaction.
+    // The pick claim is guarded (player_id IS NULL) INSIDE the txn, so a
+    // mid-sequence failure rolls the claim back (no permanently-stuck draft) and
+    // two concurrent deliveries (a late QStash message racing the stalled-draft
+    // sweeper's republish, or an autopick racing a human) serialize on the row
+    // lock — the loser matches 0 rows and returns claimed=false without writing.
+    const { data: claimData, error: rpcError } = await supabaseAdmin.rpc('execute_autodraft_pick', {
+      p_draft_id: draft_id,
+      p_pick_number: pick_number,
+      p_player_id: topPlayer.player_id,
+      p_league_id: draft.league_id,
+      p_team_id: currentPick.current_team_id,
+      p_roster_slot: rosterSlot,
+      p_player_position: topPlayer.position,
+      p_is_rookie_draft: isRookieDraft,
+      p_next_time_limit: nextLimit,
+      p_used_queue_entry_id: usedQueueEntryId,
+    });
+    if (rpcError) {
+      // Cross-pick race: the same player was rostered by another pick first
+      // (uq_league_player). This pick's txn rolled back, so leave it for the
+      // stalled-draft sweeper to re-fire rather than 500-ing.
+      if ((rpcError as { code?: string }).code === '23505') {
+        return jsonResponse({ message: 'Player already drafted; pick will be retried' });
+      }
+      throw rpcError;
+    }
+    const claim = claimData as { claimed?: boolean; is_complete?: boolean } | null;
+    if (!claim?.claimed) {
+      return jsonResponse({ message: 'Pick already made' });
     }
 
-    // Defer non-critical work (queue cleanup, scheduling next pick, push
-    // notifications) so the function can return immediately after the realtime-
-    // firing UPDATEs above. These were already wrapped in non-fatal try/catch,
-    // so the failure semantics are unchanged — we just stop blocking the
-    // response on them.
-    deferWork((async () => {
-      // Clean up draft queues: remove used entry and this player from all teams' queues
-      await supabaseAdmin.from('draft_queue')
-        .delete()
-        .eq('draft_id', draft_id)
-        .eq('player_id', topPlayer!.player_id);
-      if (usedQueueEntryId) {
-        await supabaseAdmin.from('draft_queue').delete().eq('id', usedQueueEntryId);
-      }
+    const isDraftComplete = claim.is_complete === true;
 
+    // Defer non-critical work (scheduling the next pick, push notifications) so
+    // the function can return immediately after the atomic RPC above. These were
+    // already wrapped in non-fatal try/catch, so the failure semantics are
+    // unchanged — we just stop blocking the response on them.
+    deferWork((async () => {
       // Schedule next pick + collect data needed for both that and the
       // "your turn" push in a single fetch.
       let nextPickTeamId: string | null = null;

@@ -25,6 +25,8 @@ import { StepWaivers } from "@/components/create-league/StepWaivers";
 import { BrandButton } from "@/components/ui/BrandButton";
 import { StepIndicator } from "@/components/ui/StepIndicator";
 import { ThemedView } from "@/components/ui/ThemedView";
+import { WizardShell } from "@/components/web/WizardShell";
+import { WizardSummary } from "@/components/web/WizardSummary";
 import { Colors } from "@/constants/Colors";
 import {
   canBypassCreationWindow,
@@ -56,6 +58,7 @@ import {
 } from "@/constants/LeagueDefaults";
 import { useSession } from "@/context/AuthProvider";
 import { useConfirm } from "@/context/ConfirmProvider";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { SportThemeProvider } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { generateDraftPicks, generateFutureDraftPicks } from "@/lib/draft";
@@ -76,6 +79,7 @@ import { logger } from "@/utils/logger";
 import { containsBlockedContent } from "@/utils/moderation";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { ms, s } from "@/utils/scale";
+import { getSportModule } from "@/utils/sports/registry";
 
 // --- Reducer ---
 
@@ -84,6 +88,7 @@ type Action =
   | { type: "SET_ROSTER_SLOT"; index: number; count: number }
   | { type: "SET_SCORING"; index: number; value: number }
   | { type: "RESET_SCORING" }
+  | { type: "SET_SCORING_PRESET"; key: string }
   | { type: "RESET_ROSTER" }
   | { type: "SET_SCORING_TYPE"; value: ScoringTypeOption }
   | { type: "SET_CATEGORY_ENABLED"; index: number; enabled: boolean }
@@ -308,7 +313,8 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       // PG/SG/SF/PF), and recompute week boundaries from the new season's
       // start date. Position limits reset because the keys differ per sport.
       if (action.field === 'sport') {
-        const newSport = action.value as 'nba' | 'wnba';
+        const newSport = action.value as 'nba' | 'wnba' | 'nfl';
+        const newModule = getSportModule(newSport);
         // Snap to the sport's currently-creatable season (current or next,
         // per the calendar gate), falling through to the bare current
         // season for the dev-bypass case where it's calendar-closed.
@@ -355,6 +361,15 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
           tradeDeadlineWeek,
           rosterSlots: getDefaultRosterSlots(newSport),
           positionLimits: {},
+          // Scoring stat names differ per sport (PTS/REB vs PASS_YD/REC), so a
+          // sport switch swaps the whole scoring sheet for the new sport's
+          // default (NFL = Half-PPR preset). Categories are basketball-only:
+          // force Points scoring for sports without them. NFL locks default to
+          // per-player ("individual") — games are weekly, a daily lock is
+          // meaningless.
+          scoring: newModule.defaultScoring.map((s) => ({ ...s })),
+          scoringType: (newModule.supportsCategories ? next.scoringType : 'Points') as ScoringTypeOption,
+          playerLockType: (newSport === 'nfl' ? 'Individual' : 'Daily') as LeagueWizardState['playerLockType'],
         });
         return { ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) };
       }
@@ -374,7 +389,17 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
       return { ...state, scoring };
     }
     case "RESET_SCORING":
-      return { ...state, scoring: DEFAULT_SCORING.map((s) => ({ ...s })) };
+      return {
+        ...state,
+        scoring: getSportModule(state.sport).defaultScoring.map((s) => ({ ...s })),
+      };
+    case "SET_SCORING_PRESET": {
+      // NFL Standard / Half-PPR / Full-PPR presets from the registry. No-op
+      // for sports without presets.
+      const preset = getSportModule(state.sport).scoringPresets?.[action.key];
+      if (!preset) return state;
+      return { ...state, scoring: preset.map((s) => ({ ...s })) };
+    }
     case "RESET_ROSTER":
       return {
         ...state,
@@ -401,6 +426,7 @@ export default function CreateLeague() {
   const router = useRouter();
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
+  const { isDesktop } = useBreakpoint();
   const confirm = useConfirm();
 
   const session = useSession();
@@ -438,8 +464,11 @@ export default function CreateLeague() {
       return;
     }
 
-    // Selected sport gated — try the others in order.
+    // Selected sport gated — try the others in order. Never auto-pick NFL:
+    // its tile is admin-gated (useIsAdmin), so landing on it silently would
+    // strand non-admins on a sport they can't see or create.
     for (const label of SPORT_OPTIONS) {
+      if (label === 'NFL') continue;
       const candidate: Sport = SPORT_TO_DB[label];
       if (candidate === state.sport) continue;
       const status = getCreationStatus(candidate, today, { bypassOpenDate });
@@ -681,10 +710,11 @@ export default function CreateLeague() {
 
     if (leagueError) {
       logger.error('Create league insert failed', leagueError);
-      // Per-user cap trigger and other constraint violations surface
-      // human-readable messages — show them rather than swallowing into a
-      // generic alert.
-      const friendly = (leagueError as any).code === '23514' || /maximum of \d+ leagues/i.test(leagueError.message)
+      // Per-user cap trigger, the NFL admin gate (P0001 RAISE), and other
+      // constraint violations surface human-readable messages — show them
+      // rather than swallowing into a generic alert.
+      const code = (leagueError as any).code;
+      const friendly = code === '23514' || code === 'P0001' || /maximum of \d+ leagues/i.test(leagueError.message)
         ? leagueError.message
         : 'Failed to create league.';
       Alert.alert(friendly);
@@ -840,6 +870,106 @@ export default function CreateLeague() {
     });
   };
 
+  // Step content is identical on phone + desktop — only the chrome around it
+  // differs (mobile: horizontal dots + scroll; desktop: WizardShell rail). Define
+  // it once so the two branches can't drift.
+  const stepNode = (
+    <>
+      {step === 0 && <StepBasics state={state} onChange={handleChange} />}
+      {step === 1 && (
+        <StepRoster
+          state={state}
+          onSlotChange={(i, count) =>
+            dispatch({ type: "SET_ROSTER_SLOT", index: i, count })
+          }
+          onChange={handleChange}
+          onResetRoster={() => dispatch({ type: "RESET_ROSTER" })}
+        />
+      )}
+      {step === 2 && (
+        <StepScoring
+          state={state}
+          onScoringChange={(i, v) =>
+            dispatch({ type: "SET_SCORING", index: i, value: v })
+          }
+          onResetScoring={() => dispatch({ type: "RESET_SCORING" })}
+          onScoringTypeChange={(v) =>
+            dispatch({ type: "SET_SCORING_TYPE", value: v })
+          }
+          onCategoryToggle={(i, enabled) =>
+            dispatch({ type: "SET_CATEGORY_ENABLED", index: i, enabled })
+          }
+          onResetCategories={() => dispatch({ type: "RESET_CATEGORIES" })}
+          onScoringPreset={(key) => dispatch({ type: "SET_SCORING_PRESET", key })}
+        />
+      )}
+      {step === 3 && <StepWaivers state={state} onChange={handleChange} />}
+      {step === 4 && <StepSeason state={state} onChange={handleChange} />}
+      {step === 5 && <StepTrade state={state} onChange={handleChange} />}
+      {step === 6 && <StepDraft state={state} onChange={handleChange} />}
+      {step === 7 && (
+        <StepReview
+          state={state}
+          onSubmit={handleCreateLeague}
+          onBack={() => setStep((s) => s - 1)}
+          loading={loading}
+          onEdit={(section) =>
+            setStep(
+              { basics: 0, roster: 1, scoring: 2, waivers: 3, season: 4, trade: 5, draft: 6 }[section],
+            )
+          }
+        />
+      )}
+    </>
+  );
+
+  const navNode =
+    step < TOTAL_STEPS - 1 ? (
+      <View style={styles.navRow}>
+        {step > 0 ? (
+          <BrandButton
+            label="Back"
+            onPress={() => setStep((s) => s - 1)}
+            variant="secondary"
+            size="default"
+          />
+        ) : (
+          <View />
+        )}
+        <BrandButton
+          label="Next"
+          onPress={() => setStep((s) => s + 1)}
+          variant="primary"
+          size="default"
+          disabled={!canAdvance}
+          accessibilityLabel={`Next, step ${step + 2} of ${TOTAL_STEPS}`}
+        />
+      </View>
+    ) : null;
+
+  // Desktop web: persistent vertical step rail + framed content column. Reuses
+  // the same step components; only the chrome differs.
+  if (isDesktop) {
+    return (
+      <SportThemeProvider sport={state.sport}>
+        <WizardShell
+          title="Create League"
+          subtitle="Configure your league, step by step."
+          steps={STEP_LABELS}
+          currentStep={step}
+          onCancel={handleCancel}
+          onStepPress={(i) => {
+            if (i < step) setStep(i);
+          }}
+          aside={<WizardSummary state={state} />}
+          footer={navNode}
+        >
+          {stepNode}
+        </WizardShell>
+      </SportThemeProvider>
+    );
+  }
+
   return (
     // Override the active-league sport so the wizard's primary chrome
     // (Next/Create buttons via BrandButton, StepScoring category chips)
@@ -875,50 +1005,7 @@ export default function CreateLeague() {
         onLayout={handleLayout}
         onContentSizeChange={handleContentSizeChange}
       >
-        {step === 0 && <StepBasics state={state} onChange={handleChange} />}
-        {step === 1 && (
-          <StepRoster
-            state={state}
-            onSlotChange={(i, count) =>
-              dispatch({ type: "SET_ROSTER_SLOT", index: i, count })
-            }
-            onChange={handleChange}
-            onResetRoster={() => dispatch({ type: "RESET_ROSTER" })}
-          />
-        )}
-        {step === 2 && (
-          <StepScoring
-            state={state}
-            onScoringChange={(i, v) =>
-              dispatch({ type: "SET_SCORING", index: i, value: v })
-            }
-            onResetScoring={() => dispatch({ type: "RESET_SCORING" })}
-            onScoringTypeChange={(v) =>
-              dispatch({ type: "SET_SCORING_TYPE", value: v })
-            }
-            onCategoryToggle={(i, enabled) =>
-              dispatch({ type: "SET_CATEGORY_ENABLED", index: i, enabled })
-            }
-            onResetCategories={() => dispatch({ type: "RESET_CATEGORIES" })}
-          />
-        )}
-        {step === 3 && <StepWaivers state={state} onChange={handleChange} />}
-        {step === 4 && <StepSeason state={state} onChange={handleChange} />}
-        {step === 5 && <StepTrade state={state} onChange={handleChange} />}
-        {step === 6 && <StepDraft state={state} onChange={handleChange} />}
-        {step === 7 && (
-          <StepReview
-            state={state}
-            onSubmit={handleCreateLeague}
-            onBack={() => setStep((s) => s - 1)}
-            loading={loading}
-            onEdit={(section) =>
-              setStep(
-                { basics: 0, roster: 1, scoring: 2, waivers: 3, season: 4, trade: 5, draft: 6 }[section],
-              )
-            }
-          />
-        )}
+        {stepNode}
       </ScrollView>
       {/* Scroll hint overlays the ScrollView's bottom edge so it
           always sits right against the visible content boundary —
@@ -940,28 +1027,7 @@ export default function CreateLeague() {
       </View>
       </KeyboardAvoidingView>
 
-      {step < TOTAL_STEPS - 1 && (
-        <View style={styles.navRow}>
-          {step > 0 ? (
-            <BrandButton
-              label="Back"
-              onPress={() => setStep((s) => s - 1)}
-              variant="secondary"
-              size="default"
-            />
-          ) : (
-            <View />
-          )}
-          <BrandButton
-            label="Next"
-            onPress={() => setStep((s) => s + 1)}
-            variant="primary"
-            size="default"
-            disabled={!canAdvance}
-            accessibilityLabel={`Next, step ${step + 2} of ${TOTAL_STEPS}`}
-          />
-        </View>
-      )}
+      {navNode}
     </ThemedView>
     </SportThemeProvider>
   );

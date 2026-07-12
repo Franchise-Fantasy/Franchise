@@ -34,6 +34,7 @@ export function useProspect(id: string | undefined, idType: 'contentful' | 'play
 
       // Fill in the player UUID
       if (idType === 'contentful') {
+        // sport-scope: contentful_entry_id is a unique key (NBA prospect pipeline)
         const { data } = await supabase
           .from('players')
           .select('id')

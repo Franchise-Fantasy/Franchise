@@ -1157,7 +1157,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   }) => {
     const fpts =
       scoringWeights && !isCategories
-        ? calculateAvgFantasyPoints(item, scoringWeights)
+        ? calculateAvgFantasyPoints(item, scoringWeights, sport)
         : undefined;
     const needsClaim = isOnWaivers(item.player_id, waiverType, waiverPlayerMap);
     const waiverLabel = needsClaim
@@ -1172,7 +1172,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       projectionsActive && gameToday ? projections?.get(item.player_id) : null;
     const projFpts =
       projRow && scoringWeights
-        ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights)
+        ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights, sport)
         : null;
     const owner = ownershipMap?.get(item.player_id) ?? null;
     // Only offer a trade when another team owns the player — never for the

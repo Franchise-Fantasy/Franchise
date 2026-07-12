@@ -5,6 +5,7 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
+import { SheetRow, useFormSheet } from './formSheet';
 import { ThemedText } from './ThemedText';
 
 type Props = {
@@ -23,10 +24,22 @@ type Props = {
  * carry its own built-in label (`SegmentedControl`, custom toggles,
  * date pickers, etc.). Drop-in companion to `BrandTextInput` — same
  * label treatment, tight spacing between label and control.
+ *
+ * Inside a desktop charter sheet it becomes a ruled gutter row instead
+ * (label left, control right). Native and non-sheet usage are unchanged.
  */
 export function FieldGroup({ label, helperText, style, children }: Props) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const inSheet = useFormSheet();
+
+  if (inSheet) {
+    return (
+      <SheetRow label={label} helper={helperText}>
+        {children}
+      </SheetRow>
+    );
+  }
 
   return (
     <View style={[styles.wrap, style]}>

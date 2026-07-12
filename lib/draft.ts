@@ -1,6 +1,75 @@
 import { formatSeason, type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
 
+export type BuiltPick = {
+  season: string;
+  round: number;
+  slot_number: number;
+  pick_number?: number;
+};
+
+/**
+ * Pure: lay out an initial draft's picks. Snake rounds reverse the slot order,
+ * so slot 1 picks last in round 2. No DB access — the caller decides whether to
+ * insert them or hand them to `replace_draft_picks`.
+ */
+export function buildDraftPicks(
+  numberOfTeams: number,
+  roundsCount: number,
+  season: string,
+  draftType: 'snake' | 'linear' = 'snake',
+): BuiltPick[] {
+  const picks: BuiltPick[] = [];
+
+  for (let round = 1; round <= roundsCount; round++) {
+    const isSnakeReverse = draftType === 'snake' && round % 2 === 0;
+
+    for (let slot = 1; slot <= numberOfTeams; slot++) {
+      picks.push({
+        season,
+        round,
+        slot_number: slot,
+        pick_number:
+          (round - 1) * numberOfTeams +
+          (isSnakeReverse ? numberOfTeams - slot + 1 : slot),
+      });
+    }
+  }
+
+  return picks;
+}
+
+/**
+ * Pure: lay out placeholder picks for each future season. These carry no
+ * draft_id (the draft doesn't exist yet) and no pick_number — ownership and
+ * ordering are assigned later.
+ *
+ * `sport` is required so the season string matches the rest of the app (NBA
+ * two-year "2027-28" vs WNBA single-year "2027"). Without it, WNBA picks were
+ * stored in NBA format and silently filtered out by every consumer.
+ */
+export function buildFutureDraftPicks(
+  numberOfTeams: number,
+  roundsCount: number,
+  currentSeason: string,
+  maxFutureSeasons: number,
+  sport: Sport,
+): BuiltPick[] {
+  const startYear = parseInt(currentSeason.split('-')[0], 10);
+  const picks: BuiltPick[] = [];
+
+  for (let offset = 1; offset <= maxFutureSeasons; offset++) {
+    const season = formatSeason(startYear + offset, sport);
+    for (let round = 1; round <= roundsCount; round++) {
+      for (let slot = 1; slot <= numberOfTeams; slot++) {
+        picks.push({ season, round, slot_number: slot });
+      }
+    }
+  }
+
+  return picks;
+}
+
 export async function generateDraftPicks(
   draftId: string,
   numberOfTeams: number,
@@ -9,57 +78,17 @@ export async function generateDraftPicks(
   leagueId: string,
   draftType: 'snake' | 'linear' = 'snake'
 ) {
-  const picks = [];
+  const picks = buildDraftPicks(numberOfTeams, roundsCount, season, draftType).map((p) => ({
+    ...p,
+    league_id: leagueId,
+    draft_id: draftId,
+  }));
 
-  for (let round = 1; round <= roundsCount; round++) {
-    const isSnakeReverse = draftType === 'snake' && round % 2 === 0;
-
-    if (isSnakeReverse) {
-      for (let slot = numberOfTeams; slot >= 1; slot--) {
-        picks.push({
-          league_id: leagueId,
-          draft_id: draftId,
-          season: season,
-          round: round,
-          pick_number: ((round - 1) * numberOfTeams) + (numberOfTeams - slot + 1),
-          slot_number: slot
-        });
-      }
-    } else {
-      for (let slot = 1; slot <= numberOfTeams; slot++) {
-        picks.push({
-          league_id: leagueId,
-          draft_id: draftId,
-          season: season,
-          round: round,
-          pick_number: ((round - 1) * numberOfTeams) + slot,
-          slot_number: slot
-        });
-      }
-    }
-  }
-
-  // Insert all picks in chunks
-  const chunkSize = 100;
-  for (let i = 0; i < picks.length; i += chunkSize) {
-    const chunk = picks.slice(i, i + chunkSize);
-    await supabase
-      .from('draft_picks')
-      .insert(chunk)
-      .throwOnError();
-  }
+  // One statement, so a draft never ends up with only some of its picks. The
+  // old chunked loop committed each 100-row batch separately.
+  await supabase.from('draft_picks').insert(picks).throwOnError();
 }
 
-/**
- * Generate placeholder draft_picks rows for future seasons.
- * These have no draft_id (the draft doesn't exist yet) and use slot_number
- * so that team ownership can be assigned later via assignDraftSlots.
- *
- * `sport` is required so the season string format matches the rest of the
- * app (NBA two-year "2027-28" vs WNBA single-year "2027"). Without it,
- * picks for WNBA leagues used to be stored as NBA-format and were silently
- * filtered out by every consumer (`useDraftHub`, `useTeamTradablePicks`).
- */
 export async function generateFutureDraftPicks(
   leagueId: string,
   numberOfTeams: number,
@@ -68,44 +97,15 @@ export async function generateFutureDraftPicks(
   maxFutureSeasons: number,
   sport: Sport,
 ) {
-  const startYear = parseInt(currentSeason.split('-')[0], 10);
-  const picks = [];
+  const picks = buildFutureDraftPicks(
+    numberOfTeams,
+    roundsCount,
+    currentSeason,
+    maxFutureSeasons,
+    sport,
+  ).map((p) => ({ ...p, league_id: leagueId }));
 
-  for (let offset = 1; offset <= maxFutureSeasons; offset++) {
-    const season = formatSeason(startYear + offset, sport);
-
-    for (let round = 1; round <= roundsCount; round++) {
-      for (let slot = 1; slot <= numberOfTeams; slot++) {
-        picks.push({
-          league_id: leagueId,
-          season,
-          round,
-          slot_number: slot,
-        });
-      }
-    }
-  }
-
-  const chunkSize = 100;
-  for (let i = 0; i < picks.length; i += chunkSize) {
-    const chunk = picks.slice(i, i + chunkSize);
-    await supabase.from('draft_picks').insert(chunk).throwOnError();
-  }
-}
-
-export async function assignDraftSlots(draftId: string, teamIds: string[]) {
-  // teamIds should already be shuffled by caller
-  // Assign each team to a slot number (1-N)
-  const updates = teamIds.map((teamId, index) => {
-    return supabase
-      .from('draft_picks')
-      .update({ current_team_id: teamId, original_team_id: teamId })
-      .eq('draft_id', draftId)
-      .eq('slot_number', index + 1);
-  });
-
-  // Execute all updates concurrently
-  await Promise.all(updates);
+  await supabase.from('draft_picks').insert(picks).throwOnError();
 }
 
 export async function checkAndAssignDraftSlots(leagueId: string) {
@@ -121,25 +121,58 @@ export async function checkAndAssignDraftSlots(leagueId: string) {
   if (error) throw error;
 }
 
-/** Assign team ownership to future-season picks (picks with no draft_id). */
-async function assignFutureSlots(leagueId: string, orderedTeamIds: string[]) {
-  const updates = orderedTeamIds.map((teamId, index) => {
-    return supabase
-      .from('draft_picks')
-      .update({ current_team_id: teamId, original_team_id: teamId })
-      .eq('league_id', leagueId)
-      .is('draft_id', null)
-      .eq('slot_number', index + 1);
-  });
-  await Promise.all(updates);
-}
-
-/** Commissioner manually sets the draft order via an ordered list of team IDs. */
+/**
+ * Commissioner manually sets the draft order via an ordered list of team IDs.
+ *
+ * A draft order is a permutation — half of one isn't "most of a draft order",
+ * it's a corrupt one (two teams on slot 3, nobody on slot 7). This used to be
+ * 2N independent UPDATEs fired through Promise.all, across the initial draft's
+ * picks and the future-season picks; now it's one transaction.
+ */
 export async function manuallyAssignDraftSlots(
   leagueId: string,
   draftId: string,
   orderedTeamIds: string[]
 ) {
-  await assignDraftSlots(draftId, orderedTeamIds);
-  await assignFutureSlots(leagueId, orderedTeamIds);
+  const { error } = await supabase.rpc('assign_draft_slots_manual', {
+    p_league_id: leagueId,
+    p_draft_id: draftId,
+    p_team_ids: orderedTeamIds,
+  });
+  if (error) throw error;
+}
+
+/**
+ * Commissioner-only: re-order an imported dynasty league's UPCOMING rookie
+ * draft, before it's been created (the seeded picks still have no draft_id).
+ * Fixes a wrong reverse-standings / lottery order that was entered during the
+ * import.
+ *
+ * The order is defined by `original_team_id` → `slot_number`. A pick that was
+ * traded keeps its `current_team_id` (the new owner) and simply travels to its
+ * original team's new slot, so trades survive the reorder. The same order is
+ * applied to every round with linear pick numbering, matching the import seed
+ * (`buildSeasonPicks`); the snake reversal, if any, happens at draft time.
+ *
+ * `create-rookie-draft` links these picks to the draft without recomputing
+ * slot/pick numbers (except from staged lottery assignments, which don't exist
+ * for reverse-record / lottery-done imports), so the new order sticks.
+ *
+ * One transaction. This used to fetch every pick and fire a chunked
+ * Promise.all of per-pick UPDATEs — a failed chunk left the early rounds on the
+ * new order and the rest on the old one.
+ */
+export async function reorderRookieDraftPicks(
+  leagueId: string,
+  season: string,
+  orderedOriginalTeamIds: string[],
+) {
+  if (orderedOriginalTeamIds.length === 0) return;
+
+  const { error } = await supabase.rpc('reorder_rookie_draft_picks', {
+    p_league_id: leagueId,
+    p_season: season,
+    p_team_ids: orderedOriginalTeamIds,
+  });
+  if (error) throw error;
 }

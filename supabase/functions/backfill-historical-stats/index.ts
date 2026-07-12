@@ -5,6 +5,10 @@
  *   NBA  → BDL /v1/season_averages         (ALL-STAR tier — what we have)
  *   WNBA → stats.wnba.com playercareerstats (free, browser-impersonated;
  *          BDL only exposes per-game/season WNBA stats on GOAT tier $40/mo)
+ *   NFL  → BDL /nfl/v1/season_stats        (ALL-STAR tier). Regular-season
+ *          rows only. Writes the total_* NFL columns; kicker XP totals stay
+ *          null (season_stats has no extra-points field) and D/ST units are
+ *          skipped (no season_stats for synthetic defenses).
  *
  * stats.wnba.com mirrors stats.nba.com — same `commonallplayers` /
  * `playercareerstats` endpoints with `LeagueID=10`, same browser-spoofed
@@ -33,8 +37,8 @@ import { parseBody, z } from "../_shared/validate.ts";
 import type { Database } from "../../../types/database.types.ts";
 
 const Body = z.object({
-  sport: z.enum(['nba', 'wnba']),
-  season: z.string().min(1, "season required (e.g. '2025' WNBA, '2024-25' NBA)"),
+  sport: z.enum(['nba', 'wnba', 'nfl']),
+  season: z.string().min(1, "season required (e.g. '2025' WNBA/NFL, '2024-25' NBA)"),
   offset: z.number().int().nonnegative().optional(),
   limit: z.number().int().min(1).max(200).optional(),
 });
@@ -47,6 +51,11 @@ const supabase = createClient<Database>(
 const ID_CHUNK = 25; // BDL season_averages player_ids[] chunk size
 const WNBA_CONCURRENCY = 8;
 const WNBA_DEFAULT_LIMIT = 20;
+// NFL ALL-STAR tier is 60 req/min (NBA's key is GOAT at 600/min), so NFL
+// chunks are spaced ~1.1s apart and the player set is paged per invocation
+// (offset/limit, same mechanism as WNBA). 200 players = 8 BDL calls ≈ 10s.
+const NFL_DEFAULT_LIMIT = 200;
+const NFL_CHUNK_SPACING_MS = 1100;
 
 type Row = Database["public"]["Tables"]["player_historical_stats"]["Insert"];
 type PlayerMeta = { uuid: string; pro_team: string | null; nba_id: string | null };
@@ -256,6 +265,74 @@ async function backfillNba(
   return { rows, matched, missing: ids.length - matched, errors: 0 };
 }
 
+async function backfillNfl(
+  players: { id: string; external_id_bdl: number | null; pro_team: string | null }[],
+  season: string,
+  seasonYear: number,
+): Promise<{ rows: Row[]; matched: number; missing: number; errors: number }> {
+  const idToMeta = new Map<number, PlayerMeta>();
+  for (const p of players) {
+    if (p.external_id_bdl != null) {
+      idToMeta.set(Number(p.external_id_bdl), {
+        uuid: p.id, pro_team: p.pro_team, nba_id: null,
+      });
+    }
+  }
+  const ids = [...idToMeta.keys()];
+  const toInt = (v: unknown): number => {
+    const n = Number(v);
+    return Number.isFinite(n) ? Math.round(n) : 0;
+  };
+
+  const rows: Row[] = [];
+  let matched = 0;
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    if (i > 0) await new Promise((r) => setTimeout(r, NFL_CHUNK_SPACING_MS));
+    const chunk = ids.slice(i, i + ID_CHUNK);
+    const qs = new URLSearchParams();
+    qs.set("season", String(seasonYear));
+    qs.set("postseason", "false");
+    for (const id of chunk) qs.append("player_ids[]", String(id));
+    const data = await bdlFetch("nfl", `/season_stats?${qs.toString()}`) as { data?: any[] };
+    for (const s of data?.data ?? []) {
+      if (s.postseason) continue; // defensive — regular season only
+      const meta = idToMeta.get(Number(s.player?.id));
+      if (!meta) continue;
+      const gp = Number(s.games_played ?? 0);
+      if (!gp) continue;
+
+      rows.push({
+        player_id: meta.uuid,
+        season,
+        sport: "nfl",
+        games_played: gp,
+        total_pass_att: toInt(s.passing_attempts),
+        total_pass_cmp: toInt(s.passing_completions),
+        total_pass_yd: toInt(s.passing_yards),
+        total_pass_td: toInt(s.passing_touchdowns),
+        total_pass_int: toInt(s.passing_interceptions),
+        total_rush_att: toInt(s.rushing_attempts),
+        total_rush_yd: toInt(s.rushing_yards),
+        total_rush_td: toInt(s.rushing_touchdowns),
+        total_rec: toInt(s.receptions),
+        total_targets: toInt(s.receiving_targets),
+        total_rec_yd: toInt(s.receiving_yards),
+        total_rec_td: toInt(s.receiving_touchdowns),
+        // season_stats splits fumbles by phase; QB strip-sacks land under
+        // rushing_fumbles_lost.
+        total_fum_lost: toInt(s.rushing_fumbles_lost) + toInt(s.receiving_fumbles_lost),
+        total_ret_td: toInt(s.kick_return_touchdowns) + toInt(s.punt_return_touchdowns),
+        total_fg_made: toInt(s.field_goals_made),
+        total_fg_att: toInt(s.field_goal_attempts),
+        // total_xp_made intentionally omitted — no XP field in season_stats.
+        pro_team: meta.pro_team,
+      });
+      matched++;
+    }
+  }
+  return { rows, matched, missing: ids.length - matched, errors: 0 };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: CORS_HEADERS });
@@ -272,7 +349,7 @@ Deno.serve(async (req: Request) => {
     const sport: Sport = parsed.sport;
     const season: string = parsed.season;
     const offset = parsed.offset ?? 0;
-    const limit = parsed.limit ?? WNBA_DEFAULT_LIMIT;
+    const limit = parsed.limit ?? (sport === "nfl" ? NFL_DEFAULT_LIMIT : WNBA_DEFAULT_LIMIT);
 
     const seasonYear = parseInt(season.split("-")[0], 10);
     if (!seasonYear) {
@@ -289,7 +366,7 @@ Deno.serve(async (req: Request) => {
       .not(idColumn, "is", null)
       .order("id", { ascending: true });
 
-    if (sport === "wnba") {
+    if (sport === "wnba" || sport === "nfl") {
       query = query.range(offset, offset + limit - 1);
     }
 
@@ -304,12 +381,15 @@ Deno.serve(async (req: Request) => {
 
     const result = sport === "wnba"
       ? await backfillWnba(players, season)
-      : { ...await backfillNba(players, season, seasonYear), errorSamples: [] as string[] };
+      : sport === "nfl"
+        ? { ...await backfillNfl(players, season, seasonYear), errorSamples: [] as string[] }
+        : { ...await backfillNba(players, season, seasonYear), errorSamples: [] as string[] };
 
     let upserted = 0;
     const BATCH = 500;
     for (let i = 0; i < result.rows.length; i += BATCH) {
       const chunk = result.rows.slice(i, i + BATCH);
+      // sport-scope: payload rows carry sport; conflict key is player-scoped
       const { error } = await supabase
         .from("player_historical_stats")
         .upsert(chunk, { onConflict: "player_id,season" });

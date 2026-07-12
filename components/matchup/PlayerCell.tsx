@@ -28,6 +28,7 @@ import { formatGameTime, ScheduleEntry } from "@/utils/nba/nbaSchedule";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { calculateGameFantasyPoints, formatScore } from "@/utils/scoring/fantasyPoints";
+import { nflStatFields, nflStatLine } from "@/utils/scoring/nflStatLine";
 
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -65,13 +66,16 @@ export function round1(n: number) {
 }
 
 // Build a stat line string for a live/historical stat object.
-// Always shows all three categories (including zeros, e.g. "0R") so the line
-// keeps a stable shape, but stays compact — single-space separated, no digit
-// padding — so it reads cleanly and never grows wide enough to truncate.
+// Basketball always shows all three categories (including zeros, e.g. "0R")
+// so the line keeps a stable shape, but stays compact — single-space
+// separated, no digit padding. NFL lines are position-shaped ("18/27 245Y
+// 2TD" for a QB, "5REC 87Y 1TD" for a receiver) via the shared formatter.
 export function buildStatLine(
   stats: Record<string, number>,
   _scoring: ScoringWeight[],
+  sport?: string | null,
 ): string {
+  if (sport === "nfl") return nflStatLine(stats);
   const fields: [string, string][] = [
     ["pts", "P"],
     ["reb", "R"],
@@ -442,8 +446,9 @@ export const PlayerCell = React.memo(function PlayerCell({
 
   // ── Today/Past with live stats ────────────────────────────────────────────
   if (liveStats && (mode === "today" || mode === "past")) {
+    const liveLog = liveToGameLog(liveStats, sport);
     const liveFp = round1(
-      calculateGameFantasyPoints(liveToGameLog(liveStats) as any, scoring),
+      calculateGameFantasyPoints(liveLog as any, scoring, sport),
     );
     const isLive = liveStats.game_status === 2;
     const hasStarted = liveStats.game_status !== 1;
@@ -528,9 +533,15 @@ export const PlayerCell = React.memo(function PlayerCell({
           {hasStarted ? (
             <View style={[pStyles.statsRow, { flexDirection: rowDir }, centerPad]}>
               <StatBlocks
-                stats={liveToGameLog(liveStats) as Record<string, number | boolean>}
+                stats={liveLog as Record<string, number | boolean>}
                 color={c.secondaryText}
-                fields={isCategories ? CAT_STAT_FIELDS : STAT_FIELDS}
+                fields={
+                  sport === "nfl"
+                    ? nflStatFields(liveLog as Record<string, unknown>)
+                    : isCategories
+                      ? CAT_STAT_FIELDS
+                      : STAT_FIELDS
+                }
               />
               {!isCategories && (
                 <View
@@ -541,7 +552,7 @@ export const PlayerCell = React.memo(function PlayerCell({
                 >
                   {renderFpts(
                     liveFp,
-                    liveToGameLog(liveStats) as Record<string, number | boolean>,
+                    liveLog as Record<string, number | boolean>,
                     liveStats.matchup ?? "",
                   )}
                 </View>
@@ -649,7 +660,13 @@ export const PlayerCell = React.memo(function PlayerCell({
             <StatBlocks
               stats={player.dayGameStats}
               color={c.secondaryText}
-              fields={isCategories ? CAT_STAT_FIELDS : STAT_FIELDS}
+              fields={
+                sport === "nfl"
+                  ? nflStatFields(player.dayGameStats ?? {})
+                  : isCategories
+                    ? CAT_STAT_FIELDS
+                    : STAT_FIELDS
+              }
             />
             {!isCategories && (
               <View

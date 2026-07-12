@@ -51,7 +51,11 @@ interface PointsStrengthAnalyticsProps {
   weights: ScoringWeight[] | undefined;
   scoringType: string | undefined;
   prevSeasonFptsMap?: Map<string, number>;
+  /** The team being charted — any team in the league, via the analytics TeamRail. */
   teamId: string;
+  /** The signed-in user's team. Only PlayerDetailModal reads it, so its add/drop
+   *  actions stay pointed at the user's own roster while another team is charted. */
+  myTeamId: string;
   leagueId: string;
   sport: Sport;
 }
@@ -84,6 +88,7 @@ export function PointsStrengthAnalytics({
   scoringType,
   prevSeasonFptsMap,
   teamId,
+  myTeamId,
   leagueId,
   sport,
 }: PointsStrengthAnalyticsProps) {
@@ -236,16 +241,16 @@ export function PointsStrengthAnalytics({
     const sorted = [...comparison.allProfiles].sort((a, b) => valueOf(b) - valueOf(a));
     const leagueAvg =
       Math.round((sorted.reduce((sum, p) => sum + valueOf(p), 0) / sorted.length) * 10) / 10;
-    const myProfile = sorted.find((p) => p.teamId === teamId) ?? sorted[0];
-    const myValue = valueOf(myProfile);
-    const myRank = sorted.findIndex((p) => p.teamId === teamId) + 1;
+    const teamProfile = sorted.find((p) => p.teamId === teamId) ?? sorted[0];
+    const teamValue = valueOf(teamProfile);
+    const teamRank = sorted.findIndex((p) => p.teamId === teamId) + 1;
     // Bar scale — the strongest roster fills the track; the league-average
     // marker sits proportionally within it.
     const maxValue = Math.max(...sorted.map(valueOf), leagueAvg, 1);
-    return { valueOf, sorted, leagueAvg, myValue, myRank, maxValue };
+    return { valueOf, sorted, leagueAvg, teamValue, teamRank, maxValue };
   }, [comparison, isTotal, teamId]);
 
-  const vsAvg = metricView ? metricView.myValue - metricView.leagueAvg : 0;
+  const vsAvg = metricView ? metricView.teamValue - metricView.leagueAvg : 0;
   const metricLabel = isTotal ? 'PTS/DAY VS AVG' : 'FPTS/G VS AVG';
 
   // Only surface the "IR/taxi excluded" caption when the league actually has
@@ -319,13 +324,13 @@ export function PointsStrengthAnalytics({
           <View style={styles.columnsRow}>
             <View
               style={styles.column}
-              accessibilityLabel={`Ranked ${metricView.myRank}${ordinalSuffix(metricView.myRank)} of ${comparison.totalTeams} teams by ${isTotal ? "total points per day" : "roster strength"}`}
+              accessibilityLabel={`Ranked ${metricView.teamRank}${ordinalSuffix(metricView.teamRank)} of ${comparison.totalTeams} teams by ${isTotal ? "total points per day" : "roster strength"}`}
             >
               <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
                 LEAGUE RANK
               </ThemedText>
               <ThemedText type="display" style={[styles.columnBig, { color: c.text }]} numberOfLines={1}>
-                {`${metricView.myRank}${ordinalSuffix(metricView.myRank)}`}
+                {`${metricView.teamRank}${ordinalSuffix(metricView.teamRank)}`}
               </ThemedText>
               <ThemedText type="varsitySmall" style={[styles.columnSub, { color: c.secondaryText }]}>
                 {`OF ${comparison.totalTeams}`}
@@ -379,7 +384,11 @@ export function PointsStrengthAnalytics({
           </ThemedText>
           {metricView.sorted.map((p, idx) => {
             const team = teamById.get(p.teamId);
-            const isMe = p.teamId === teamId;
+            // Highlight follows the charted team (which the rail can repoint at
+            // anyone); the "your team" callout stays pinned to the real one, so
+            // a screen reader can still find the user's row from any vantage.
+            const isViewed = p.teamId === teamId;
+            const isMine = p.teamId === myTeamId;
             const rank = idx + 1;
             const name = team?.name ?? "—";
             const value = metricView.valueOf(p);
@@ -390,8 +399,8 @@ export function PointsStrengthAnalytics({
                 key={p.teamId}
                 index={idx}
                 total={comparison.allProfiles.length}
-                isActive={isMe}
-                accessibilityLabel={`${rank}${ordinalSuffix(rank)}, ${name}${isMe ? " (your team)" : ""}, ${value.toFixed(1)} ${isTotal ? "total fantasy points per day" : "fantasy points per game per player"}`}
+                isActive={isViewed}
+                accessibilityLabel={`${rank}${ordinalSuffix(rank)}, ${name}${isMine ? " (your team)" : ""}, ${value.toFixed(1)} ${isTotal ? "total fantasy points per day" : "fantasy points per game per player"}`}
                 style={styles.lbRow}
               >
                 <ThemedText type="mono" style={[styles.lbRank, { color: c.secondaryText }]}>
@@ -406,7 +415,7 @@ export function PointsStrengthAnalytics({
                   />
                 </View>
                 <ThemedText
-                  style={[styles.lbName, { color: c.text, fontWeight: isMe ? "700" : "500" }]}
+                  style={[styles.lbName, { color: c.text, fontWeight: isViewed ? "700" : "500" }]}
                   numberOfLines={1}
                   ellipsizeMode="tail"
                 >
@@ -416,7 +425,7 @@ export function PointsStrengthAnalytics({
                   <View
                     style={[
                       styles.lbBarFill,
-                      { width: `${fillPct}%`, backgroundColor: isMe ? c.primary : c.gold },
+                      { width: `${fillPct}%`, backgroundColor: isViewed ? c.primary : c.gold },
                     ]}
                   />
                   <View style={[styles.lbAvgMarker, { left: `${avgPct}%`, borderColor: c.secondaryText }]} />

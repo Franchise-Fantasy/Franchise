@@ -912,7 +912,7 @@ export default function MatchupScreen() {
         if (!live) return sum;
         return (
           sum +
-          calculateGameFantasyPoints(liveToGameLog(live) as any, scoring ?? [])
+          calculateGameFantasyPoints(liveToGameLog(live, sport) as any, scoring ?? [], sport)
         );
       }, 0),
     );

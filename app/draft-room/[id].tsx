@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert, FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { LeagueChatPanel } from '@/components/chat/LeagueChatPanel';
 import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
 import { PresenceListSheet, type PresenceEntry } from '@/components/chat/PresenceListSheet';
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
@@ -82,12 +83,32 @@ function ToggleTab({
   );
 }
 
+/** Label-over-value stat in the desktop header's center meta cluster. */
+function DeskMetaItem({
+  label,
+  value,
+  colors,
+}: {
+  label: string;
+  value: string;
+  colors: typeof Colors.light;
+}) {
+  return (
+    <View style={styles.deskMetaItem} accessibilityLabel={`${label} ${value}`}>
+      <ThemedText type="varsitySmall" style={[styles.deskMetaLabel, { color: colors.secondaryText }]}>
+        {label}
+      </ThemedText>
+      <ThemedText style={[styles.deskMetaValue, { color: colors.text }]}>{value}</ThemedText>
+    </View>
+  );
+}
+
 
 
 export default function DraftRoomScreen() {
   const confirm = useConfirm();
   const colors = useColors();
-  const { isDesktop } = useBreakpoint();
+  const { isDesktop, isWide } = useBreakpoint();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const { id: draftId } = useLocalSearchParams<{ id: string }>();
@@ -358,6 +379,11 @@ export default function DraftRoomScreen() {
   const rightMode: Exclude<ViewMode, 'players'> =
     viewMode === 'players' ? 'queue' : viewMode;
 
+  // A draft is a running conversation, so on a wide monitor the chat is a
+  // permanent third rail rather than a button that hides it. Under 1440px there
+  // isn't room for three columns, so it falls back to the header icon + sheet.
+  const showChatRail = isWide && !!draftData?.league_id && !!teamData?.id;
+
   // Trades panel — shared by the mobile "Trades" tab and the desktop right rail.
   const tradesPanel = (
     <View style={{ flex: 1 }}>
@@ -454,6 +480,31 @@ export default function DraftRoomScreen() {
                   : (isRookieDraft ? 'Rookie Draft' : 'Draft Room')}
               </ThemedText>
             </View>
+            {/* Center: the draft's shape — round, overall pick, clock length.
+                On a phone this bar is full at 390px, so none of it fits; on a
+                monitor the middle is dead space, and this is the context you'd
+                otherwise have to open commissioner settings to see. */}
+            {draftState && !isDraftComplete && (
+              <View style={styles.deskMeta}>
+                <DeskMetaItem
+                  label="Round"
+                  value={`${Math.min(
+                    Math.floor((draftState.current_pick_number - 1) / draftState.picks_per_round) + 1,
+                    draftState.rounds,
+                  )} / ${draftState.rounds}`}
+                  colors={colors}
+                />
+                <View style={[styles.deskMetaRule, { backgroundColor: colors.border }]} />
+                <DeskMetaItem
+                  label="Pick"
+                  value={`${draftState.current_pick_number} / ${draftState.rounds * draftState.picks_per_round}`}
+                  colors={colors}
+                />
+                <View style={[styles.deskMetaRule, { backgroundColor: colors.border }]} />
+                <DeskMetaItem label="Clock" value={`${draftState.time_limit}s`} colors={colors} />
+              </View>
+            )}
+
             {/* Right: who's here (avatars + count) → autopick toggle → commish →
                 chat, in that priority order. */}
             <View style={styles.deskHeaderRight}>
@@ -512,7 +563,7 @@ export default function DraftRoomScreen() {
                   <Ionicons name="settings-outline" size={20} color={colors.icon} />
                 </TouchableOpacity>
               )}
-              {teamData && (
+              {teamData && !showChatRail && (
                 <TouchableOpacity
                   onPress={() => setShowChat(true)}
                   accessibilityRole="button"
@@ -715,6 +766,26 @@ export default function DraftRoomScreen() {
                 )}
               </View>
             </View>
+            {showChatRail && (
+              <View style={[styles.deskChat, { borderLeftColor: colors.border }]}>
+                <View style={[styles.deskChatHeader, { borderBottomColor: colors.border }]}>
+                  <View style={[styles.deskChatRule, { backgroundColor: colors.gold }]} />
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[styles.deskChatTitle, { color: colors.secondaryText }]}
+                    accessibilityRole="header"
+                  >
+                    League Chat
+                  </ThemedText>
+                </View>
+                <LeagueChatPanel
+                  leagueId={draftData?.league_id || ''}
+                  teamId={teamData?.id || ''}
+                  teamName={teamData?.name || ''}
+                  isCommissioner={teamData?.isCommissioner ?? false}
+                />
+              </View>
+            )}
           </View>
         ) : (
           <>
@@ -837,10 +908,13 @@ export default function DraftRoomScreen() {
 
       {/* Chat is opened from the header icon (top-right). The previous
           floating FAB lived above the bottom toggle bar and competed with
-          it visually, so it's been folded into the header chrome. */}
+          it visually, so it's been folded into the header chrome. Suppressed
+          when the desktop chat rail is up — the conversation is already on
+          screen, and a resize from narrow-with-chat-open would otherwise leave
+          the sheet covering the rail. */}
       {draftData?.league_id && teamData?.id && (
         <DraftChatModal
-          visible={showChat}
+          visible={showChat && !showChatRail}
           leagueId={draftData.league_id}
           teamId={teamData.id}
           teamName={teamData.name}
@@ -947,6 +1021,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
+  deskMeta: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 18,
+  },
+  deskMetaItem: {
+    alignItems: 'center',
+    gap: 1,
+  },
+  deskMetaLabel: {
+    fontSize: 9,
+    letterSpacing: 1.4,
+  },
+  deskMetaValue: {
+    fontFamily: Fonts.mono,
+    fontSize: 12,
+  },
+  deskMetaRule: {
+    width: StyleSheet.hairlineWidth,
+    height: 22,
+  },
   deskPresence: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1011,7 +1106,9 @@ const styles = StyleSheet.create({
   },
   contentCapDesktop: {
     width: '100%',
-    maxWidth: 1160,
+    // Wide enough for players + queue + chat side by side; past this the player
+    // rows just stretch, so the room stops growing and centers.
+    maxWidth: 1620,
     alignSelf: 'center',
   },
   deskBody: {
@@ -1023,8 +1120,29 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   deskRight: {
-    width: 400,
+    width: 380,
     borderLeftWidth: StyleSheet.hairlineWidth,
+  },
+  // ─── Desktop chat rail (web ≥1440 only) ──────────────────────
+  deskChat: {
+    width: 340,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+  },
+  deskChatHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    height: 41,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  deskChatRule: {
+    height: 2,
+    width: 14,
+  },
+  deskChatTitle: {
+    fontSize: 10,
+    letterSpacing: 1.4,
   },
   deskRightTabs: {
     flexDirection: 'row',

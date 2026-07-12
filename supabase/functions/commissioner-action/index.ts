@@ -50,71 +50,39 @@ Deno.serve(async (req) => {
     const playerName = player?.name ?? 'Unknown';
     const teamName = team?.name ?? 'Unknown';
 
-    const timestamp = new Date().toISOString();
-    let notes = '';
-    let txnItemFrom: string | null = null;
-    let txnItemTo: string | null = null;
-
-    if (action === 'force_add') {
-      if (!position) throw new HttpError('position is required for force_add');
-      const { error } = await supabaseAdmin.from('league_players').insert({
-        league_id, team_id, player_id, position, roster_slot: 'BE',
-        acquired_via: 'commissioner', acquired_at: timestamp,
-      });
-      if (error) throw error;
-      notes = `Commissioner added ${playerName} to ${teamName}`;
-      txnItemTo = team_id;
-
-    } else if (action === 'force_drop') {
-      const { error } = await supabaseAdmin.from('league_players').delete()
-        .eq('league_id', league_id).eq('team_id', team_id).eq('player_id', player_id);
-      if (error) throw error;
-      await supabaseAdmin.from('daily_lineups').delete()
-        .eq('team_id', team_id).eq('player_id', player_id)
-        .gte('lineup_date', new Date().toISOString().split('T')[0]);
-      notes = `Commissioner dropped ${playerName} from ${teamName}`;
-      txnItemFrom = team_id;
-
-    } else if (action === 'force_move') {
-      if (!target_slot) throw new HttpError('target_slot is required for force_move');
-
-      const { data: current } = await supabaseAdmin.from('league_players')
-        .select('roster_slot')
-        .eq('league_id', league_id).eq('team_id', team_id).eq('player_id', player_id)
-        .single();
-
-      // Promotion off the taxi squad is one-way: flag the player so they can't
-      // be sent back to taxi (mirrors the GM roster flow in roster.tsx).
-      // Entering taxi clears the flag.
-      const update: { roster_slot: string; promoted_from_taxi?: boolean } = { roster_slot: target_slot };
-      if (current?.roster_slot === 'TAXI' && target_slot !== 'TAXI') {
-        update.promoted_from_taxi = true;
-      } else if (target_slot === 'TAXI') {
-        update.promoted_from_taxi = false;
-      }
-
-      const { error } = await supabaseAdmin.from('league_players').update(update)
-        .eq('league_id', league_id).eq('team_id', team_id).eq('player_id', player_id);
-      if (error) throw error;
-      const today = new Date().toISOString().split('T')[0];
-      await supabaseAdmin.from('daily_lineups').upsert(
-        { league_id, team_id, player_id, lineup_date: today, roster_slot: target_slot },
-        { onConflict: 'team_id,player_id,lineup_date' }
-      );
-      notes = `Commissioner moved ${playerName} to ${target_slot} on ${teamName}`;
-      txnItemFrom = team_id;
-      txnItemTo = team_id;
-    } else {
-      throw new HttpError(`Unknown action: ${action}`);
+    if (action === 'force_add' && !position) {
+      throw new HttpError('position is required for force_add');
+    }
+    if (action === 'force_move' && !target_slot) {
+      throw new HttpError('target_slot is required for force_move');
     }
 
-    const { data: txn, error: txnError } = await supabaseAdmin
-      .from('league_transactions').insert({ league_id, type: 'commissioner', notes, team_id }).select('id').single();
-    if (txnError) throw txnError;
+    const notes =
+      action === 'force_add'
+        ? `Commissioner added ${playerName} to ${teamName}`
+        : action === 'force_drop'
+          ? `Commissioner dropped ${playerName} from ${teamName}`
+          : `Commissioner moved ${playerName} to ${target_slot} on ${teamName}`;
 
-    const { error: txnItemError } = await supabaseAdmin
-      .from('league_transaction_items').insert({ transaction_id: txn.id, player_id, team_from_id: txnItemFrom, team_to_id: txnItemTo });
-    if (txnItemError) throw txnItemError;
+    // The roster change and its ledger entry commit together. Previously the
+    // roster write, the transaction, and its item were three commits — a failure
+    // after the first mutated a GM's roster with no audit trail, which is the
+    // one write that most needs one.
+    const { error: actionError } = await supabaseAdmin.rpc('commissioner_roster_action', {
+      p_league_id: league_id,
+      p_team_id: team_id,
+      p_player_id: player_id,
+      p_action: action,
+      p_position: position ?? null,
+      p_target_slot: target_slot ?? null,
+      p_notes: notes,
+    });
+    if (actionError) {
+      if (actionError.message?.includes('player_not_on_roster')) {
+        throw new HttpError('That player is not on this team.', 404);
+      }
+      throw actionError;
+    }
 
     // Notify the affected team. Deferred so the response returns before the
     // push round-trips (deferWork logs any failure, non-fatal).

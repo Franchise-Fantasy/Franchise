@@ -67,6 +67,8 @@ Deno.serve(async (req: Request) => {
     // Schedule rows tell us if today's slate has more games. Pull every game
     // for today in one query and bucket by status — any non-final means we
     // still need to wait.
+    // sport-scope: deliberately spans sports — any sport's unfinished game
+    // conservatively keeps activities alive a little longer.
     const { data: todayGames } = await supabase
       .from("game_schedule")
       .select("status, game_time_utc")

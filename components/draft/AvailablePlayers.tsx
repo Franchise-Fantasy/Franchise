@@ -11,6 +11,7 @@ import {
   View,
 } from "react-native";
 
+import { PlayerPoolTable } from "@/components/draft/PlayerPoolTable";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
@@ -21,6 +22,7 @@ import { getPreviousSeason } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useSession } from "@/context/AuthProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useColors } from "@/hooks/useColors";
 import { useDraftPlayer } from "@/hooks/useDraftPlayer";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
@@ -64,6 +66,7 @@ export function AvailablePlayers({
   queuedPlayerIds,
 }: AvailablePlayersProps) {
   const c = useColors();
+  const { isDesktop } = useBreakpoint();
   const isMyTurn = currentPick?.current_team_id === teamId;
   const sport = useActiveLeagueSport(leagueId);
   const [selectedPlayer, setSelectedPlayer] =
@@ -365,10 +368,36 @@ export function AvailablePlayers({
   // Realtime league_players subscription is handled by useRosterChanges
   // in the parent draft-room screen — no duplicate subscription needed here.
 
+  // Accessors for the desktop table. They keep PlayerPoolTable presentational:
+  // it renders a pool, and knows nothing about scoring weights, position limits
+  // or projections.
+  const fptsFor = useCallback(
+    (p: PlayerSeasonStats) =>
+      scoringWeights && !isCategories
+        ? calculateAvgFantasyPoints(p, scoringWeights, sport)
+        : undefined,
+    [scoringWeights, isCategories, sport],
+  );
+  const isProjectedId = useCallback(
+    (playerId: string) => projectedIds.has(playerId),
+    [projectedIds],
+  );
+  const boardRankFor = useCallback(
+    (playerId: string) => (isRookieDraft ? boardRankMap.get(playerId) : undefined),
+    [isRookieDraft, boardRankMap],
+  );
+  const draftBlockFor = useCallback(
+    (p: PlayerSeasonStats) => {
+      if (!hasLimits) return null;
+      return checkPositionLimits(positionLimits, myRoster ?? [], p.position)?.position ?? null;
+    },
+    [hasLimits, positionLimits, myRoster],
+  );
+
   const renderPlayer = useCallback(
     ({ item }: { item: PlayerSeasonStats }) => {
       const fpts = scoringWeights && !isCategories
-        ? calculateAvgFantasyPoints(item, scoringWeights)
+        ? calculateAvgFantasyPoints(item, scoringWeights, sport)
         : undefined;
       const isProjected = projectedIds.has(item.player_id);
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
@@ -377,6 +406,14 @@ export function AvailablePlayers({
       // the name (see the isCategories branch below) rather than in a fixed
       // right-hand column that crowds the name out.
       const catSlash = `${fixed1(item.avg_pts)}/${fixed1(item.avg_reb)}/${fixed1(item.avg_ast)}/${fixed1(item.avg_stl)}/${fixed1(item.avg_blk)}`;
+      // Before a season starts every average is NULL, and interpolating those
+      // straight into the slash line rendered a bare "//". Show an em dash for
+      // "no games yet" instead of three empty slots.
+      const hasBoxScore =
+        item.avg_pts != null || item.avg_reb != null || item.avg_ast != null;
+      const boxSlash = hasBoxScore
+        ? `${fixed1(item.avg_pts)}/${fixed1(item.avg_reb)}/${fixed1(item.avg_ast)}`
+        : "—";
       const fgPct =
         (item.avg_fga ?? 0) > 0
           ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
@@ -507,7 +544,7 @@ export function AvailablePlayers({
             {!isCategories && (
               <View style={[styles.stats, styles.statsPoints]}>
                 <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
-                  {item.avg_pts}/{item.avg_reb}/{item.avg_ast}
+                  {boxSlash}
                 </ThemedText>
                 {fpts !== undefined && (
                   <ThemedText style={[styles.fpts, { color: c.accent }]}>
@@ -633,8 +670,29 @@ export function AvailablePlayers({
           )}
         </View>
       )}
+      {isDesktop ? (
+        /* Desktop reads the pool as a sortable scouting table, not a card list
+           — see PlayerPoolTable. The phone path below is untouched. */
+        <PlayerPoolTable
+          players={displayPlayers}
+          sport={sport}
+          isCategories={isCategories}
+          sortBy={filterBarProps.sortBy}
+          onSortChange={filterBarProps.onSortChange}
+          fptsFor={fptsFor}
+          isProjected={isProjectedId}
+          boardRankFor={boardRankFor}
+          draftBlockFor={draftBlockFor}
+          canDraft={isMyTurn && !isDrafting}
+          queuedPlayerIds={queuedPlayerIds}
+          addToQueue={addToQueue}
+          onDraft={handleDraft}
+          onSelectPlayer={setSelectedPlayer}
+        />
+      ) : (
+        <>
       {/* Column-key header. FPTS leagues key the right-hand stat column (mirrors
-          FreeAgentList); category rows render their 5-stat slash inline under
+          FreeAgentList); category rows render their 5-stat slash inline over
           each name, so their legend left-aligns over the name/stat column to
           give the otherwise context-free numbers a heading. */}
       {isCategories ? (
@@ -670,6 +728,8 @@ export function AvailablePlayers({
         removeClippedSubviews
         initialNumToRender={15}
       />
+        </>
+      )}
       <PlayerDetailModal
         player={selectedPlayer}
         leagueId={leagueId}

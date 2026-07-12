@@ -42,6 +42,8 @@ import { Section } from '@/components/ui/Section';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
+import { WizardShell } from '@/components/web/WizardShell';
+import { WizardSummary } from '@/components/web/WizardSummary';
 import { Brand, Colors, Fonts } from '@/constants/Colors';
 import {
   CURRENT_NBA_SEASON,
@@ -57,6 +59,7 @@ import {
 } from '@/constants/LeagueDefaults';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { SportThemeProvider } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
@@ -108,6 +111,11 @@ const STEP_SEASON = 6;
 const STEP_TRADE = 7;
 const STEP_DRAFT = 8;
 const STEP_REVIEW = 9;
+
+// The desktop rail treats picking a source as the first step, so the "Choose
+// Source" screen shows the same progress rail as the wizard behind it. Display
+// only — it's offset by one from the `step` state (rail index = step + 1).
+const RAIL_LABELS = ['Source', ...STEP_LABELS];
 
 interface ImportState {
   sleeperLeagueId: string;
@@ -527,6 +535,7 @@ export default function ImportLeague() {
   const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const { isDesktop } = useBreakpoint();
   const { showToast } = useToast();
   const confirm = useConfirm();
 
@@ -855,6 +864,41 @@ export default function ImportLeague() {
   // ─── Source selection ──────────────────────────────────────────────
 
   if (!source) {
+    const chooser = (
+      <Section title="Choose Source" cardStyle={styles.sourceCard}>
+        <SourceRow
+          icon="cloud-download-outline"
+          title="Sleeper"
+          description="Import directly using your Sleeper league ID. Rosters, settings, and history are pulled automatically."
+          onPress={() => setSource('sleeper')}
+          index={0}
+          total={2}
+        />
+        <SourceRow
+          icon="camera-outline"
+          title="Screenshots"
+          description="Take screenshots of your league and we'll extract the data for you using AI."
+          onPress={() => setSource('screenshots')}
+          index={1}
+          total={2}
+        />
+      </Section>
+    );
+
+    if (isDesktop) {
+      return (
+        <WizardShell
+          title="Import League"
+          subtitle="Choose how you'd like to bring in your existing league."
+          steps={RAIL_LABELS}
+          currentStep={0}
+          onCancel={handleCancel}
+        >
+          {chooser}
+        </WizardShell>
+      );
+    }
+
     return (
       <ThemedView style={styles.container}>
         <View style={styles.headerRow}>
@@ -876,69 +920,43 @@ export default function ImportLeague() {
           </ThemedText>
         </View>
 
-        <Section title="Choose Source" cardStyle={styles.sourceCard}>
-          <SourceRow
-            icon="cloud-download-outline"
-            title="Sleeper"
-            description="Import directly using your Sleeper league ID. Rosters, settings, and history are pulled automatically."
-            onPress={() => setSource('sleeper')}
-            index={0}
-            total={2}
-          />
-          <SourceRow
-            icon="camera-outline"
-            title="Screenshots"
-            description="Take screenshots of your league and we'll extract the data for you using AI."
-            onPress={() => setSource('screenshots')}
-            index={1}
-            total={2}
-          />
-        </Section>
+        {chooser}
       </ThemedView>
     );
   }
 
   if (source === 'screenshots') {
-    return <ScreenshotImport />;
+    return <ScreenshotImport onBackToSource={() => setSource(null)} />;
   }
 
   // ─── Sleeper wizard ────────────────────────────────────────────────
 
-  return (
-    // Override the active-league sport so the wizard's chrome (Next/Import
-    // buttons via BrandButton, StepIndicator dots, StepScoring chips) follows
-    // the *picked* sport rather than whatever league the user came from —
-    // mirrors create-league. NBA → turfGreen, WNBA → merlot.
-    <SportThemeProvider sport={state.wizardState.sport}>
-    <ThemedView style={styles.container}>
-      <View style={styles.headerRow}>
+  // Nav (Back/Next) shown on the in-between steps; Fetch + Review provide their
+  // own buttons. Defined once so mobile and desktop share it.
+  const navNode =
+    step > STEP_FETCH && step < STEP_REVIEW ? (
+      <View style={styles.navRow}>
         <BrandButton
-          label="Cancel"
-          onPress={handleCancel}
-          variant="ghost"
+          label="Back"
+          onPress={() => setStep(s => s - 1)}
+          variant="secondary"
           size="default"
-          accessibilityLabel="Cancel import"
+        />
+        <BrandButton
+          label="Next"
+          onPress={() => setStep(s => s + 1)}
+          variant="primary"
+          size="default"
+          disabled={!canAdvance}
+          accessibilityLabel={`Next, step ${step + 2} of ${STEP_LABELS.length}`}
         />
       </View>
+    ) : null;
 
-      <StepIndicator currentStep={step} steps={STEP_LABELS} />
-
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <View style={styles.scrollWrap}>
-          <ScrollView
-            ref={scrollRef}
-            style={styles.flex}
-            contentContainerStyle={styles.contentInner}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            onLayout={handleLayout}
-            onContentSizeChange={handleContentSizeChange}
-          >
+  // Step content is identical on phone + desktop — only the surrounding chrome
+  // differs. Defined once so the two branches can't drift.
+  const stepNode = (
+    <>
             {step === STEP_FETCH && (
               <FormSection title="Sleeper League ID">
                 <BrandTextInput
@@ -1183,6 +1201,70 @@ export default function ImportLeague() {
                 }
               />
             )}
+    </>
+  );
+
+  // Desktop web: vertical step rail + framed content column, reusing the same
+  // step components. Mounted only when isDesktop (always false on native).
+  if (isDesktop) {
+    return (
+      <SportThemeProvider sport={state.wizardState.sport}>
+        <WizardShell
+          title="Import League"
+          subtitle="Bring your Sleeper league in, step by step."
+          steps={RAIL_LABELS}
+          currentStep={step + 1}
+          onCancel={handleCancel}
+          onStepPress={(i) => {
+            // Rail index 0 is the source choice; the rest are offset by one.
+            if (i === 0) setSource(null);
+            else if (i - 1 < step) setStep(i - 1);
+          }}
+          aside={<WizardSummary state={state.wizardState} />}
+          footer={navNode}
+        >
+          {stepNode}
+        </WizardShell>
+      </SportThemeProvider>
+    );
+  }
+
+  return (
+    // Override the active-league sport so the wizard's chrome (Next/Import
+    // buttons via BrandButton, StepIndicator dots, StepScoring chips) follows
+    // the *picked* sport rather than whatever league the user came from —
+    // mirrors create-league. NBA → turfGreen, WNBA → merlot.
+    <SportThemeProvider sport={state.wizardState.sport}>
+    <ThemedView style={styles.container}>
+      <View style={styles.headerRow}>
+        <BrandButton
+          label="Cancel"
+          onPress={handleCancel}
+          variant="ghost"
+          size="default"
+          accessibilityLabel="Cancel import"
+        />
+      </View>
+
+      <StepIndicator currentStep={step} steps={STEP_LABELS} />
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.scrollWrap}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.flex}
+            contentContainerStyle={styles.contentInner}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onLayout={handleLayout}
+            onContentSizeChange={handleContentSizeChange}
+          >
+            {stepNode}
           </ScrollView>
 
           {hasMoreContent && !isAtBottom && (
@@ -1199,27 +1281,7 @@ export default function ImportLeague() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Navigation. Step 0 uses its own Fetch button inside the form
-          (acts as Next). Review step renders its own Back+Import in
-          StepReview. Everything in between gets standard Back/Next. */}
-      {step > STEP_FETCH && step < STEP_REVIEW && (
-        <View style={styles.navRow}>
-          <BrandButton
-            label="Back"
-            onPress={() => setStep(s => s - 1)}
-            variant="secondary"
-            size="default"
-          />
-          <BrandButton
-            label="Next"
-            onPress={() => setStep(s => s + 1)}
-            variant="primary"
-            size="default"
-            disabled={!canAdvance}
-            accessibilityLabel={`Next, step ${step + 2} of ${STEP_LABELS.length}`}
-          />
-        </View>
-      )}
+      {navNode}
     </ThemedView>
     </SportThemeProvider>
   );

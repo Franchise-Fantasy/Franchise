@@ -15,6 +15,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { DEFAULT_CATEGORIES, DEFAULT_SCORING } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { Json } from '@/types/database.types';
 import { ms, s } from '@/utils/scale';
 
 function statLabel(stat: string): string {
@@ -64,8 +65,6 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
 
   async function handleSave() {
     setSaving(true);
-    const { error: delErr } = await supabase.from('league_scoring_settings').delete().eq('league_id', leagueId);
-    if (delErr) { setSaving(false); Alert.alert('Error', delErr.message); return; }
 
     const rows = isCategories
       ? editCategories
@@ -85,8 +84,14 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
           inverse: false,
         }));
 
-    const { error: insErr } = await supabase.from('league_scoring_settings').insert(rows);
-    if (insErr) { setSaving(false); Alert.alert('Error', insErr.message); return; }
+    // One transaction. As a delete followed by an insert, a failed insert left
+    // the league with NO scoring settings — every matchup unscoreable — until
+    // the commissioner happened to save again.
+    const { error } = await supabase.rpc('replace_scoring_settings', {
+      p_league_id: leagueId,
+      p_rows: rows as unknown as Json,
+    });
+    if (error) { setSaving(false); Alert.alert('Error', error.message); return; }
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['leagueScoring', leagueId] });
     onClose();

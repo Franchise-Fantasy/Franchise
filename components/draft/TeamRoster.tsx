@@ -247,7 +247,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
     const player = slot.player;
     const avgFpts =
       player && scoringWeights && !isCategories
-        ? calculateAvgFantasyPoints(player, scoringWeights)
+        ? calculateAvgFantasyPoints(player, scoringWeights, sport)
         : null;
     const catLine =
       player && isCategories && (player.games_played ?? 0) > 0

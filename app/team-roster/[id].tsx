@@ -13,6 +13,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { useWeeks } from '@/components/matchup/matchupData';
 import { OnCourtDot } from '@/components/matchup/PlayerCell';
 import { CompareBar } from '@/components/player/CompareBar';
 import { MatchupChip } from '@/components/player/MatchupChip';
@@ -58,6 +59,7 @@ import {
 } from '@/hooks/usePlayerProjections';
 import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
 import { useRosterGameLogs } from '@/hooks/useRosterGameLogs';
+import { useTeamByes } from '@/hooks/useTeamByes';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats, PlayerGameLog } from '@/types/player';
 import { formatPosition } from '@/utils/formatting';
@@ -84,6 +86,7 @@ import {
   gameWindowSize,
   projAvgRowToFpts,
 } from '@/utils/scoring/fantasyPoints';
+import { nflStatLine } from '@/utils/scoring/nflStatLine';
 
 // Heritage deck watermark — same patch that bleeds into the corner of the
 // matchup / roster heroes, so this header reads as part of that family.
@@ -111,8 +114,10 @@ function formatRecord(
 }
 
 // `Record<string, number>` for the matchup PlayerCell stat parser. Mirrors
-// the shape used by (tabs)/roster.tsx's resolveSlotStats.
-function buildStatLine(stats: Record<string, number>): string | null {
+// the shape used by (tabs)/roster.tsx's resolveSlotStats. NFL lines come from
+// the shared position-shaped formatter ("18/27 245Y 2TD").
+function buildStatLine(stats: Record<string, number>, sport?: string | null): string | null {
+  if (sport === 'nfl') return nflStatLine(stats) || null;
   const parts: string[] = [];
   if (stats.pts != null) parts.push(`${stats.pts} PTS`);
   if (stats.reb != null) parts.push(`${stats.reb} REB`);
@@ -171,6 +176,15 @@ export default function TeamRosterScreen() {
 
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? '');
   const { data: rosterConfig, isLoading: isLoadingConfig } = useLeagueRosterConfig(leagueId ?? '');
+
+  // NFL bye tag (mirrors the roster page's row treatment). This page shows
+  // today only, so the bye window is the league week containing today.
+  const { data: byeWeeks } = useWeeks(leagueId);
+  const byeWeek = useMemo(() => {
+    const today = getSportToday(sport);
+    return byeWeeks?.find((w) => w.start_date <= today && today <= w.end_date) ?? null;
+  }, [byeWeeks, sport]);
+  const { isOnBye } = useTeamByes(sport, byeWeek?.start_date, byeWeek?.end_date);
 
   // Fetch team name
   const { data: teamName, isError: isTeamError } = useQuery({
@@ -447,13 +461,14 @@ export default function TeamRosterScreen() {
       return { fpts: null, statLine: null, isLive: false, matchup: null, gameTimeUtc: null };
     }
     if (live) {
-      const stats = liveToGameLog(live);
+      const stats = liveToGameLog(live, sport);
       const fpts = isCategories
         ? null
         : Math.round(
             calculateGameFantasyPoints(
               stats as unknown as PlayerGameLog,
               scoringWeights,
+              sport,
             ) * 10,
           ) / 10;
       return {
@@ -461,7 +476,7 @@ export default function TeamRosterScreen() {
         statLine:
           live.game_status === 1
             ? null
-            : buildStatLine(stats as Record<string, number>),
+            : buildStatLine(stats as Record<string, number>, sport),
         isLive: live.game_status === 2,
         matchup: live.matchup || null,
         gameTimeUtc: null,
@@ -567,6 +582,7 @@ export default function TeamRosterScreen() {
                   windowSize: winSize,
                 }
               : undefined,
+            sport,
           )
         : null;
     // "Proj"/"Prev" windows swap the context number for the next-game projection
@@ -747,7 +763,11 @@ export default function TeamRosterScreen() {
                 </View>
               ) : (
                 <SeasonMetaLine
-                  position={slot.player.position}
+                  position={
+                    isOnBye(slot.player.nbaTricode)
+                      ? `${slot.player.position} · BYE`
+                      : slot.player.position
+                  }
                   seasonAvg={contextAvg}
                   valueLabel={contextLabel}
                   c={c}

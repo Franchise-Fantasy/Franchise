@@ -29,6 +29,27 @@ const statColumns = [
   'FGM', 'FGA', '3PM', '3PA', 'FTM', 'FTA', 'PF',
 ] as const;
 
+// NFL game-log columns → player_games column. Wider than the basketball set
+// (passing + rushing + receiving + kicking + D/ST in one table) — the
+// horizontal scroll absorbs the width; columns a position never fills read 0.
+const NFL_COL_TO_KEY: Record<string, string> = {
+  CMP: 'pass_cmp', ATT: 'pass_att', PaYD: 'pass_yd', PaTD: 'pass_td', INT: 'pass_int',
+  CAR: 'rush_att', RuYD: 'rush_yd', RuTD: 'rush_td',
+  REC: 'rec', TGT: 'targets', ReYD: 'rec_yd', ReTD: 'rec_td',
+  FUM: 'fum_lost', FG: 'fg_made', FGA: 'fg_att', XP: 'xp_made',
+  SCK: 'dst_sacks', DINT: 'dst_int', FR: 'dst_fum_rec', DTD: 'dst_td', PA: 'dst_pts_allowed',
+};
+const nflColumns = Object.keys(NFL_COL_TO_KEY);
+
+function columnsFor(sport?: string | null): readonly string[] {
+  return sport === 'nfl' ? nflColumns : statColumns;
+}
+
+function getNflStatValue(source: Record<string, unknown>, col: string): number {
+  const v = source[NFL_COL_TO_KEY[col]];
+  return typeof v === 'number' ? v : 0;
+}
+
 function getStatValue(item: PlayerGameLogType, col: string) {
   switch (col) {
     case 'MIN': return item.min;
@@ -78,6 +99,7 @@ interface PlayerGameLogProps {
   gameLog: PlayerGameLogType[] | undefined;
   isLoading: boolean;
   scoringWeights: ScoringWeight[] | undefined;
+  sport?: string | null;
   upcomingGames: UpcomingGame[] | undefined;
   liveStats: { game_status: number; matchup?: string; [key: string]: any } | null;
   liveToGameLog: (stats: any) => Record<string, number | boolean>;
@@ -101,6 +123,7 @@ interface PlayerGameLogProps {
 interface PlayerGameLogHeaderProps {
   scoringWeights: ScoringWeight[] | undefined;
   isCategories?: boolean;
+  sport?: string | null;
   headerScrollRef?: RefObject<ScrollView | null>;
   backgroundColor: string;
   colors: {
@@ -117,10 +140,12 @@ interface PlayerGameLogHeaderProps {
 export function PlayerGameLogHeader({
   scoringWeights,
   isCategories,
+  sport,
   headerScrollRef,
   backgroundColor,
   colors: c,
 }: PlayerGameLogHeaderProps) {
+  const cols = columnsFor(sport);
   return (
     <View
       style={[styles.gameLogContainer, styles.stickyHeaderWrap, { backgroundColor, borderBottomColor: c.border }]}
@@ -144,7 +169,7 @@ export function PlayerGameLogHeader({
         style={styles.scrollableStats}
       >
         <View style={[styles.gameRow, styles.gameHeader, styles.stickyHeaderRow]}>
-          {statColumns.map((col) => (
+          {cols.map((col) => (
             <ThemedText
               key={col}
               style={[styles.gameCell, styles.gameHeaderText, { color: c.secondaryText }]}
@@ -171,6 +196,7 @@ export function PlayerGameLog({
   gameLog,
   isLoading,
   scoringWeights,
+  sport,
   upcomingGames,
   liveStats,
   liveToGameLog: liveToGameLogFn,
@@ -185,6 +211,7 @@ export function PlayerGameLog({
   colors: c,
 }: PlayerGameLogProps) {
   const [breakdownData, setBreakdownData] = useState<{ stats: Record<string, number | boolean>; label: string } | null>(null);
+  const cols = columnsFor(sport);
 
   // Build combined row list: upcoming (furthest first) -> live -> historical
   const liveDate = liveStats?.game_date ?? null;
@@ -264,7 +291,7 @@ export function PlayerGameLog({
         <View style={styles.scrollableStats}>
           {Array.from({ length: 12 }).map((_, i) => (
             <View key={i} style={[styles.gameRow, { borderBottomColor: c.border }]}>
-              {statColumns.map((col) => (
+              {cols.map((col) => (
                 <View key={col} style={[styles.skeletonBlock, { width: 38, backgroundColor: c.border }]} />
               ))}
             </View>
@@ -321,8 +348,11 @@ export function PlayerGameLog({
             if (row.kind === 'upcoming') {
               return (
                 <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, !(projection && row.key === nearestUpcomingKey) && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
-                  {statColumns.map((col) => {
-                    const projVal = projection && row.key === nearestUpcomingKey ? getProjStatValue(projection, col) : null;
+                  {cols.map((col) => {
+                    const projVal =
+                      projection && row.key === nearestUpcomingKey && sport !== 'nfl'
+                        ? getProjStatValue(projection, col)
+                        : null;
                     return (
                       <ThemedText
                         key={col}
@@ -338,7 +368,14 @@ export function PlayerGameLog({
             if (row.kind === 'live') {
               return (
                 <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
-                  {statColumns.map((col) => {
+                  {cols.map((col) => {
+                    if (sport === 'nfl') {
+                      return (
+                        <ThemedText key={col} style={styles.gameCell}>
+                          {getNflStatValue(row.stats as Record<string, unknown>, col)}
+                        </ThemedText>
+                      );
+                    }
                     const statKey = col === 'TO' ? 'tov' : col === '3PM' ? '3pm' : col === '3PA' ? '3pa' : col.toLowerCase();
                     const val = (row.stats as any)[statKey];
                     return (
@@ -353,12 +390,14 @@ export function PlayerGameLog({
             const isDNP = row.item.min === 0;
             return (
               <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
-                {statColumns.map((col) => (
+                {cols.map((col) => (
                   <ThemedText
                     key={col}
                     style={[styles.gameCell, isDNP && styles.gameCellDNP]}
                   >
-                    {getStatValue(row.item, col)}
+                    {sport === 'nfl'
+                      ? getNflStatValue(row.item as unknown as Record<string, unknown>, col)
+                      : getStatValue(row.item, col)}
                   </ThemedText>
                 ))}
               </View>
@@ -376,7 +415,7 @@ export function PlayerGameLog({
                 <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, !(projection && row.key === nearestUpcomingKey) && styles.gameCellDNP, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   {(() => {
                     const projFpts = projection && row.key === nearestUpcomingKey
-                      ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights)
+                      ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights, sport)
                       : null;
                     return (
                       <ThemedText style={[styles.gameCell, styles.gameCellFpts, projFpts != null ? [styles.gameCellProj, { color: c.accent }] : styles.gameCellDNP]}>
@@ -388,7 +427,7 @@ export function PlayerGameLog({
               );
             }
             if (row.kind === 'live') {
-              const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights);
+              const fpts = calculateGameFantasyPoints(row.stats as any, scoringWeights, sport);
               return (
                 <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, styles.gameRowLive, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                   <TouchableOpacity
@@ -404,7 +443,7 @@ export function PlayerGameLog({
               );
             }
             const isDNP = row.item.min === 0;
-            const fpts = calculateGameFantasyPoints(row.item, scoringWeights);
+            const fpts = calculateGameFantasyPoints(row.item, scoringWeights, sport);
             return (
               <View key={row.key} style={[styles.gameRow, { borderBottomColor: c.border }, idx % 2 === 1 && styles.gameRowAlt, weekBorderKeys.has(row.key) && styles.gameRowWeekEnd, idx === combinedRows.length - 1 && { borderBottomWidth: 0 }]}>
                 <TouchableOpacity

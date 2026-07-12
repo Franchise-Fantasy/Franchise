@@ -9,6 +9,7 @@ import { Brand, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
+import { getSportModule } from '@/utils/sports/registry';
 
 interface StepScoringProps {
   state: LeagueWizardState;
@@ -17,7 +18,16 @@ interface StepScoringProps {
   onScoringTypeChange: (type: ScoringTypeOption) => void;
   onCategoryToggle: (index: number, enabled: boolean) => void;
   onResetCategories: () => void;
+  /** Applies a named registry preset (NFL Standard / Half PPR / Full PPR). */
+  onScoringPreset?: (key: string) => void;
 }
+
+// NFL preset picker labels ↔ registry scoringPresets keys.
+const NFL_PRESETS: { label: string; key: string }[] = [
+  { label: 'Standard', key: 'standard' },
+  { label: 'Half PPR', key: 'half_ppr' },
+  { label: 'Full PPR', key: 'full_ppr' },
+];
 
 export function StepScoring({
   state,
@@ -26,26 +36,53 @@ export function StepScoring({
   onScoringTypeChange,
   onCategoryToggle,
   onResetCategories,
+  onScoringPreset,
 }: StepScoringProps) {
   const c = useColors();
-  const isCategories = state.scoringType === 'H2H Categories';
+  // Categories are basketball-only — NFL leagues are points-only, so the
+  // scoring-type picker is replaced by the PPR preset picker.
+  const supportsCategories = getSportModule(state.sport).supportsCategories;
+  const isCategories = supportsCategories && state.scoringType === 'H2H Categories';
   const enabledCount = state.categories.filter((cat) => cat.is_enabled).length;
+  // Active preset derived from the REC weight (0 / 0.5 / 1); a hand-edited
+  // sheet matches none and renders with no segment selected.
+  const recValue = state.scoring.find((s) => s.stat_name === 'REC')?.point_value;
+  const activePresetIdx = NFL_PRESETS.findIndex(
+    (p) => (p.key === 'standard' ? 0 : p.key === 'half_ppr' ? 0.5 : 1) === recValue,
+  );
 
   return (
     <View style={styles.container}>
-      <FormSection title="Scoring Type">
-        <SegmentedControl
-          options={SCORING_TYPE_OPTIONS}
-          selectedIndex={SCORING_TYPE_OPTIONS.indexOf(state.scoringType)}
-          onSelect={(i) => onScoringTypeChange(SCORING_TYPE_OPTIONS[i])}
-        />
+      {supportsCategories ? (
+        <FormSection title="Scoring Type">
+          <SegmentedControl
+            options={SCORING_TYPE_OPTIONS}
+            selectedIndex={SCORING_TYPE_OPTIONS.indexOf(state.scoringType)}
+            onSelect={(i) => onScoringTypeChange(SCORING_TYPE_OPTIONS[i])}
+            accessibilityLabel="Scoring type"
+          />
 
-        <ThemedText style={[styles.description, { color: c.secondaryText }]}>
-          {isCategories
-            ? 'Each stat is a category. Win the majority of categories to win the week.'
-            : 'Adjust point values for each stat category.'}
-        </ThemedText>
-      </FormSection>
+          <ThemedText style={[styles.description, { color: c.secondaryText }]}>
+            {isCategories
+              ? 'Each stat is a category. Win the majority of categories to win the week.'
+              : 'Adjust point values for each stat category.'}
+          </ThemedText>
+        </FormSection>
+      ) : (
+        <FormSection title="Scoring Preset">
+          <SegmentedControl
+            options={NFL_PRESETS.map((p) => p.label)}
+            selectedIndex={activePresetIdx}
+            onSelect={(i) => onScoringPreset?.(NFL_PRESETS[i].key)}
+            accessibilityLabel="Scoring preset"
+          />
+          <ThemedText style={[styles.description, { color: c.secondaryText }]}>
+            {activePresetIdx === -1
+              ? 'Custom point values — pick a preset to reset the sheet.'
+              : 'Presets set the points-per-reception; every value below stays editable.'}
+          </ThemedText>
+        </FormSection>
+      )}
 
       {isCategories ? (
         <FormSection title="Categories">

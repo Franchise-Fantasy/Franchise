@@ -13,6 +13,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { queryKeys } from '@/constants/queryKeys';
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColors } from '@/hooks/useColors';
 import { useDraftPlayer } from '@/hooks/useDraftPlayer';
 import { useDraftQueue , QueuedPlayer } from '@/hooks/useDraftQueue';
@@ -30,6 +31,11 @@ import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 // each draggable card — same trick as ManualDraftOrderModal.
 const ROW_HEIGHT = s(64);
 const ROW_GAP = s(8);
+// The desktop rail is ~380px wide and sits beside the pool, so the queue is a
+// glance-and-compare list, not a thumb target — it gets a tighter row. Both the
+// card and the static rank column read these, or the numbers drift out of step.
+const DESK_ROW_HEIGHT = 46;
+const DESK_ROW_GAP = 5;
 
 interface DraftQueueProps {
   draftId: string;
@@ -40,6 +46,9 @@ interface DraftQueueProps {
 
 export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueueProps) {
   const c = useColors();
+  const { isDesktop } = useBreakpoint();
+  const rowHeight = isDesktop ? DESK_ROW_HEIGHT : ROW_HEIGHT;
+  const rowGap = isDesktop ? DESK_ROW_GAP : ROW_GAP;
   const sport = useActiveLeagueSport(leagueId);
   const isMyTurn = currentPick?.current_team_id === teamId;
 
@@ -115,7 +124,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
   const renderItem = useCallback(({ item, getIndex, drag, isActive }: RenderItemParams<QueuedPlayer>) => {
     const index = getIndex() ?? 0;
     const fpts = scoringWeights && !isCategories
-      ? calculateAvgFantasyPoints(item.player, scoringWeights)
+      ? calculateAvgFantasyPoints(item.player, scoringWeights, sport)
       : undefined;
     const logoUrl = getTeamLogoUrl(item.player.pro_team, sport);
     const badge = getInjuryBadge(item.player.status);
@@ -131,7 +140,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
         <View
           style={[
             styles.card,
-            { borderColor: c.border, backgroundColor: c.cardAlt, height: ROW_HEIGHT },
+            { borderColor: c.border, backgroundColor: c.cardAlt, height: rowHeight },
             isSuggested && { backgroundColor: c.activeCard, borderColor: c.activeBorder },
             // Contained lift while dragging — shadow instead of a scale that
             // overflows the row's clipped edges.
@@ -139,29 +148,39 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
           ]}
           accessibilityLabel={`Queue position ${index + 1}, ${item.player.name}, ${formatPosition(item.player.position)}${isSuggested ? ', suggested pick' : ''}`}
         >
-          {/* Player portrait */}
-          <View style={styles.portraitWrap}>
-            <View style={[styles.headshotCircle, { borderColor: c.heritageGold, backgroundColor: c.cardAlt }]}>
+          {/* Player portrait. Desktop drops the round headshot: the queue is a
+              short ordered list you already recognise, and in a 380px rail that
+              48px medallion is the difference between 6 and 9 visible rows. */}
+          <View style={[styles.portraitWrap, isDesktop && styles.portraitWrapDesktop]}>
+            <View
+              style={[
+                styles.headshotCircle,
+                isDesktop && styles.headshotCircleDesktop,
+                { borderColor: c.heritageGold, backgroundColor: c.cardAlt },
+              ]}
+            >
               <PlayerHeadshotImage
                 externalIdNba={item.player.external_id_nba}
                 sport={sport}
-                style={styles.headshotImg}
+                style={[styles.headshotImg, isDesktop && styles.headshotImgDesktop]}
                 accessible={false}
               />
             </View>
-            <View style={styles.teamPill}>
-              {logoUrl && (
-                <Image
-                  source={{ uri: logoUrl }}
-                  style={styles.teamPillLogo}
-                  contentFit="contain"
-                  cachePolicy="memory-disk"
-                  recyclingKey={logoUrl}
-                  accessible={false}
-                />
-              )}
-              <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.player.pro_team}</Text>
-            </View>
+            {!isDesktop && (
+              <View style={styles.teamPill}>
+                {logoUrl && (
+                  <Image
+                    source={{ uri: logoUrl }}
+                    style={styles.teamPillLogo}
+                    contentFit="contain"
+                    cachePolicy="memory-disk"
+                    recyclingKey={logoUrl}
+                    accessible={false}
+                  />
+                )}
+                <Text style={[styles.teamPillText, { color: c.statusText }]}>{item.player.pro_team}</Text>
+              </View>
+            )}
           </View>
 
           {/* Player info */}
@@ -181,6 +200,9 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             </View>
             <ThemedText style={[styles.posText, { color: c.secondaryText }]} numberOfLines={1}>
               {formatPosition(item.player.position)}
+              {/* Desktop dropped the team pill with the portrait, so the tricode
+                  moves onto the meta line rather than disappearing. */}
+              {isDesktop && item.player.pro_team ? ` · ${item.player.pro_team}` : ''}
               {fpts !== undefined ? ` · ${fpts} FPTS` : ''}
             </ThemedText>
           </View>
@@ -188,7 +210,11 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
           {/* Draft button — on every row so you can draft any queued player on
               your turn; disabled when it's not your turn or a position cap blocks it. */}
           <TouchableOpacity
-            style={[styles.draftButton, { backgroundColor: draftDisabled ? c.buttonDisabled : c.link }]}
+            style={[
+              styles.draftButton,
+              isDesktop && styles.draftButtonDesktop,
+              { backgroundColor: draftDisabled ? c.buttonDisabled : c.link },
+            ]}
             onPress={() => handleDraft(item)}
             disabled={draftDisabled}
             accessibilityRole="button"
@@ -244,7 +270,12 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     return (
       <View style={styles.empty}>
         <ThemedText style={{ color: c.secondaryText, textAlign: 'center' }}>
-          No players in your queue.{'\n'}Add players from the Available Players tab.
+          No players in your queue.{'\n'}
+          {/* Desktop shows the pool beside this panel, so there's no tab to
+              send anyone to. */}
+          {isDesktop
+            ? 'Add players with + from the pool on the left.'
+            : 'Add players from the Available Players tab.'}
         </ThemedText>
       </View>
     );
@@ -270,7 +301,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
           pointerEvents="none"
         >
           {queue.map((_, i) => (
-            <View key={i} style={styles.rankSlot}>
+            <View key={i} style={[styles.rankSlot, { height: rowHeight, marginBottom: rowGap }]}>
               <ThemedText type="mono" style={[styles.rank, { color: c.secondaryText }]}>{i + 1}</ThemedText>
             </View>
           ))}
@@ -281,7 +312,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             data={queue}
             renderItem={renderItem}
             keyExtractor={(item) => item.queue_id}
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { gap: rowGap }]}
             onScrollOffsetChange={(offset) => scrollY.setValue(offset)}
             onDragEnd={({ data }) => {
               // Skip the round-trip if order didn't change (drag started but
@@ -355,6 +386,11 @@ const styles = StyleSheet.create({
     height: s(48),
     marginRight: s(4),
   },
+  portraitWrapDesktop: {
+    width: 30,
+    height: 30,
+    marginRight: 2,
+  },
   headshotCircle: {
     width: s(48),
     height: s(48),
@@ -362,12 +398,22 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     overflow: 'hidden' as const,
   },
+  headshotCircleDesktop: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+  },
   headshotImg: {
     position: 'absolute' as const,
     bottom: s(-2),
     left: 0,
     right: 0,
     height: s(40),
+  },
+  headshotImgDesktop: {
+    height: 26,
+    bottom: -1,
   },
   teamPill: {
     position: 'absolute',
@@ -394,6 +440,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(12),
     paddingVertical: s(6),
     borderRadius: 4,
+  },
+  draftButtonDesktop: {
+    minWidth: 52,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 5,
   },
   draftButtonText: { fontSize: ms(12), fontWeight: 'bold' },
   iconButton: { padding: s(2) },

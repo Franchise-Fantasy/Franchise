@@ -70,39 +70,20 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
   const handleAssign = async (importedTeam: ImportedTeam, memberTeam: ImportedTeam) => {
     setAssigning(true);
     try {
-      // Transfer all league_players from imported team to the member's newly created team won't work
-      // because the member doesn't have roster space. Instead, we assign the imported team to the member.
-      // Set the user_id on the imported team and delete the member's empty team.
-
-      // 1. Set user_id on the imported team
-      const { error: updateError } = await supabase
-        .from('teams')
-        .update({ user_id: memberTeam.user_id })
-        .eq('id', importedTeam.id);
-
-      if (updateError) throw updateError;
-
-      // 2. Transfer waiver_priority if exists
-      await supabase
-        .from('waiver_priority')
-        .update({ team_id: importedTeam.id })
-        .eq('team_id', memberTeam.id)
-        .eq('league_id', leagueId);
-
-      // 3. Delete the member's empty placeholder team
-      await supabase
-        .from('teams')
-        .delete()
-        .eq('id', memberTeam.id);
-
-      // The member joined (current_teams++), and now we're deleting their empty team.
-      // Net effect: imported team gets their user_id and current_teams stays the same — no-op needed.
-
-      // 4. Clear sleeper_roster_id since assignment is done
-      await supabase
-        .from('teams')
-        .update({ sleeper_roster_id: null })
-        .eq('id', importedTeam.id);
+      // The member can't take over the imported roster by receiving its players
+      // (they'd have no roster space), so instead the imported TEAM becomes
+      // theirs and their empty placeholder team is retired.
+      //
+      // This was four writes with the error checked on only the first — so the
+      // usual failure stamped the member's user_id on the imported team and then
+      // silently failed to delete the placeholder, leaving the member owning TWO
+      // teams while the UI reported success. Now one transaction.
+      const { error } = await supabase.rpc('assign_imported_team', {
+        p_league_id: leagueId,
+        p_imported_team_id: importedTeam.id,
+        p_member_team_id: memberTeam.id,
+      });
+      if (error) throw error;
 
       showToast('success', `${memberTeam.name} assigned to ${importedTeam.name}`);
       queryClient.invalidateQueries({ queryKey: queryKeys.importedTeams(leagueId) });

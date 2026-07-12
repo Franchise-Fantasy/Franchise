@@ -18,7 +18,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
 import { ChampionCard } from '@/components/home/ChampionCard';
-import { DeclareKeepers } from '@/components/home/DeclareKeepers';
+import { DeclareKeepersSheet } from '@/components/home/DeclareKeepersSheet';
 import { HomeAnnouncementBanner } from '@/components/home/HomeAnnouncementBanner';
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
@@ -76,6 +76,7 @@ function computeOffseasonHeroAction({
   rookieDraft,
   seasonDraft,
   actions,
+  onDeclareKeepers,
 }: {
   offseasonStep: string;
   leagueType: string;
@@ -83,6 +84,7 @@ function computeOffseasonHeroAction({
   rookieDraft: { status: string | null } | null;
   seasonDraft: { status: string | null } | null;
   actions: ReturnType<typeof useOffseasonActions>;
+  onDeclareKeepers: () => void;
 }): { label: string; onPress: () => void } | null {
   const isDynasty = leagueType === 'dynasty';
 
@@ -90,6 +92,13 @@ function computeOffseasonHeroAction({
   // Returned BEFORE the commish gate so non-commish members also see this CTA.
   if (isDynasty && offseasonStep === 'lottery_revealing') {
     return { label: 'Watch the Reveal', onPress: actions.goToLotteryRoom };
+  }
+
+  // Every member picks their own keepers, so this CTA is also pre-commish-gate.
+  // It opens the keeper sheet; the commissioner's Finalize lives in its footer,
+  // next to the per-team declaration status they need to see before finalizing.
+  if (leagueType === 'keeper' && offseasonStep === 'keeper_pending') {
+    return { label: 'Declare Keepers', onPress: onDeclareKeepers };
   }
 
   if (!isCommissioner) return null;
@@ -104,10 +113,6 @@ function computeOffseasonHeroAction({
     !rookieDraft
   ) {
     return { label: 'Create Draft', onPress: actions.handleCreateRookieDraft };
-  }
-
-  if (leagueType === 'keeper' && offseasonStep === 'keeper_pending') {
-    return { label: 'Finalize', onPress: actions.handleFinalizeKeepers };
   }
 
   if (
@@ -195,6 +200,7 @@ export default function HomeScreen() {
     enabled: !!activeDraft?.id && isManualOrder && isInitialDraft,
   });
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [keeperSheetVisible, setKeeperSheetVisible] = useState(false);
 
   // Rookie + seasonal draft existence lookups — only needed during
   // offseason to pick the right hero action (create vs start).
@@ -505,6 +511,7 @@ export default function HomeScreen() {
         rookieDraft: rookieDraft ?? null,
         seasonDraft: seasonDraft ?? null,
         actions: offseasonActions,
+        onDeclareKeepers: () => setKeeperSheetVisible(true),
       });
       // Warning scoping:
       //  1. Personal beats aggregate — if THIS user's team is over, show
@@ -993,16 +1000,6 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.dashRail}>
                   <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
-                  {isOffseason && leagueType === 'keeper' &&
-                    league.offseason_step === 'keeper_pending' && teamId && (
-                      <DeclareKeepers
-                        leagueId={league.id}
-                        teamId={teamId}
-                        season={league.season}
-                        keeperCount={league.keeper_count ?? 5}
-                        isCommissioner={isCommissioner}
-                      />
-                    )}
                   <WebActivityCard />
                 </View>
               </View>
@@ -1060,20 +1057,9 @@ export default function HomeScreen() {
                 together before the wider explore + league sections. */}
             <AnalyticsPreviewCard leagueId={league.id} scoringType={league.scoring_type} />
 
-            {/* Offseason sub-features now that the full OffseasonDashboard
-                is gone. The hero timeline + action pill handle the stepper
-                and primary CTA; these two components cover cases the pill
-                can't (picking keepers, scheduling an already-created draft). */}
-            {isOffseason && leagueType === 'keeper' &&
-              league.offseason_step === 'keeper_pending' && teamId && (
-                <DeclareKeepers
-                  leagueId={league.id}
-                  teamId={teamId}
-                  season={league.season}
-                  keeperCount={league.keeper_count ?? 5}
-                  isCommissioner={isCommissioner}
-                />
-              )}
+            {/* Keeper selection lives in a sheet opened from the hero CTA
+                (see computeOffseasonHeroAction) rather than inline here — the
+                full roster list made the home page far too heavy. */}
             <QuickNav leagueType={league.league_type ?? 'dynasty'} />
 
             {/* Season's over but the commissioner hasn't advanced yet —
@@ -1116,6 +1102,21 @@ export default function HomeScreen() {
         ) : null}
       </ScrollView>
       <LeagueSwitcher visible={switcherVisible} onClose={() => setSwitcherVisible(false)} />
+
+      {/* Keeper selection. Page-root overlay (opened by the hero's "Declare
+          Keepers" CTA) so it works from both the web and native layouts. */}
+      {league?.id && teamId && (
+        <DeclareKeepersSheet
+          visible={keeperSheetVisible}
+          onClose={() => setKeeperSheetVisible(false)}
+          leagueId={league.id}
+          teamId={teamId}
+          season={league.season}
+          keeperCount={league.keeper_count ?? 5}
+          isCommissioner={isCommissioner}
+          onFinalize={offseasonActions.handleFinalizeKeepers}
+        />
+      )}
 
       {/* Draft schedule modal — iOS shows a spinner + confirm button;
           Android uses the native dialog that fires on date change. */}

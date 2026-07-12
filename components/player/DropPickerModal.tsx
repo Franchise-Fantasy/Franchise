@@ -162,7 +162,7 @@ export function DropPickerModal({
     index: number;
   }) => {
     const fpts = scoringWeights && !isCategories
-      ? calculateAvgFantasyPoints(item, scoringWeights)
+      ? calculateAvgFantasyPoints(item, scoringWeights, sport)
       : null;
     const badge = getInjuryBadge(item.status);
     const logoUrl = getTeamLogoUrl(item.pro_team, sport);

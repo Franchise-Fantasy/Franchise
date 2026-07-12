@@ -6,20 +6,21 @@ import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { getSportModule } from '../../../utils/sports/registry.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
 });
 
 /** Sport-aware "next season" string. NBA seasons span two calendar years
- *  ("2025-26" → "2026-27"); WNBA seasons are single-year ("2026" → "2027").
- *  Hardcoding NBA format produced "2026-27" for WNBA leagues, which then
- *  didn't match the rest of the app's season-format expectations. */
-function nextSeason(current: string, sport: 'nba' | 'wnba'): string {
+ *  ("2025-26" → "2026-27"); WNBA and NFL seasons are single-year ("2026" →
+ *  "2027"). Hardcoding NBA format produced "2026-27" for WNBA leagues, which
+ *  then didn't match the rest of the app's season-format expectations. */
+function nextSeason(current: string, sport: string): string {
   const [startStr] = current.split('-');
   const startYear = parseInt(startStr, 10);
   const next = startYear + 1;
-  if (sport === 'wnba') return String(next);
+  if (getSportModule(sport).seasonFormat === 'single-year') return String(next);
   return `${next}-${String(next + 1).slice(2)}`;
 }
 
@@ -83,7 +84,7 @@ Deno.serve(async (req) => {
     }
 
     const currentSeason = league.season;
-    const sport = (league.sport as 'nba' | 'wnba' | null) ?? 'nba';
+    const sport = league.sport ?? 'nba';
     const newSeason = nextSeason(currentSeason, sport);
 
     // ── 1. Calculate final standings ──
@@ -193,13 +194,8 @@ Deno.serve(async (req) => {
       };
     });
 
-    const { error: archiveErr } = await supabaseAdmin
-      .from('team_seasons')
-      .upsert(teamSeasonRows, { onConflict: 'team_id,season' });
-    if (archiveErr) throw archiveErr;
-
-    // ── 4. Set champion ──
-    const leagueUpdates: Record<string, any> = {
+    // ── 4. Champion + new-season league fields ──
+    const leagueUpdates: Record<string, unknown> = {
       champion_team_id: championId,
       season: newSeason,
       schedule_generated: false,
@@ -207,151 +203,76 @@ Deno.serve(async (req) => {
       lottery_date: null,
     };
 
-    // ── 5. Reset all team stats ──
     const teamIds = allTeams.map(t => t.id);
-    const { error: resetErr } = await supabaseAdmin
-      .from('teams')
-      .update({ wins: 0, losses: 0, ties: 0, points_for: 0, points_against: 0, streak: '' })
-      .in('id', teamIds);
-    if (resetErr) throw resetErr;
 
-    // ── 6. Cancel pending trade proposals ──
-    await supabaseAdmin
-      .from('trade_proposals')
-      .update({ status: 'cancelled' })
-      .eq('league_id', league_id)
-      .in('status', ['pending', 'accepted', 'in_review']);
-
-    // ── 7. Cancel pending waiver claims ──
-    await supabaseAdmin
-      .from('waiver_claims')
-      .update({ status: 'cancelled' })
-      .eq('league_id', league_id)
-      .eq('status', 'pending');
-
-    // ── 8. Cancel pending transactions ──
-    await supabaseAdmin
-      .from('pending_transactions')
-      .update({ status: 'cancelled' })
-      .eq('league_id', league_id)
-      .eq('status', 'pending');
-
-    // ── 9. Clear league_waivers ──
-    await supabaseAdmin
-      .from('league_waivers')
-      .delete()
-      .eq('league_id', league_id);
-
-    // ── 10. Refill FAAB budgets + reset waiver priority ──
-    // FAAB budget always refills to the league's configured budget for the new
-    // season, regardless of the priority-reset policy — the two are independent.
-    await supabaseAdmin
-      .from('waiver_priority')
-      .update({ faab_remaining: league.faab_budget ?? 100 })
-      .eq('league_id', league_id);
-
-    // Priority order re-seeds per the league's waiver_priority_reset setting.
-    // 'keep' leaves the end-of-season (rolling) order untouched; the other two
-    // overwrite it. allTeams is sorted best → worst (see the sort in step 1).
+    // ── 5. Waiver priority order for the new season ──
+    // 'keep' leaves the end-of-season (rolling) order untouched — signalled to the
+    // RPC as null. allTeams is sorted best → worst (see the sort in step 1).
     const resetMode = league.waiver_priority_reset ?? 'reverse_standings';
-    if (resetMode !== 'keep') {
-      const orderedTeams =
-        resetMode === 'random'
+    const waiverOrder: string[] | null =
+      resetMode === 'keep'
+        ? null
+        : resetMode === 'random'
           ? shuffle(allTeams.map(t => t.id))
           : [...allTeams].reverse().map(t => t.id); // reverse_standings: worst finisher first
-      for (let i = 0; i < orderedTeams.length; i++) {
-        await supabaseAdmin
-          .from('waiver_priority')
-          .update({ priority: i + 1 })
-          .eq('league_id', league_id)
-          .eq('team_id', orderedTeams[i]);
-      }
-    }
 
-    // ── 11. Determine offseason step based on league type ──
+    // ── 6. League-type branch: what happens to rosters and rookie picks ──
     const leagueType = league.league_type ?? 'dynasty';
+    const isRedraft = leagueType === 'redraft';
+    let newPicks: Record<string, unknown>[] = [];
+    let pickUpdates: Record<string, unknown>[] = [];
 
-    if (leagueType === 'redraft') {
-      // Release all players back to the free agent pool
-      await supabaseAdmin
-        .from('league_players')
-        .delete()
-        .eq('league_id', league_id);
-
-      // Clean up any orphaned future draft picks
-      await supabaseAdmin
-        .from('draft_picks')
-        .delete()
-        .eq('league_id', league_id)
-        .is('draft_id', null);
-
+    if (isRedraft) {
+      // Rosters + orphan picks are cleared inside the RPC.
       leagueUpdates.offseason_step = 'ready_for_new_season';
-
     } else if (leagueType === 'keeper') {
-      // Players stay on rosters until keepers are declared
+      // Players stay on rosters until keepers are declared.
       leagueUpdates.offseason_step = 'keeper_pending';
-
+    } else if (league.rookie_draft_order === 'lottery') {
+      leagueUpdates.offseason_step = 'lottery_pending';
     } else {
-      // Dynasty: existing logic
-      if (league.rookie_draft_order === 'lottery') {
-        leagueUpdates.offseason_step = 'lottery_pending';
-      } else {
-        const rounds = league.rookie_draft_rounds ?? 2;
-        const reversedTeams = [...allTeams].reverse();
+      const rounds = league.rookie_draft_rounds ?? 2;
+      const reversedTeams = [...allTeams].reverse();
 
-        // Ensure draft picks exist for the new season — they may not if
-        // no future picks were created yet (e.g., brand-new league).
-        const { data: existingPicks } = await supabaseAdmin
-          .from('draft_picks')
-          .select('id')
-          .eq('league_id', league_id)
-          .eq('season', newSeason)
-          .is('draft_id', null)
-          .limit(1);
+      // Next season's picks may not exist yet (e.g. a brand-new league).
+      const { data: existingPicks } = await supabaseAdmin
+        .from('draft_picks')
+        .select('id')
+        .eq('league_id', league_id)
+        .eq('season', newSeason)
+        .is('draft_id', null)
+        .limit(1);
 
-        if (!existingPicks || existingPicks.length === 0) {
-          const newPicks = [];
-          for (let pos = 0; pos < reversedTeams.length; pos++) {
-            const team = reversedTeams[pos];
-            for (let round = 1; round <= rounds; round++) {
-              newPicks.push({
-                league_id: league_id,
-                season: newSeason,
-                round,
-                slot_number: pos + 1,
-                pick_number: (round - 1) * reversedTeams.length + (pos + 1),
-                current_team_id: team.id,
-                original_team_id: team.id,
-              });
-            }
-          }
-          await supabaseAdmin.from('draft_picks').insert(newPicks);
-        } else {
-          // Slot order is determined by the ORIGINATING team's standing —
-          // current_team_id may be a trade partner and would yield the wrong
-          // slot for any traded pick.
-          for (let pos = 0; pos < reversedTeams.length; pos++) {
-            const team = reversedTeams[pos];
-            for (let round = 1; round <= rounds; round++) {
-              await supabaseAdmin
-                .from('draft_picks')
-                .update({
-                  pick_number: (round - 1) * reversedTeams.length + (pos + 1),
-                  slot_number: pos + 1,
-                })
-                .eq('league_id', league_id)
-                .eq('season', newSeason)
-                .eq('round', round)
-                .eq('original_team_id', team.id)
-                .is('draft_id', null);
-            }
+      for (let pos = 0; pos < reversedTeams.length; pos++) {
+        const team = reversedTeams[pos];
+        for (let round = 1; round <= rounds; round++) {
+          const pick_number = (round - 1) * reversedTeams.length + (pos + 1);
+          if (!existingPicks || existingPicks.length === 0) {
+            newPicks.push({
+              round,
+              slot_number: pos + 1,
+              pick_number,
+              current_team_id: team.id,
+              original_team_id: team.id,
+            });
+          } else {
+            // Slot order keys off the ORIGINATING team's standing — current_team_id
+            // may be a trade partner, which would give a traded pick the wrong slot.
+            pickUpdates.push({
+              round,
+              original_team_id: team.id,
+              pick_number,
+              slot_number: pos + 1,
+            });
           }
         }
-        leagueUpdates.offseason_step = 'rookie_draft_pending';
       }
+      leagueUpdates.offseason_step = 'rookie_draft_pending';
     }
 
-    // ── 12. Auto-promote aged-out taxi squad players ──
+    // ── 7. Work out which taxi-squad players have aged out ──
+    const taxiPromoteIds: string[] = [];
+    const taxiTransactions: { team_id: string; notes: string }[] = [];
     if (league.taxi_slots > 0 && league.taxi_max_experience !== null) {
       const { data: taxiPlayers } = await supabaseAdmin
         .from('league_players')
@@ -360,58 +281,55 @@ Deno.serve(async (req) => {
         .eq('roster_slot', 'TAXI');
 
       if (taxiPlayers && taxiPlayers.length > 0) {
-        const taxiPlayerIds = taxiPlayers.map(tp => tp.player_id);
-        const { data: players } = await supabaseAdmin
-          .from('players')
-          .select('id, draft_year')
-          .in('id', taxiPlayerIds);
-
+        const [{ data: players }, { data: pNames }] = await Promise.all([
+          supabaseAdmin.from('players').select('id, draft_year').in('id', taxiPlayers.map(tp => tp.player_id)),
+          supabaseAdmin.from('players').select('id, name').in('id', taxiPlayers.map(tp => tp.player_id)),
+        ]);
         const draftYearMap = new Map((players ?? []).map(p => [p.id, p.draft_year]));
+        const nameMap = new Map((pNames ?? []).map(p => [p.id, p.name]));
         const newYear = parseInt(newSeason.split('-')[0], 10) + 1;
-        const promotedIds: string[] = [];
 
         for (const tp of taxiPlayers) {
           const draftYear = draftYearMap.get(tp.player_id);
-          const ineligible = draftYear == null || (newYear - draftYear) > league.taxi_max_experience;
-          if (ineligible) {
-            promotedIds.push(tp.id);
-          }
-        }
-
-        if (promotedIds.length > 0) {
-          await supabaseAdmin
-            .from('league_players')
-            .update({ roster_slot: 'BE', promoted_from_taxi: true })
-            .in('id', promotedIds);
-
-          // Log auto-promotions
-          const promotedPlayers = taxiPlayers.filter(tp => promotedIds.includes(tp.id));
-          const { data: pNames } = await supabaseAdmin
-            .from('players')
-            .select('id, name')
-            .in('id', promotedPlayers.map(p => p.player_id));
-          const nameMap = new Map((pNames ?? []).map(p => [p.id, p.name]));
-
-          for (const tp of promotedPlayers) {
-            await supabaseAdmin
-              .from('league_transactions')
-              .insert({
-                league_id,
-                type: 'commissioner',
-                team_id: tp.team_id,
-                notes: `${nameMap.get(tp.player_id) ?? 'Unknown'} auto-promoted from taxi squad (aged out)`,
-              });
-          }
+          const agedOut = draftYear == null || (newYear - draftYear) > league.taxi_max_experience;
+          if (!agedOut) continue;
+          taxiPromoteIds.push(tp.id);
+          taxiTransactions.push({
+            team_id: tp.team_id,
+            notes: `${nameMap.get(tp.player_id) ?? 'Unknown'} auto-promoted from taxi squad (aged out)`,
+          });
         }
       }
     }
 
-    // ── 13. Update league ──
-    const { error: leagueUpdateErr } = await supabaseAdmin
-      .from('leagues')
-      .update(leagueUpdates)
-      .eq('id', league_id);
-    if (leagueUpdateErr) throw leagueUpdateErr;
+    // ── 8. Apply EVERY write in one transaction ──
+    // The season archive, the team-stat reset, the cancellations, the waiver
+    // re-seed, the roster/pick changes, and the offseason_step flip all commit
+    // together. Previously the reset landed early but the gate (offseason_step)
+    // flipped last, so a mid-flow failure left the gate open with the standings
+    // already zeroed — and the retry archived that all-zero garbage over the real
+    // season and derived the draft order from it.
+    const { error: advErr } = await supabaseAdmin.rpc('advance_season_atomic', {
+      p_league_id: league_id,
+      p_team_seasons: teamSeasonRows,
+      p_team_ids: teamIds,
+      p_league_updates: leagueUpdates,
+      p_faab_budget: league.faab_budget ?? 100,
+      p_waiver_order: waiverOrder,
+      p_is_redraft: isRedraft,
+      p_new_season: newSeason,
+      p_new_picks: newPicks,
+      p_pick_updates: pickUpdates,
+      p_taxi_promote_ids: taxiPromoteIds,
+      p_taxi_transactions: taxiTransactions,
+    });
+    if (advErr) {
+      // Lost the race to a concurrent advance (the RPC re-checks the gate).
+      if ((advErr as { code?: string }).code === '23505') {
+        throw new HttpError('League is already in the offseason', 409);
+      }
+      throw advErr;
+    }
 
     // ── 14. Notify league ──
     const champName = championId

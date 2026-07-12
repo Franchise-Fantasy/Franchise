@@ -3,6 +3,7 @@
 // batch of N matchups runs zero queries here — the bulk loader handled
 // everything up front.
 
+import { NFL_GAME_COLUMNS } from '../../../../utils/scoring/nflStatLine.ts';
 import { isActiveSlot } from '../resolveSlot.ts';
 
 import type { TeamData } from './dataLoader.ts';
@@ -20,17 +21,35 @@ function todayYmd(): string {
   return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
 }
 
-function buildPlayerGames(game: Record<string, unknown>, slot: string, fpts: number): PlayerGameEntry {
-  return {
-    date: game.game_date as string,
-    slot,
-    fpts: Math.round(fpts * 100) / 100,
-    stats: {
+function buildPlayerGames(
+  game: Record<string, unknown>,
+  slot: string,
+  fpts: number,
+  sport?: string | null,
+): PlayerGameEntry {
+  let stats: Record<string, unknown>;
+  if (sport === 'nfl') {
+    // Nulls are skipped so a kicker's frozen payload doesn't carry 20 null
+    // passing fields.
+    stats = {};
+    for (const col of NFL_GAME_COLUMNS) {
+      if (game[col] != null) stats[col] = game[col];
+    }
+  } else {
+    // Basketball payload unchanged — the client WeekSummarySheet/stat-line
+    // readers key off exactly these fields.
+    stats = {
       pts: game.pts, reb: game.reb, ast: game.ast, stl: game.stl, blk: game.blk,
       tov: game.tov, fgm: game.fgm, fga: game.fga, '3pm': game['3pm'],
       ftm: game.ftm, fta: game.fta, pf: game.pf,
       double_double: game.double_double, triple_double: game.triple_double,
-    },
+    };
+  }
+  return {
+    date: game.game_date as string,
+    slot,
+    fpts: Math.round(fpts * 100) / 100,
+    stats,
     matchup: (game.matchup as string | null) ?? null,
   };
 }
@@ -38,6 +57,7 @@ function buildPlayerGames(game: Record<string, unknown>, slot: string, fpts: num
 export function computeTeamScore(
   data: TeamData,
   weights: ScoringWeight[],
+  sport?: string | null,
 ): { total: number; playerScores: PlayerScoreEntry[] } {
   if (data.allPlayerIds.length === 0) return { total: 0, playerScores: [] };
 
@@ -62,7 +82,7 @@ export function computeTeamScore(
       },
     );
 
-    const fpts = calculateGameFpts(game as Record<string, number>, weights);
+    const fpts = calculateGameFpts(game as Record<string, number>, weights, sport);
 
     if (isActiveSlot(slot)) {
       teamTotal += fpts;
@@ -70,7 +90,7 @@ export function computeTeamScore(
     }
 
     if (!playerGamesMap.has(pid)) playerGamesMap.set(pid, []);
-    playerGamesMap.get(pid)!.push(buildPlayerGames(game, slot, fpts));
+    playerGamesMap.get(pid)!.push(buildPlayerGames(game, slot, fpts, sport));
   }
 
   const playerScores: PlayerScoreEntry[] = data.allPlayerIds.map((pid) => {
@@ -92,6 +112,7 @@ export function computeTeamScore(
 
 export function computeTeamCategoryStats(
   data: TeamData,
+  sport?: string | null,
 ): { teamStats: Record<string, number>; playerScores: PlayerScoreEntry[] } {
   if (data.allPlayerIds.length === 0) return { teamStats: {}, playerScores: [] };
 
@@ -118,7 +139,7 @@ export function computeTeamCategoryStats(
     if (isActiveSlot(slot)) activeGames.push(game);
 
     if (!playerGamesMap.has(pid)) playerGamesMap.set(pid, []);
-    playerGamesMap.get(pid)!.push(buildPlayerGames(game, slot, 0));
+    playerGamesMap.get(pid)!.push(buildPlayerGames(game, slot, 0, sport));
   }
 
   const playerScores: PlayerScoreEntry[] = data.allPlayerIds.map((pid) => {
@@ -135,5 +156,5 @@ export function computeTeamCategoryStats(
     };
   });
 
-  return { teamStats: aggregateGameStats(activeGames), playerScores };
+  return { teamStats: aggregateGameStats(activeGames, sport), playerScores };
 }

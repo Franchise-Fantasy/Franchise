@@ -21,9 +21,15 @@
 //
 // Mirrors the poll-news contract: writes to player_news + player_news_mentions
 // (same row shape, so Google rows render identically — headshots included) and
-// records a heartbeat under `poll-news-google:<sport>`. Push notifications fire
-// only for articles published within NOTIFY_MAX_AGE_MS, so the feed fills with
-// gap-fill coverage but users are only pinged for genuinely-new news.
+// records a heartbeat under `poll-news-google:<sport>`.
+//
+// FEED-ONLY — this function NEVER sends a push notification. Google's ~40-outlet
+// allowlist produces far more articles than RotoWire does, and pushing all of
+// them buried users in notifications (the volume was pushing people toward
+// turning notifications off entirely). Player-news pushes now come from
+// poll-news (RotoWire, curated) alone; Google coverage still fills the in-app
+// feed for players RotoWire never writes about. Don't re-add a push here without
+// a dedicated, default-off preference key.
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -31,7 +37,7 @@ import type { Sport } from '../_shared/bdl.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
-import { buildPlayerNameIndex, insertNewsArticle, notifyRosteredPlayerNews } from '../_shared/news-extract.ts';
+import { buildPlayerNameIndex, insertNewsArticle } from '../_shared/news-extract.ts';
 import { isFantasyRelevant } from '../_shared/newsText.ts';
 import { fetchWithRetry } from '../_shared/retry.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -51,6 +57,7 @@ const supabase = createClient(
 const SPORT_QUERY_TAG: Record<Sport, string> = {
   nba: 'NBA',
   wnba: 'WNBA',
+  nfl: 'NFL', // not scheduled for NFL yet (Body enum gates it); tag ready if that changes
 };
 
 // Tuning knobs. Google News is undocumented and rate-limits aggressively, so we
@@ -75,7 +82,6 @@ const MAX_ARTICLE_AGE_DAYS = 14;       // drop articles published before this �
                                        // years-old stories. `when:Nd` in the URL filters at the source;
                                        // this is the authoritative belt-and-suspenders insert gate.
 const MAX_ARTICLE_AGE_MS = MAX_ARTICLE_AGE_DAYS * 86_400_000;
-const NOTIFY_MAX_AGE_MS = 48 * 3_600_000;  // only push for articles published within this window
 const MAX_ARTICLES_PER_PLAYER = 3;     // top-N Google results to keep per player/run (curbs same-event flooding)
 
 // ── Concurrency helper ─────────────────────────
@@ -261,14 +267,11 @@ Deno.serve(async (req: Request) => {
     console.log(`Fetched ${allItems.length} unique allowlisted items, ${fetchErrors} fetch errors`);
 
     // 6. Insert each article via the shared helper. requireMatch=true drops
-    //    drifted Google results that match no roster name. We notify only for
-    //    articles published within NOTIFY_MAX_AGE_MS so that older stories
-    //    Google re-surfaces (or that resurface after a player rotates back into
-    //    the queue) don't ping as a "New Update" — only genuinely-new news does.
+    //    drifted Google results that match no roster name. Inserting is all this
+    //    function does — see the FEED-ONLY note in the header for why no push
+    //    goes out from here.
     let inserted = 0;
     let mentionsInserted = 0;
-    const newArticlePlayerIds = new Set<string>();
-    const newArticleTitles = new Map<string, string>();
 
     let skippedIrrelevant = 0;
     let skippedStale = 0;
@@ -293,23 +296,6 @@ Deno.serve(async (req: Request) => {
 
       inserted++;
       mentionsInserted += matchedPlayerIds.length;
-
-      const ageMs = item.pubDate ? Date.now() - new Date(item.pubDate).getTime() : Infinity;
-      if (ageMs <= NOTIFY_MAX_AGE_MS) {
-        for (const pid of matchedPlayerIds) {
-          // Suppress the push if RotoWire (or a prior poll-news-google run)
-          // already covered this player inside the GAP_HOURS window. The article
-          // still inserts into the feed above — we just don't double-ping a user
-          // who was already notified about this player from the preferred source.
-          // Reaches here via co-mention: the batch only contains players WITHOUT
-          // recent coverage, but an article fetched for player A can also mention
-          // player B who does have recent coverage.
-          if (playersWithRecentCoverage.has(pid)) continue;
-          newArticlePlayerIds.add(pid);
-          const pName = playerById.get(pid)?.name;
-          if (pName) newArticleTitles.set(pName, item.title);
-        }
-      }
     }
 
     // 7. Mark every queried player as checked, regardless of result. Prevents
@@ -321,14 +307,6 @@ Deno.serve(async (req: Request) => {
       .in('id', batch);
     if (updateErr) console.warn('last_google_news_check_at update error:', updateErr.message);
 
-    // 8. Notify users rostering a player named in a fresh article.
-    const notificationsSent = await notifyRosteredPlayerNews(
-      supabase,
-      [...newArticlePlayerIds],
-      playerById,
-      newArticleTitles,
-    );
-
     const summary = {
       sport,
       eligible: eligibleIds.size,
@@ -339,7 +317,6 @@ Deno.serve(async (req: Request) => {
       skippedIrrelevant,
       inserted,
       mentionsInserted,
-      notificationsSent,
     };
     console.log('poll-news-google complete:', JSON.stringify(summary));
 

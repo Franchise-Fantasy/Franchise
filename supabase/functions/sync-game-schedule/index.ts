@@ -6,12 +6,17 @@
  * shape, so a single edge function handles both.
  *
  * Cron-triggered (CRON_SECRET) or manually invokable. Body params:
- *   { sport?: 'nba' | 'wnba'   default 'nba'
- *     season?: string          NBA: '2025-26', WNBA: '2026'  (default = current) }
+ *   { sport?: 'nba' | 'wnba' | 'nfl'   default 'nba'
+ *     season?: string   NBA: '2025-26', WNBA/NFL: '2026'  (default = current) }
  *
  * Upserts on (sport, game_id). Updates the score columns + status when the
  * game has finalized so re-running a finished season doesn't undo final
  * scores written by poll-live-stats.
+ *
+ * NFL: regular-season games only (postseason=false — BDL restarts week
+ * numbering at 1 in the postseason, and fantasy schedules end at week 18).
+ * The NFL week number is stored in game_schedule.week (drives bye detection).
+ * Do NOT add start_date/end_date params for NFL — BDL silently ignores them.
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -29,6 +34,7 @@ const supabase = createClient(
 const CURRENT_SEASON: Record<Sport, string> = {
   nba: "2025-26",
   wnba: "2026",
+  nfl: "2026",
 };
 
 /**
@@ -80,7 +86,7 @@ Deno.serve(async (req: Request) => {
   let season: string | undefined;
   try {
     const body = await req.json();
-    if (body?.sport === "wnba") sport = "wnba";
+    if (body?.sport === "wnba" || body?.sport === "nfl") sport = body.sport;
     if (typeof body?.season === "string") season = body.season;
   } catch {
     // No body — defaults apply.
@@ -97,6 +103,9 @@ Deno.serve(async (req: Request) => {
 
     const bdlGames = await bdlFetchAll(sport, "/games", {
       "seasons[]": String(seasonYear),
+      // NFL: fantasy only cares about the regular season, and BDL restarts
+      // postseason week numbers at 1 (would corrupt the week column).
+      ...(sport === "nfl" ? { postseason: "false" } : {}),
     });
 
     if (!bdlGames || bdlGames.length === 0) {
@@ -131,6 +140,8 @@ Deno.serve(async (req: Request) => {
           away_score: isFinal ? (g.visitor_team_score ?? null) : null,
           status,
           game_time_utc: normalizeGameTimeUtc(rawDateTime),
+          // NFL week number (1-18) drives bye detection; basketball has none.
+          ...(sport === "nfl" ? { week: g.week ?? null } : {}),
         };
       })
       .filter((r) => r.game_date);

@@ -29,6 +29,9 @@ describe('position limits — SQL/TS parity + RPC enforcement', () => {
       // Reversed-order pairs — primary position only, so these must differ
       // from their non-reversed counterparts above.
       'SG-PG', 'SF-SG', 'PF-SF', 'C-PF', 'F-G', 'C-F', 'SF-PG', 'C-PG', 'C-G',
+      // NFL disjoint tokens (migration 20260710000003) — each counts only
+      // toward its own limit key, no spectrum span, no bare-letter parents.
+      'QB', 'RB', 'WR', 'TE', 'K', 'DST',
     ];
 
     it.each(tokens)('matches for "%s"', async (token) => {

@@ -38,14 +38,18 @@ function getComputedSort(p: PlayerSeasonStats, key: SortKey): number {
 
 const POSITIONS = ['All', 'PG', 'SG', 'SF', 'PF', 'C', 'G', 'F'] as const;
 const WNBA_FILTER_POSITIONS = ['All', 'G', 'F', 'C'] as const;
+const NFL_FILTER_POSITIONS = ['All', 'QB', 'RB', 'WR', 'TE', 'K', 'DST'] as const;
 export type PositionFilter = (typeof POSITIONS)[number];
 export { POSITIONS };
 
 /** Filter chip list for the player browser. WNBA leagues hide the
- *  PG/SG/SF/PF chips since players are reported as bare G/F/C. NFL/NHL/MLB
- *  fall back to NBA chips today — they don't ship a player browser yet. */
+ *  PG/SG/SF/PF chips since players are reported as bare G/F/C; NFL uses its
+ *  disjoint position set. NHL/MLB fall back to NBA chips today — they don't
+ *  ship a player browser yet. */
 export function getPositionFilters(sport: string): readonly string[] {
-  return sport === 'wnba' ? WNBA_FILTER_POSITIONS : POSITIONS;
+  if (sport === 'wnba') return WNBA_FILTER_POSITIONS;
+  if (sport === 'nfl') return NFL_FILTER_POSITIONS;
+  return POSITIONS;
 }
 
 // Which base positions each group filter matches
@@ -126,7 +130,7 @@ export function usePlayerFilter(
       result = result.filter(p => p.name.toLowerCase().includes(query));
     }
 
-    // Filter by NBA/WNBA pro team (tricode match on pro_team field)
+    // Filter by pro team (tricode match on pro_team field)
     if (selectedProTeam !== 'All') {
       result = result.filter(p => p.pro_team === selectedProTeam);
     }
@@ -184,7 +188,7 @@ export function usePlayerFilter(
     if (sortBy === 'FPTS' && scoringWeights) {
       const fptsMap = new Map<string, number>();
       for (const p of result) {
-        fptsMap.set(p.player_id, calculateAvgFantasyPoints(p, scoringWeights));
+        fptsMap.set(p.player_id, calculateAvgFantasyPoints(p, scoringWeights, sport));
       }
       result = [...result].sort((a, b) =>
         (fptsMap.get(b.player_id) ?? 0) - (fptsMap.get(a.player_id) ?? 0),
@@ -197,7 +201,7 @@ export function usePlayerFilter(
     }
 
     return result;
-  }, [players, searchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
+  }, [players, searchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,

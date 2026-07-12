@@ -95,7 +95,12 @@ export async function loadTeamDataBatch(
       ? supabase
           .from('player_games')
           .select(
-            'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup',
+            // One select for the whole batch, which can mix sports across
+            // leagues — basketball AND NFL columns together. Rows of the
+            // other sport carry nulls/zeros; per-league scoring only reads
+            // its own sport's columns via statToGameFor. (Single literal —
+            // supabase-js can't type-parse a concatenated select string.)
+            'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, game_date, matchup',
           )
           .in('player_id', playerIdList)
           .gte('game_date', minStart)

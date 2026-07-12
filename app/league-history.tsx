@@ -1,5 +1,7 @@
+import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import { useState } from 'react';
-import { ScrollView, StyleSheet } from 'react-native';
+import { ScrollView, StyleSheet, TouchableOpacity } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { AllTimeRecords } from '@/components/league-history/AllTimeRecords';
@@ -14,7 +16,9 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
+import { useSession } from '@/context/AuthProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useLeague } from '@/hooks/useLeague';
 import { useBracketHistory, useDraftHistory, useHeadToHead, useSeasonStandings } from '@/hooks/useLeagueHistory';
 import { useTradeProposals } from '@/hooks/useTrades';
 import { s } from '@/utils/scale';
@@ -29,7 +33,11 @@ type Segment = typeof SEGMENTS[number];
 export default function LeagueHistory() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const router = useRouter();
   const { leagueId } = useAppState();
+  const session = useSession();
+  const { data: league } = useLeague();
+  const isCommissioner = !!(session?.user?.id && league?.created_by === session.user.id);
 
   // Prefetch so switching segments feels instant.
   useSeasonStandings(leagueId);
@@ -52,7 +60,22 @@ export default function LeagueHistory() {
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top']}>
-      <PageHeader title="League History" />
+      <PageHeader
+        title="League History"
+        rightAction={
+          isCommissioner ? (
+            <TouchableOpacity
+              onPress={() => router.push({ pathname: '/add-league-history', params: { leagueId } })}
+              accessibilityRole="button"
+              accessibilityLabel="Add season history"
+              accessibilityHint="Import or enter past season standings"
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <Ionicons name="add-circle-outline" size={26} color={c.accent} />
+            </TouchableOpacity>
+          ) : undefined
+        }
+      />
       <ScrollView style={styles.scroll} contentContainerStyle={styles.scrollContent}>
         {/* TrophyCase and AllTimeRecords are self-contained — they bring
             their own gold-rule labels and cards. */}

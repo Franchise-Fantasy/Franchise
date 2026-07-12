@@ -13,8 +13,9 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useColors } from '@/hooks/useColors';
-import { generateDraftPicks, generateFutureDraftPicks } from '@/lib/draft';
+import { buildDraftPicks, buildFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
+import { Json } from '@/types/database.types';
 import { sanitizeHandle } from '@/utils/league/paymentLinks';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
@@ -88,7 +89,13 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
       return;
     }
 
-    // If league size changed, update draft picks_per_round and regenerate picks
+    // If league size changed, rebuild every draft pick for the new size.
+    //
+    // This was a delete-then-regenerate across two pick sets, and a failure
+    // between them left the league with NO draft picks — the old catch block
+    // said as much ("picks may need manual regeneration"). The picks are laid
+    // out here and swapped in by replace_draft_picks in a single transaction, so
+    // a failure keeps the old picks instead of destroying them.
     if (canChangeSize && maxTeams !== (league.teams ?? 12)) {
       try {
         const { data: draft } = await supabase
@@ -98,49 +105,39 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
           .eq('type', 'initial')
           .maybeSingle();
 
-        if (draft && draft.rounds != null && draft.season) {
-          // Update picks_per_round on draft row
-          await supabase
-            .from('drafts')
-            .update({ picks_per_round: maxTeams })
-            .eq('id', draft.id);
+        const hasInitial = !!draft && draft.rounds != null && !!draft.season;
+        const isDynasty = league.league_type === 'dynasty' && league.max_future_seasons > 0;
 
-          // Delete existing draft picks and regenerate
-          await supabase
-            .from('draft_picks')
-            .delete()
-            .eq('draft_id', draft.id);
-
-          await generateDraftPicks(
-            draft.id,
-            maxTeams,
-            draft.rounds,
-            draft.season,
-            leagueId,
-            (draft.draft_type as 'snake' | 'linear') ?? 'snake',
-          );
-        }
-
-        // Regenerate future draft picks (dynasty leagues)
-        if (league.league_type === 'dynasty' && league.max_future_seasons > 0) {
-          await supabase
-            .from('draft_picks')
-            .delete()
-            .eq('league_id', leagueId)
-            .is('draft_id', null);
-
-          await generateFutureDraftPicks(
-            leagueId,
-            maxTeams,
-            league.rookie_draft_rounds ?? 3,
-            league.season,
-            league.max_future_seasons,
-            (league.sport as 'nba' | 'wnba' | null) ?? 'nba',
-          );
-        }
+        const { error: picksError } = await supabase.rpc('replace_draft_picks', {
+          p_league_id: leagueId,
+          ...(hasInitial
+            ? {
+                p_draft_id: draft!.id,
+                p_picks_per_round: maxTeams,
+                p_initial_picks: buildDraftPicks(
+                  maxTeams,
+                  draft!.rounds!,
+                  draft!.season!,
+                  (draft!.draft_type as 'snake' | 'linear') ?? 'snake',
+                ) as unknown as Json,
+              }
+            : {}),
+          ...(isDynasty
+            ? {
+                p_future_picks: buildFutureDraftPicks(
+                  maxTeams,
+                  league.rookie_draft_rounds ?? 3,
+                  league.season,
+                  league.max_future_seasons,
+                  (league.sport as 'nba' | 'wnba' | null) ?? 'nba',
+                ) as unknown as Json,
+              }
+            : {}),
+        });
+        if (picksError) throw picksError;
       } catch {
         setSaving(false);
-        Alert.alert('Warning', 'League size updated but draft picks may need manual regeneration.');
+        Alert.alert('Warning', 'League size updated but draft picks were not regenerated. Try saving again.');
         queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
         onClose();
         return;

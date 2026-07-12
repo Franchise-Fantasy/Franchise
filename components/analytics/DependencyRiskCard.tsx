@@ -109,7 +109,7 @@ export function DependencyRiskCard({
         depSorted.map((r, idx) => {
           const team = teamById.get(r.teamId);
           if (!team) return null;
-          const isMe = r.teamId === teamId;
+          const isViewed = r.teamId === teamId;
           const pct = Math.round(r.topThreePct * 100);
           const color = depColor(r.topThreePct);
           return (
@@ -117,11 +117,11 @@ export function DependencyRiskCard({
               key={r.teamId}
               index={idx}
               total={depSorted.length}
-              isActive={isMe}
+              isActive={isViewed}
               accessibilityLabel={`${team.name}, ${pct}% from top 3: ${r.topThreePlayers.join(", ")}`}
             >
               <ThemedText
-                style={[styles.teamName, { color: c.text, fontWeight: isMe ? "700" : "500" }]}
+                style={[styles.teamName, { color: c.text, fontWeight: isViewed ? "700" : "500" }]}
                 numberOfLines={1}
               >
                 {team.tricode ?? team.name.slice(0, 10)}

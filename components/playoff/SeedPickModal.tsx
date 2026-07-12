@@ -33,6 +33,9 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
   const { leagueId } = useAppState();
   const [submitting, setSubmitting] = useState(false);
   const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
+  // Snapshot "now" once at mount — the countdown needn't tick, and this keeps
+  // render pure (no Date.now() in the render body).
+  const [now] = useState(() => Date.now());
   const queryClient = useQueryClient();
 
   const { data: allPicks } = useSeedPicks(season, pick.round, true);
@@ -57,6 +60,22 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
   // Check if it's our turn (all higher seeds must have picked)
   const higherSeedPicks = (allPicks ?? []).filter((p) => p.picking_seed < pick.picking_seed);
   const isOurTurn = higherSeedPicks.every((p) => p.picked_opponent_id !== null);
+
+  // Managers get ~a day to choose; after that the bracket auto-defaults them to
+  // the lowest available seed (kept in sync with resolve-stale-seed-picks).
+  const AUTO_PICK_WINDOW_HOURS = 24;
+  const hoursLeft = pick.created_at
+    ? Math.max(
+        0,
+        Math.ceil(
+          (new Date(pick.created_at).getTime() + AUTO_PICK_WINDOW_HOURS * 3600_000 - now) / 3600_000,
+        ),
+      )
+    : null;
+  const autoPickNote =
+    hoursLeft && hoursLeft > 0
+      ? `Pick within ~${hoursLeft}h, or you'll be auto-matched with the lowest available seed.`
+      : `Pick soon — you'll otherwise be auto-matched with the lowest available seed.`;
 
   const handleSubmit = async () => {
     if (!selectedOpponent || !leagueId) return;
@@ -112,6 +131,9 @@ export function SeedPickModal({ visible, onClose, pick, teamMap, season }: Props
             </View>
           ) : (
             <>
+              <ThemedText style={[styles.autoNote, { color: c.secondaryText }]}>
+                {autoPickNote}
+              </ThemedText>
               {availableOpponents.length === 0 ? (
                 <ThemedText style={[styles.noOpponents, { color: c.secondaryText }]}>
                   No opponents available yet.
@@ -206,6 +228,11 @@ const styles = StyleSheet.create({
   noOpponents: {
     textAlign: 'center',
     paddingVertical: s(16),
+  },
+  autoNote: {
+    fontSize: ms(12),
+    lineHeight: ms(16),
+    marginBottom: s(12),
   },
   opponentRow: {
     borderWidth: 1,

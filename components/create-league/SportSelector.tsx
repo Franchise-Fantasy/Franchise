@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, SPORT_THEMES } from '@/constants/Colors';
@@ -13,7 +13,9 @@ import {
   type Sport,
 } from '@/constants/LeagueDefaults';
 import { useSession } from '@/context/AuthProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useIsAdmin } from '@/hooks/useIsAdmin';
 import { ms, s } from '@/utils/scale';
 
 interface SportSelectorProps {
@@ -40,12 +42,20 @@ export function SportSelector({ selected, onSelect, ignoreCreationWindow = false
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const session = useSession();
+  const { isDesktop } = useBreakpoint();
+  const { isAdmin } = useIsAdmin();
   const bypassOpenDate = canBypassCreationWindow(session?.user?.id);
 
   // Compute creation status per render — pure date math, cheap.
   const tiles = useMemo(() => {
     const today = new Date();
-    return SPORT_OPTIONS.map((label) => {
+    return SPORT_OPTIONS.filter((label) => {
+      // NFL is internal-test only: admin accounts see the tile in the create
+      // wizard; imports never offer it (no NFL import path). This is UX-only —
+      // the leagues_nfl_admin_gate DB trigger enforces the same server-side.
+      if (label === 'NFL') return isAdmin && !ignoreCreationWindow;
+      return true;
+    }).map((label) => {
       const sport = SPORT_TO_DB[label];
       // For imports, force the current season available — an existing league
       // isn't bound by the create-a-new-league window (see prop doc).
@@ -54,7 +64,7 @@ export function SportSelector({ selected, onSelect, ignoreCreationWindow = false
         : getCreationStatus(sport, today, { bypassOpenDate });
       return { sport, label, status };
     });
-  }, [bypassOpenDate, ignoreCreationWindow]);
+  }, [bypassOpenDate, ignoreCreationWindow, isAdmin]);
 
   return (
     <View style={styles.row}>
@@ -83,25 +93,13 @@ export function SportSelector({ selected, onSelect, ignoreCreationWindow = false
             ? `Opens ${status.opensAt}`
             : 'Coming soon';
 
-        return (
-          <TouchableOpacity
-            key={sport}
-            onPress={() => !isGated && onSelect(sport)}
-            disabled={isGated}
-            activeOpacity={0.75}
-            accessibilityRole="button"
-            accessibilityState={{ selected: isSelected, disabled: isGated }}
-            accessibilityLabel={`${label}, ${status.season} Season, ${statusText}`}
-            style={[
-              styles.tile,
-              {
-                borderColor,
-                backgroundColor: tileBg,
-                opacity: isGated ? 0.55 : 1,
-                borderWidth: isSelected ? 1.5 : 1,
-              },
-            ]}
-          >
+        const a11y = {
+          accessibilityState: { selected: isSelected, disabled: isGated },
+          accessibilityLabel: `${label}, ${status.season} Season, ${statusText}`,
+        } as const;
+
+        const tileFace = (
+          <>
             <ThemedText
               type="varsity"
               style={[styles.sportName, { color: nameColor }]}
@@ -114,6 +112,58 @@ export function SportSelector({ selected, onSelect, ignoreCreationWindow = false
             <ThemedText style={[styles.status, { color: statusColor }]}>
               {statusText}
             </ThemedText>
+          </>
+        );
+
+        // Desktop: size to content instead of splitting the row into two
+        // thumb-sized slabs, and answer the pointer on hover. Pressable is
+        // web-only here — native keeps TouchableOpacity so the press-fade
+        // stays exactly as it is on the phone.
+        if (isDesktop) {
+          return (
+            <Pressable
+              key={sport}
+              onPress={() => !isGated && onSelect(sport)}
+              disabled={isGated}
+              accessibilityRole="radio"
+              {...a11y}
+              style={({ pressed, hovered }: { pressed: boolean; hovered?: boolean }) => [
+                styles.tile,
+                styles.tileDesktop,
+                {
+                  borderColor:
+                    hovered && !isSelected && !isGated ? c.secondaryText : borderColor,
+                  backgroundColor: tileBg,
+                  opacity: isGated ? 0.55 : 1,
+                  borderWidth: isSelected ? 1.5 : 1,
+                },
+                pressed && !isGated && { opacity: 0.75 },
+              ]}
+            >
+              {tileFace}
+            </Pressable>
+          );
+        }
+
+        return (
+          <TouchableOpacity
+            key={sport}
+            onPress={() => !isGated && onSelect(sport)}
+            disabled={isGated}
+            activeOpacity={0.75}
+            accessibilityRole="button"
+            {...a11y}
+            style={[
+              styles.tile,
+              {
+                borderColor,
+                backgroundColor: tileBg,
+                opacity: isGated ? 0.55 : 1,
+                borderWidth: isSelected ? 1.5 : 1,
+              },
+            ]}
+          >
+            {tileFace}
           </TouchableOpacity>
         );
       })}
@@ -133,6 +183,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(12),
     alignItems: 'flex-start',
     gap: s(2),
+  },
+  // Same Yoga caveat as SegmentedControl: `flex: 0` would zero the flexBasis and
+  // squeeze the tile down to its padding. Size to content instead.
+  tileDesktop: {
+    flexGrow: 0,
+    flexShrink: 0,
+    flexBasis: 'auto',
+    minWidth: 150,
+    paddingVertical: 9,
+    paddingHorizontal: 14,
   },
   sportName: {
     fontSize: ms(15),

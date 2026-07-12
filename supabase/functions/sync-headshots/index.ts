@@ -36,7 +36,11 @@ const supabase = createClient(
 const HEADSHOT_W = 256;
 const HEADSHOT_H = 192;
 
-const HEADSHOT_SOURCES: Record<Sport, (id: string) => string> = {
+// NFL has no headshot source (initials avatars by design), so this function is
+// basketball-only end to end — the body parse below never admits 'nfl'.
+type BasketballSport = Exclude<Sport, "nfl">;
+
+const HEADSHOT_SOURCES: Record<BasketballSport, (id: string) => string> = {
   nba:  (id) => `https://cdn.nba.com/headshots/nba/latest/1040x760/${id}.png`,
   wnba: (id) => `https://a.espncdn.com/i/headshots/wnba/players/full/${id}.png`,
 };
@@ -51,7 +55,7 @@ async function resizeHeadshot(buf: Uint8Array): Promise<Uint8Array> {
  * Pulls every existing object name in a given sport's headshot subdir.
  * Storage list() pages 1000 entries; loop until exhausted.
  */
-async function listExisting(sport: Sport): Promise<Set<string>> {
+async function listExisting(sport: BasketballSport): Promise<Set<string>> {
   const seen = new Set<string>();
   let offset = 0;
   const PAGE = 1000;
@@ -70,7 +74,7 @@ async function listExisting(sport: Sport): Promise<Set<string>> {
   return seen;
 }
 
-async function syncSport(sport: Sport, force: boolean): Promise<{
+async function syncSport(sport: BasketballSport, force: boolean): Promise<{
   total: number; uploaded: number; skipped: number; failed: { name: string; id: string; err: string }[];
 }> {
   const { data: players, error } = await supabase
@@ -134,7 +138,7 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Unauthorized", 401);
   }
 
-  let sportFilter: Sport | null = null;
+  let sportFilter: BasketballSport | null = null;
   let force = false;
   try {
     const body = await req.json();
@@ -145,7 +149,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const sports: Sport[] = sportFilter ? [sportFilter] : ["nba", "wnba"];
+    const sports: BasketballSport[] = sportFilter ? [sportFilter] : ["nba", "wnba"];
     const results: Record<string, unknown> = {};
     for (const s of sports) {
       results[s] = await syncSport(s, force);

@@ -154,10 +154,12 @@ async function handlePreview(
     }
   }
 
-  // Fetch our players for matching
+  // Fetch our players for matching. Sleeper import is NBA-only — without the
+  // sport filter, same-name WNBA/NFL players could hijack matches.
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
-    .select('id, name, pro_team, position');
+    .select('id, name, pro_team, position')
+    .eq('sport', 'nba');
 
   // Match players
   const byNameAndTeam = new Map<string, any>();

@@ -54,6 +54,7 @@ Deno.serve(async (req: Request) => {
 
     // Unpublish: soft-disable the prospect (don't delete — may be on rosters)
     if (topic.includes("unpublish") || topic.includes("delete")) {
+      // sport-scope: contentful_entry_id is a unique key (NBA prospect pipeline)
       const { error } = await supabase
         .from("players")
         .update({ is_prospect: false, updated_at: new Date().toISOString() })
@@ -95,10 +96,14 @@ Deno.serve(async (req: Request) => {
       is_prospect: true,
       rookie: true,
       status: "prospect",
+      // Explicit, not the column DEFAULT — the Contentful prospect pipeline
+      // is NBA-only.
+      sport: "nba",
       updated_at: new Date().toISOString(),
     };
 
-    // Upsert: match on contentful_entry_id
+    // Upsert: match on contentful_entry_id (unique key)
+    // sport-scope: playerRow carries sport:'nba' explicitly (built above)
     const { data, error } = await supabase
       .from("players")
       .upsert(playerRow, { onConflict: "contentful_entry_id" })

@@ -47,6 +47,7 @@ import { MatchupResultModal } from "@/components/banners/MatchupResultModal";
 import { OfflineBanner } from "@/components/banners/OfflineBanner";
 import { ForceUpdateScreen } from "@/components/ForceUpdateScreen";
 import { ErrorBoundary } from "@/components/ui/ErrorBoundary";
+import { BetaGate } from "@/components/web/BetaGate";
 import { WebShell } from "@/components/web/WebShell";
 import { Colors } from "@/constants/Colors";
 import { AppStateProvider, useAppState } from "@/context/AppStateProvider";
@@ -782,6 +783,7 @@ export default function RootLayout() {
             <ThemeProvider
               value={colorScheme === "dark" ? DarkTheme : DefaultTheme}
             >
+              <BetaGate>
               <ToastProvider>
                 <AuthProvider>
                   <AppStateProvider>
@@ -992,6 +994,7 @@ export default function RootLayout() {
                   <StatusBar style="auto" />
                 </AuthProvider>
               </ToastProvider>
+              </BetaGate>
             </ThemeProvider>
           </QueryClientProvider>
         </PostHogSurveyProvider>

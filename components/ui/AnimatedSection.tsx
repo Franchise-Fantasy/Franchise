@@ -9,14 +9,18 @@ import Animated, {
 
 import { s } from '@/utils/scale';
 
+import { useFormSheet } from './formSheet';
+
 interface AnimatedSectionProps {
   visible: boolean;
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
   /**
    * Pixels to subtract from marginBottom when collapsed, to cancel the
-   * parent's `gap` contribution. Default s(14) matches `FormSection`'s
-   * standard inter-field gap. Pass 0 if the parent doesn't use `gap`.
+   * parent's `gap` contribution. Defaults to s(14) — `FormSection`'s standard
+   * inter-field gap — or to 0 inside a desktop charter sheet, whose rows carry
+   * their own padding and rules and use no `gap` at all. Pass 0 explicitly if
+   * the parent doesn't use `gap`.
    */
   gapCompensation?: number;
 }
@@ -49,13 +53,19 @@ export function AnimatedSection({
   visible,
   children,
   style,
-  gapCompensation = s(14),
+  gapCompensation,
 }: AnimatedSectionProps) {
+  const inSheet = useFormSheet();
+  // The sheet lays rows out with padding + rules and no `gap`, so there is
+  // nothing to cancel — applying the phone's -14 here would drag the next row
+  // up on top of this one.
+  const gap = gapCompensation ?? (inSheet ? 0 : s(14));
+
   const measuredHeight = useSharedValue(0);
   // Sentinel -1 = "visible on mount, snap to measured height once known".
   const animatedHeight = useSharedValue(visible ? -1 : 0);
   const opacity = useSharedValue(visible ? 1 : 0);
-  const marginBottom = useSharedValue(visible ? 0 : -gapCompensation);
+  const marginBottom = useSharedValue(visible ? 0 : -gap);
   const isFirstRun = useRef(true);
 
   useEffect(() => {
@@ -76,12 +86,12 @@ export function AnimatedSection({
     } else {
       animatedHeight.value = withTiming(0, { duration: DURATION, easing: EASING });
       opacity.value = withTiming(0, { duration: DURATION * 0.6, easing: EASING });
-      marginBottom.value = withTiming(-gapCompensation, {
+      marginBottom.value = withTiming(-gap, {
         duration: DURATION,
         easing: EASING,
       });
     }
-  }, [visible, gapCompensation]);
+  }, [visible, gap]);
 
   const onLayout = useCallback(
     (e: LayoutChangeEvent) => {

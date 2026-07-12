@@ -1,74 +1,48 @@
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { lastNPlayedGames } from '@/utils/scoring/windowAverages';
+import { getSportModule } from '@/utils/sports/registry';
+
+// Stat-name → column maps live in utils/sports/registry.ts (single source
+// shared with edge functions). These NBA re-exports keep existing basketball
+// call sites working unchanged; the casts pin the registry's string columns
+// back to the typed table rows for indexed access.
+const NBA_MODULE = getSportModule('nba');
 
 // Maps league_scoring_settings stat_name to player_season_stats total column
-export const STAT_TO_TOTAL: Record<string, keyof PlayerSeasonStats> = {
-  PTS: 'total_pts',
-  REB: 'total_reb',
-  AST: 'total_ast',
-  STL: 'total_stl',
-  BLK: 'total_blk',
-  TO: 'total_tov',
-  '3PM': 'total_3pm',
-  '3PA': 'total_3pa',
-  FGM: 'total_fgm',
-  FGA: 'total_fga',
-  FTM: 'total_ftm',
-  FTA: 'total_fta',
-  PF: 'total_pf',
-  DD: 'total_dd',
-  TD: 'total_td',
-};
+export const STAT_TO_TOTAL = NBA_MODULE.statToTotal as Record<string, keyof PlayerSeasonStats>;
 
 // Maps league_scoring_settings stat_name to player_games column
-export const STAT_TO_GAME: Record<string, keyof PlayerGameLog> = {
-  PTS: 'pts',
-  REB: 'reb',
-  AST: 'ast',
-  STL: 'stl',
-  BLK: 'blk',
-  TO: 'tov',
-  '3PM': '3pm',
-  '3PA': '3pa',
-  FGM: 'fgm',
-  FGA: 'fga',
-  FTM: 'ftm',
-  FTA: 'fta',
-  PF: 'pf',
-  DD: 'double_double',
-  TD: 'triple_double',
-};
+export const STAT_TO_GAME = NBA_MODULE.statToGame as Record<string, keyof PlayerGameLog>;
 
 // Maps league_scoring_settings stat_name to a player_projections proj_* column.
 // Projections are already per-game means, so fpts is a direct weighted sum.
 // DD/TD/PF are intentionally absent — the model doesn't project them, so they
 // contribute 0 (same limitation as seasonAvgRowToFpts).
-export const STAT_TO_PROJ: Record<string, string> = {
-  PTS: 'proj_pts',
-  REB: 'proj_reb',
-  AST: 'proj_ast',
-  STL: 'proj_stl',
-  BLK: 'proj_blk',
-  TO: 'proj_tov',
-  '3PM': 'proj_3pm',
-  '3PA': 'proj_3pa',
-  FGM: 'proj_fgm',
-  FGA: 'proj_fga',
-  FTM: 'proj_ftm',
-  FTA: 'proj_fta',
-};
+export const STAT_TO_PROJ: Record<string, string> = NBA_MODULE.statToProj;
+
+// Sport-aware map lookups. Every calc function below takes an optional
+// `sport` (default 'nba'), so basketball call sites are untouched while
+// NFL leagues pass their sport through from useLeague/league.sport.
+function statToTotalFor(sport?: string | null): Record<string, keyof PlayerSeasonStats> {
+  return getSportModule(sport).statToTotal as Record<string, keyof PlayerSeasonStats>;
+}
+function statToGameFor(sport?: string | null): Record<string, keyof PlayerGameLog> {
+  return getSportModule(sport).statToGame as Record<string, keyof PlayerGameLog>;
+}
 
 // Computes true average FPTS per game using season totals, then dividing by games played.
 // This avoids rounding drift from averaging stats first then multiplying by weights.
 export function calculateAvgFantasyPoints(
   player: PlayerSeasonStats,
-  scoringWeights: ScoringWeight[]
+  scoringWeights: ScoringWeight[],
+  sport?: string | null,
 ): number {
   if (player.games_played === 0) return 0;
 
+  const statToTotal = statToTotalFor(sport);
   let totalFantasy = 0;
   for (const weight of scoringWeights) {
-    const field = STAT_TO_TOTAL[weight.stat_name];
+    const field = statToTotal[weight.stat_name];
     if (field) {
       // A stat absent from this row contributes 0, not NaN. Matters for
       // historical rows (via seasonAvgRowToFpts) that lack dd/td totals;
@@ -113,10 +87,21 @@ const AVG_TO_TOTAL_RECONSTRUCT: [avgKey: string, totalKey: keyof PlayerSeasonSta
   ['avg_td', 'total_td'],
 ];
 
-function reconstructTotals(row: Record<string, unknown>): PlayerSeasonStats {
+function reconstructTotals(row: Record<string, unknown>, sport?: string | null): PlayerSeasonStats {
   const games = Number(row.games_played) || 0;
   const out: Record<string, unknown> = { ...row };
-  for (const [avgKey, totalKey] of AVG_TO_TOTAL_RECONSTRUCT) {
+  // Basketball keeps the hand-curated table (dd/td rate semantics). Other
+  // sports derive the pairs from the registry: every total_<col> has an
+  // avg_<col> twin in the matview, and yardage averages are fractional so
+  // totals reconstruct with round() exactly like the basketball path.
+  const pairs: Array<[string, string]> =
+    getSportModule(sport).sport === 'nfl'
+      ? Object.values(getSportModule(sport).statToTotal).map((totalKey) => [
+          totalKey.replace(/^total_/, 'avg_'),
+          totalKey,
+        ])
+      : AVG_TO_TOTAL_RECONSTRUCT;
+  for (const [avgKey, totalKey] of pairs) {
     if (out[totalKey] != null) continue;
     const avg = Number(out[avgKey]);
     out[totalKey] = Number.isFinite(avg) ? Math.round(avg * games) : 0;
@@ -133,8 +118,9 @@ function reconstructTotals(row: Record<string, unknown>): PlayerSeasonStats {
 export function seasonAvgRowToFpts(
   row: Record<string, unknown>,
   scoringWeights: ScoringWeight[],
+  sport?: string | null,
 ): number {
-  return calculateAvgFantasyPoints(reconstructTotals(row), scoringWeights);
+  return calculateAvgFantasyPoints(reconstructTotals(row, sport), scoringWeights, sport);
 }
 
 // Turns a player_projections row (per-game projected means) into projected
@@ -144,10 +130,14 @@ export function seasonAvgRowToFpts(
 export function projAvgRowToFpts(
   proj: Record<string, unknown>,
   scoringWeights: ScoringWeight[],
+  sport?: string | null,
 ): number {
+  // NFL has no projections in v1 (statToProj is empty) — every weight skips
+  // and the result is 0; callers already fall back when projections are absent.
+  const statToProj = getSportModule(sport).statToProj;
   let total = 0;
   for (const weight of scoringWeights) {
-    const field = STAT_TO_PROJ[weight.stat_name];
+    const field = statToProj[weight.stat_name];
     if (!field) continue;
     const v = Number(proj[field]);
     if (!Number.isFinite(v)) continue;
@@ -178,8 +168,9 @@ export function effectiveFantasyPoints(
   scoringWeights: ScoringWeight[],
   prevSeasonFptsMap?: Map<string, number>,
   minGames: number = MIN_CURRENT_SEASON_GAMES,
+  sport?: string | null,
 ): number {
-  const currentFpts = calculateAvgFantasyPoints(player, scoringWeights);
+  const currentFpts = calculateAvgFantasyPoints(player, scoringWeights, sport);
   if ((player.games_played ?? 0) >= minGames) return currentFpts;
   const fallback = prevSeasonFptsMap?.get(player.player_id);
   return fallback != null && fallback > 0 ? fallback : currentFpts;
@@ -188,11 +179,13 @@ export function effectiveFantasyPoints(
 // Computes fantasy points for a single game.
 export function calculateGameFantasyPoints(
   game: PlayerGameLog,
-  scoringWeights: ScoringWeight[]
+  scoringWeights: ScoringWeight[],
+  sport?: string | null,
 ): number {
+  const statToGame = statToGameFor(sport);
   let total = 0;
   for (const weight of scoringWeights) {
-    const field = STAT_TO_GAME[weight.stat_name];
+    const field = statToGame[weight.stat_name];
     if (field) {
       const val = game[field];
       if (val == null) continue;
@@ -226,11 +219,12 @@ export function windowFantasyPoints(
   log: PlayerGameLog[] | undefined,
   scoringWeights: ScoringWeight[],
   windowSize: number,
+  sport?: string | null,
 ): number | null {
   const played = lastNPlayedGames(log, windowSize);
   if (played.length === 0) return null;
   let total = 0;
-  for (const g of played) total += calculateGameFantasyPoints(g, scoringWeights);
+  for (const g of played) total += calculateGameFantasyPoints(g, scoringWeights, sport);
   return Math.round((total / played.length) * 10) / 10;
 }
 
@@ -244,12 +238,14 @@ export interface FptsBreakdownRow {
 
 export function getFantasyPointsBreakdown(
   game: PlayerGameLog | Record<string, number | boolean>,
-  scoringWeights: ScoringWeight[]
+  scoringWeights: ScoringWeight[],
+  sport?: string | null,
 ): { rows: FptsBreakdownRow[]; total: number } {
+  const statToGame = statToGameFor(sport);
   const rows: FptsBreakdownRow[] = [];
   let total = 0;
   for (const weight of scoringWeights) {
-    const field = STAT_TO_GAME[weight.stat_name];
+    const field = statToGame[weight.stat_name];
     if (!field) continue;
     const raw = (game as any)[field];
     if (raw == null) continue;

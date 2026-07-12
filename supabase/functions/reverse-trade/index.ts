@@ -40,91 +40,26 @@ Deno.serve(async (req) => {
       throw new HttpError('Only the commissioner can reverse trades.', 403);
     }
 
-    const { data: items, error: itemsError } = await supabaseAdmin
-      .from('trade_proposal_items').select('*').eq('proposal_id', proposal_id);
-    if (itemsError) throw itemsError;
-    if (!items || items.length === 0) throw new HttpError('No items found for this trade.');
-
-    const warnings: string[] = [];
-    const timestamp = new Date().toISOString();
-
-    const playerItems = items.filter((i: any) => i.player_id != null);
-    for (const item of playerItems) {
-      const { data: currentEntry } = await supabaseAdmin
-        .from('league_players').select('id')
-        .eq('league_id', proposal.league_id).eq('player_id', item.player_id)
-        .eq('team_id', item.to_team_id).maybeSingle();
-
-      if (!currentEntry) {
-        const { data: player } = await supabaseAdmin.from('players').select('name').eq('id', item.player_id).single();
-        warnings.push(`${player?.name ?? 'Unknown player'} is no longer on the receiving team — skipped.`);
-        continue;
+    // Every transfer, the pick-swap cleanup, the ledger, and the status flip to
+    // 'reversed' commit together. Previously each was its own write, and a
+    // failure part-way through left the trade HALF-reversed while still marked
+    // 'completed' — and the retry made that permanent, because the per-player
+    // step skips anyone "no longer on the receiving team", which is exactly what
+    // the already-reversed players looked like.
+    const { data: result, error: reverseError } = await supabaseAdmin.rpc('reverse_trade_transfers', {
+      p_proposal_id: proposal_id,
+    });
+    if (reverseError) {
+      if (reverseError.code === '23505') {
+        throw new HttpError('This trade has already been reversed.', 409);
       }
-
-      const { error } = await supabaseAdmin.from('league_players').update({
-        team_id: item.from_team_id, acquired_via: 'trade_reversal', acquired_at: timestamp, roster_slot: 'BE',
-      }).eq('league_id', proposal.league_id).eq('player_id', item.player_id).eq('team_id', item.to_team_id);
-      if (error) throw error;
+      throw reverseError;
     }
 
-    const pickItems = items.filter((i: any) => i.draft_pick_id != null);
-    for (const item of pickItems) {
-      const { data: pick } = await supabaseAdmin
-        .from('draft_picks').select('id, player_id, season, round').eq('id', item.draft_pick_id).single();
-      if (pick?.player_id) {
-        warnings.push(`${pick.season} Rd ${pick.round} pick already used — skipped.`);
-        continue;
-      }
-      // Only clear protection if THIS trade set it; preserve prior protection otherwise
-      const tradeSetProtection = item.protection_threshold != null;
-      const { error } = await supabaseAdmin.from('draft_picks')
-        .update({
-          current_team_id: item.from_team_id,
-          ...(tradeSetProtection ? { protection_threshold: null, protection_owner_id: null } : {}),
-        })
-        .eq('id', item.draft_pick_id);
-      if (error) throw error;
-    }
-
-    // Delete pick swaps created by this trade
-    const { error: swapDelError } = await supabaseAdmin
-      .from('pick_swaps')
-      .delete()
-      .eq('created_by_proposal_id', proposal_id);
-    if (swapDelError) throw swapDelError;
-
-    const playerIds = playerItems.map((i: any) => i.player_id);
-    let playerNameMap: Record<string, string> = {};
-    if (playerIds.length > 0) {
-      const { data: players } = await supabaseAdmin.from('players').select('id, name').in('id', playerIds);
-      if (players) playerNameMap = Object.fromEntries(players.map((p: any) => [p.id, p.name]));
-    }
-
-    const allTeamIds = [...new Set(items.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
-    let teamNameMap: Record<string, string> = {};
-    if (allTeamIds.length > 0) {
-      const { data: teams } = await supabaseAdmin.from('teams').select('id, name').in('id', allTeamIds);
-      if (teams) teamNameMap = Object.fromEntries(teams.map((t: any) => [t.id, t.name]));
-    }
-
-    const teamsInvolved = [...new Set(items.map((i: any) => teamNameMap[i.from_team_id] ?? 'Unknown'))];
-    const notes = `Commissioner reversed trade between ${teamsInvolved.join(' & ')}` +
+    const warnings: string[] = result?.warnings ?? [];
+    const allTeamIds: string[] = result?.team_ids ?? [];
+    const notes = `Commissioner reversed trade` +
       (warnings.length > 0 ? ` (${warnings.length} item(s) skipped)` : '');
-
-    const { data: txn, error: txnError } = await supabaseAdmin
-      .from('league_transactions').insert({ league_id: proposal.league_id, type: 'commissioner', notes, team_id: proposal.proposed_by_team_id }).select('id').single();
-    if (txnError) throw txnError;
-
-    const txnItems = items.map((item: any) => ({
-      transaction_id: txn.id, player_id: item.player_id, draft_pick_id: item.draft_pick_id,
-      team_from_id: item.to_team_id, team_to_id: item.from_team_id,
-    }));
-    const { error: txnItemsError } = await supabaseAdmin.from('league_transaction_items').insert(txnItems);
-    if (txnItemsError) throw txnItemsError;
-
-    const { error: updateError } = await supabaseAdmin
-      .from('trade_proposals').update({ status: 'reversed' }).eq('id', proposal_id);
-    if (updateError) throw updateError;
 
     // Notify all teams involved
     try {

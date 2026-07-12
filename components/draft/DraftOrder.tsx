@@ -20,6 +20,7 @@ import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { Fonts } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
 import { useToast } from "@/context/ToastProvider";
+import { useBreakpoint } from "@/hooks/useBreakpoint";
 import { useColors } from "@/hooks/useColors";
 import { useDraftTimer } from "@/hooks/useDraftTimer";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
@@ -80,6 +81,7 @@ export function DraftOrder({
   onPresenceChange,
 }: DraftOrderProps) {
   const colors = useColors();
+  const { isDesktop } = useBreakpoint();
   const { showToast } = useToast();
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
   const queryClient = useQueryClient();
@@ -483,7 +485,13 @@ export function DraftOrder({
       currentPickIndex < 0
         ? Math.max(0, picks.length - 1)
         : Math.max(0, currentPickIndex - 1);
-    const targetX = Math.max(0, showIndex * (s(124) + s(4) * 2) - 2);
+    // Cell pitch differs per platform (the desktop ticker is much denser), and
+    // the spring target is in pixels — so it has to match whichever strip is
+    // actually mounted or the board springs to the wrong pick.
+    const pitch = isDesktop
+      ? DESK_CELL_WIDTH + DESK_CELL_GAP
+      : s(124) + s(4) * 2;
+    const targetX = Math.max(0, showIndex * pitch - 2);
     // Wait for the gold flash + scale-pop to finish (≈1.12s) before the
     // strip springs to the next pick. Otherwise the strip can shift
     // first and the flash plays on a card the user has already scrolled
@@ -492,7 +500,7 @@ export function DraftOrder({
       1200,
       withSpring(targetX, { damping: 120, mass: 4, stiffness: 900 }),
     );
-  }, [currentPickIndex, picks.length]);
+  }, [currentPickIndex, picks.length, isDesktop]);
 
   // Notify parent of current pick — only expose when the draft is actually running
   useEffect(() => {
@@ -524,6 +532,145 @@ export function DraftOrder({
       <ThemedView style={styles.container}>
         <ThemedText>Error loading draft order</ThemedText>
       </ThemedView>
+    );
+  }
+
+  if (isDesktop) {
+    const onClock = currentPickIndex >= 0 ? picks[currentPickIndex] : null;
+    const clockTricode = onClock?.current_team?.tricode ?? "—";
+    // One status line for the whole room, in priority order. The phone shows
+    // this inside the tiny on-the-clock card; a monitor has room to make it the
+    // anchor of the board, so it gets a panel that never scrolls away.
+    const status: { label: string; value: string; live: boolean } = !onClock
+      ? { label: "Draft Complete", value: "—", live: false }
+      : timeUntilDraft !== null
+        ? { label: "Draft Starts", value: timeUntilDraft, live: false }
+        : isPaused
+          ? { label: "Paused", value: "—", live: false }
+          : draftState?.status !== "in_progress"
+            ? { label: "Starting", value: "—", live: false }
+            : autopickTeamIds.has(onClock.current_team_id)
+              ? { label: "On the Clock", value: "Autopick", live: true }
+              : countdownExpired
+                ? { label: "On the Clock", value: "Pick is in", live: true }
+                : { label: "On the Clock", value: countdown, live: true };
+
+    return (
+      <View style={[deskStyles.strip, { borderBottomColor: colors.border, backgroundColor: colors.cardAlt }]}>
+        <View
+          style={[
+            deskStyles.clock,
+            {
+              borderRightColor: colors.border,
+              backgroundColor: status.live ? colors.primary : colors.card,
+            },
+          ]}
+          accessibilityRole="header"
+          accessibilityLabel={
+            onClock
+              ? `${status.label}: ${onClock.current_team?.name ?? "TBD"}, round ${onClock.round} pick ${onClock.pick_in_round}, ${status.value}`
+              : "Draft complete"
+          }
+        >
+          <View style={deskStyles.clockHead}>
+            <View style={[deskStyles.clockRule, { backgroundColor: colors.gold }]} />
+            <ThemedText type="varsitySmall" style={[deskStyles.clockLabel, { color: colors.gold }]}>
+              {status.label}
+            </ThemedText>
+          </View>
+          <View style={deskStyles.clockRow}>
+            <ThemedText
+              style={[deskStyles.clockTricode, { color: status.live ? colors.onPrimary : colors.text }]}
+              numberOfLines={1}
+            >
+              {clockTricode}
+            </ThemedText>
+            {onClock && (
+              <ThemedText
+                style={[
+                  deskStyles.clockPick,
+                  { color: status.live ? "rgba(233, 226, 203, 0.7)" : colors.secondaryText },
+                ]}
+              >
+                R{onClock.round} · P{onClock.pick_in_round}
+              </ThemedText>
+            )}
+          </View>
+          <ThemedText
+            style={[deskStyles.clockValue, { color: status.live ? colors.gold : colors.secondaryText }]}
+            numberOfLines={1}
+          >
+            {status.value}
+          </ThemedText>
+        </View>
+
+        <Animated.ScrollView
+          ref={scrollRef}
+          horizontal
+          style={deskStyles.ticker}
+          contentContainerStyle={deskStyles.tickerInner}
+          showsHorizontalScrollIndicator={false}
+          scrollEventThrottle={16}
+        >
+          {picks.map((pick, index) => {
+            const isCurrentOnTheClock = index === currentPickIndex;
+            const isPicked = !!pick.player_id;
+            const isFlashing = pick.id === flashingPickId;
+            const surface = isCurrentOnTheClock
+              ? colors.primary
+              : isPicked
+                ? colors.card
+                : "transparent";
+            const fg = isCurrentOnTheClock ? colors.onPrimary : isPicked ? colors.text : colors.secondaryText;
+
+            return (
+              <Animated.View
+                key={pick.id}
+                accessibilityLabel={`Pick ${pick.round}-${pick.pick_in_round}, ${pick.current_team?.name || "TBD"}${isPicked ? `, ${pick.player?.name}` : isCurrentOnTheClock ? ", on the clock" : ""}`}
+                style={[
+                  deskStyles.cell,
+                  {
+                    backgroundColor: surface,
+                    borderColor: isCurrentOnTheClock ? colors.gold : colors.border,
+                  },
+                  isFlashing && flashCardStyle,
+                ]}
+              >
+                {isFlashing && (
+                  <Animated.View
+                    pointerEvents="none"
+                    style={[StyleSheet.absoluteFill, { backgroundColor: colors.gold, opacity: 0.35 }, flashStyle]}
+                  />
+                )}
+                <View style={deskStyles.cellTop}>
+                  <ThemedText style={[deskStyles.cellSlot, { color: fg }]}>
+                    {pick.round}.{pick.pick_in_round}
+                  </ThemedText>
+                  <ThemedText
+                    type="varsitySmall"
+                    style={[
+                      deskStyles.cellTricode,
+                      { color: isCurrentOnTheClock ? colors.onPrimary : colors.secondaryText },
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {pick.current_team?.tricode || "TBD"}
+                  </ThemedText>
+                </View>
+                {/* Only a made pick earns a second line — leaving upcoming cells
+                    to their slot label is what keeps the ticker dense. */}
+                {isPicked && pick.player?.name ? (
+                  <PlayerName
+                    name={pick.player.name}
+                    style={[deskStyles.cellPlayer, { color: fg }]}
+                    containerStyle={deskStyles.cellPlayerBox}
+                  />
+                ) : null}
+              </Animated.View>
+            );
+          })}
+        </Animated.ScrollView>
+      </View>
     );
   }
 
@@ -692,6 +839,96 @@ export function DraftOrder({
     </Animated.ScrollView>
   );
 }
+
+// ─── Desktop board strip (web only) ──────────────────────────────
+// A pointer doesn't scroll a strip to find out whose pick it is, so the clock
+// is pinned on the left and the picks become a dense ticker beside it — ~14
+// visible instead of ~8, and the "who's up / how long" answer never scrolls
+// away. Exported pitch constants keep the auto-scroll spring in sync.
+const DESK_CELL_WIDTH = 104;
+const DESK_CELL_GAP = 6;
+
+const deskStyles = StyleSheet.create({
+  strip: {
+    flexDirection: "row",
+    alignItems: "stretch",
+    height: 68,
+    borderBottomWidth: 1,
+  },
+  clock: {
+    width: 176,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    justifyContent: "center",
+    gap: 2,
+    borderRightWidth: 1,
+  },
+  clockHead: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  clockRule: { height: 2, width: 12 },
+  clockLabel: { fontSize: 9, letterSpacing: 1.4 },
+  clockRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 7,
+  },
+  clockTricode: {
+    fontFamily: Fonts.display,
+    fontSize: 20,
+    lineHeight: 24,
+    letterSpacing: -0.3,
+  },
+  clockPick: {
+    fontFamily: Fonts.mono,
+    fontSize: 10,
+  },
+  clockValue: {
+    fontFamily: Fonts.mono,
+    fontSize: 13,
+    letterSpacing: 0.4,
+  },
+  ticker: { flex: 1 },
+  tickerInner: {
+    alignItems: "center",
+    paddingHorizontal: 8,
+    gap: DESK_CELL_GAP,
+  },
+  cell: {
+    width: DESK_CELL_WIDTH,
+    height: 48,
+    borderRadius: 6,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    justifyContent: "center",
+    gap: 1,
+    overflow: "hidden",
+  },
+  cellTop: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    justifyContent: "space-between",
+    gap: 6,
+  },
+  cellSlot: {
+    fontFamily: Fonts.mono,
+    fontSize: 11,
+  },
+  cellTricode: {
+    fontSize: 9,
+    letterSpacing: 1,
+    flexShrink: 1,
+  },
+  cellPlayerBox: { flexShrink: 1 },
+  cellPlayer: {
+    fontFamily: Fonts.bodyBold,
+    fontSize: 11.5,
+    lineHeight: 14,
+  },
+});
 
 const styles = StyleSheet.create({
   container: {

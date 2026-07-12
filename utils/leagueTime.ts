@@ -167,28 +167,30 @@ export function addSlateDays(dateStr: string, n: number): string {
 }
 
 /**
- * Number of days in Week 1 given the season-start day-of-week.
+ * Number of days in Week 1 given the season-start day-of-week and the day
+ * fantasy weeks END on (`weekEndDow`: 0=Sunday default for NBA/WNBA, 1=Monday
+ * for NFL's Tue–Mon weeks — a Sunday end would strand Monday Night Football).
  *
- * Mon/Tue/Wed starts produce a "short" Week 1 (5-7 days) ending on the
- * first Sunday. Thu/Fri/Sat/Sun starts produce a "long" Week 1 (8-11 days)
- * ending on the SECOND Sunday — the 1-4 leading days get bolted onto Week 1
- * so a league never waits a full week for its first matchup just because
- * the IRL opener is mid-week. Equivalent to the wizard's preview math.
+ * The natural span runs from the start day through the next `weekEndDow`; a
+ * span of ≤4 days is extended a full week — the 1-4 leading days get bolted
+ * onto Week 1 so the first matchup is never a stub. Equivalent to the wizard's
+ * preview math; mirror of the inline copy in utils/league/scheduleWindows.ts.
  *
- *   Mon → 7, Tue → 6, Wed → 5, Thu → 11, Fri → 10, Sat → 9, Sun → 8
+ * Sun-ending: Mon → 7, Tue → 6, Wed → 5, Thu → 11, Fri → 10, Sat → 9, Sun → 8
+ * Mon-ending: Tue → 7, Wed → 6, Thu → 5, Fri → 11, Sat → 10, Sun → 9, Mon → 8
  */
-export function week1Length(startDow: number): number {
-  if (startDow === 0) return 8; // Sun
-  if (startDow <= 3) return 8 - startDow; // Mon=7, Tue=6, Wed=5
-  return 15 - startDow; // Thu=11, Fri=10, Sat=9
+export function week1Length(startDow: number, weekEndDow = 0): number {
+  const natural = ((weekEndDow - startDow + 7) % 7) + 1;
+  return natural <= 4 ? natural + 7 : natural;
 }
 
 /**
- * "YYYY-MM-DD" of Week 1's last day (always a Sunday) given the start date.
- * Uses {@link week1Length} so the rule stays consistent across the wizard
- * preview, schedule generator, and auto-bump on draft scheduling.
+ * "YYYY-MM-DD" of Week 1's last day (a `weekEndDow` day — Sunday by default,
+ * Monday for NFL) given the start date. Uses {@link week1Length} so the rule
+ * stays consistent across the wizard preview, schedule generator, and
+ * auto-bump on draft scheduling.
  */
-export function week1EndDate(startYmd: string): string {
+export function week1EndDate(startYmd: string, weekEndDow = 0): string {
   const dow = new Date(`${startYmd}T12:00:00Z`).getUTCDay();
-  return addSlateDays(startYmd, week1Length(dow) - 1);
+  return addSlateDays(startYmd, week1Length(dow, weekEndDow) - 1);
 }

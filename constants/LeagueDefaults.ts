@@ -1,4 +1,5 @@
 import { schedulableEnd, type MergeWindow } from '@/utils/league/scheduleWindows';
+import { getSportModule } from '@/utils/sports/registry';
 
 export interface RosterSlot {
   position: string;
@@ -6,6 +7,9 @@ export interface RosterSlot {
   count: number;
 }
 
+// Position token tuples stay declared here (`as const`) because they carry the
+// Nba/Wnba/NflPosition types. The behavioral copies live in
+// utils/sports/registry.ts; a unit test asserts the two stay identical.
 export const NBA_POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'] as const;
 export type NbaPosition = (typeof NBA_POSITIONS)[number];
 
@@ -15,7 +19,12 @@ export type NbaPosition = (typeof NBA_POSITIONS)[number];
 export const WNBA_POSITIONS = ['G', 'F', 'C'] as const;
 export type WnbaPosition = (typeof WNBA_POSITIONS)[number];
 
-export type LimitablePosition = NbaPosition | WnbaPosition;
+// NFL positions are disjoint categories (no spectrum). DST is the synthetic
+// team-defense entity; K is normalized from BDL's "PK" token at ingest.
+export const NFL_POSITIONS = ['QB', 'RB', 'WR', 'TE', 'K', 'DST'] as const;
+export type NflPosition = (typeof NFL_POSITIONS)[number];
+
+export type LimitablePosition = NbaPosition | WnbaPosition | NflPosition;
 export type PositionLimits = Partial<Record<LimitablePosition, number | null>>;
 
 export interface ScoringCategory {
@@ -24,62 +33,27 @@ export interface ScoringCategory {
   point_value: number;
 }
 
-export const DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
-  { position: 'PG', label: 'Point Guard', count: 1 },
-  { position: 'SG', label: 'Shooting Guard', count: 1 },
-  { position: 'SF', label: 'Small Forward', count: 1 },
-  { position: 'PF', label: 'Power Forward', count: 1 },
-  { position: 'C', label: 'Center', count: 1 },
-  { position: 'G', label: 'Guard', count: 1 },
-  { position: 'F', label: 'Forward', count: 1 },
-  { position: 'UTIL', label: 'Utility', count: 3 },
-  { position: 'BE', label: 'Bench', count: 3 },
-  { position: 'IR', label: 'Injured Reserve', count: 1 },
-  { position: 'TAXI', label: 'Taxi Squad', count: 0 },
-];
+// Roster/scoring defaults are sourced from the sports registry (the single
+// source shared with edge functions). Copied on init so accidental in-place
+// mutation by a consumer can't corrupt the registry.
+export const DEFAULT_ROSTER_SLOTS: RosterSlot[] =
+  getSportModule('nba').defaultRosterSlots.map((s) => ({ ...s }));
 
-export const WNBA_DEFAULT_ROSTER_SLOTS: RosterSlot[] = [
-  { position: 'G', label: 'Guard', count: 2 },
-  { position: 'F', label: 'Forward', count: 2 },
-  { position: 'C', label: 'Center', count: 1 },
-  { position: 'UTIL', label: 'Utility', count: 2 },
-  { position: 'BE', label: 'Bench', count: 3 },
-  { position: 'IR', label: 'Injured Reserve', count: 1 },
-  { position: 'TAXI', label: 'Taxi Squad', count: 0 },
-];
+export const WNBA_DEFAULT_ROSTER_SLOTS: RosterSlot[] =
+  getSportModule('wnba').defaultRosterSlots.map((s) => ({ ...s }));
 
 /** Returns the default roster slot template for the given sport. */
 export function getDefaultRosterSlots(sport: Sport): RosterSlot[] {
-  if (sport === 'wnba') return WNBA_DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s }));
-  return DEFAULT_ROSTER_SLOTS.map((s) => ({ ...s }));
+  return getSportModule(sport).defaultRosterSlots.map((s) => ({ ...s }));
 }
 
-/** Positions used for per-position roster caps. WNBA omits PG/SG/SF/PF. */
+/** Positions used for per-position roster caps and filter chips. */
 export function getLimitablePositions(sport: Sport): readonly LimitablePosition[] {
-  return sport === 'wnba' ? WNBA_POSITIONS : NBA_POSITIONS;
+  return getSportModule(sport).positions as readonly LimitablePosition[];
 }
 
-export const DEFAULT_SCORING: ScoringCategory[] = [
-  { stat_name: 'PTS', label: 'Points', point_value: 1 },
-  { stat_name: 'REB', label: 'Rebounds', point_value: 1.2 },
-  { stat_name: 'AST', label: 'Assists', point_value: 1.5 },
-  { stat_name: 'STL', label: 'Steals', point_value: 3 },
-  { stat_name: 'BLK', label: 'Blocks', point_value: 3 },
-  { stat_name: 'TO', label: 'Turnovers', point_value: -1 },
-  { stat_name: '3PM', label: '3-Pointers Made', point_value: 1 },
-  { stat_name: '3PA', label: '3-Pointers Attempted', point_value: -0.5 },
-  { stat_name: 'FGM', label: 'Field Goals Made', point_value: 2 },
-  { stat_name: 'FGA', label: 'Field Goals Attempted', point_value: -1 },
-  { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },
-  { stat_name: 'FTA', label: 'Free Throws Attempted', point_value: -1 },
-  // Personal fouls default to 0 (unscored) — the near-universal norm on
-  // ESPN/Yahoo/Sleeper. A -1 default silently penalized fouls in leagues that
-  // never scored them, most visibly on screenshot imports where an unread PF
-  // stat kept this default. Leagues that DO penalize fouls set it in the editor.
-  { stat_name: 'PF', label: 'Personal Fouls', point_value: 0 },
-  { stat_name: 'DD', label: 'Double Doubles', point_value: 0 },
-  { stat_name: 'TD', label: 'Triple Doubles', point_value: 0 },
-];
+export const DEFAULT_SCORING: ScoringCategory[] =
+  getSportModule('nba').defaultScoring.map((s) => ({ ...s }));
 
 // ── Scoring Type ──────────────────────────────────────────────────────────────
 
@@ -276,13 +250,17 @@ export const STEP_LABELS = ['Basics', 'Roster', 'Scoring', 'Waivers', 'Season', 
 //   1. ALTER TABLE leagues to widen the CHECK constraint
 //   2. Add to SPORT_THEMES in constants/Colors.ts
 //   3. Build the sport-specific data ingestion, position spectrum, etc.
-export const SPORT_OPTIONS = ['NBA', 'WNBA'] as const;
+// NFL is internal-test only: the SportSelector hides its tile behind
+// profiles.is_admin (useIsAdmin), and the leagues_nfl_admin_gate DB trigger
+// enforces the same server-side.
+export const SPORT_OPTIONS = ['NBA', 'WNBA', 'NFL'] as const;
 export type SportOption = (typeof SPORT_OPTIONS)[number];
 export type Sport = 'nba' | 'wnba' | 'nfl' | 'nhl' | 'mlb';
 
 export const SPORT_TO_DB: Record<SportOption, Sport> = {
   NBA: 'nba',
   WNBA: 'wnba',
+  NFL: 'nfl',
 };
 export const SPORT_DISPLAY: Record<Sport, string> = {
   nba: 'NBA',
@@ -308,6 +286,17 @@ export const WNBA_SEASON_END: Record<string, string> = {
   '2027': '2027-09-12',
 };
 
+// NFL seasons are single-year like WNBA. End = the MONDAY closing the last
+// fantasy week (NFL weeks are Tue–Mon), not the last real game day — week 18's
+// games end Sat/Sun but their fantasy week runs through Monday, and
+// computeMaxWeeks drops any week whose endDate is past this cap. 2025/2026
+// derive from real BDL dates; 2027 is an estimate — season_config overrides it.
+export const NFL_SEASON_END: Record<string, string> = {
+  '2025': '2026-01-05',
+  '2026': '2027-01-11',
+  '2027': '2028-01-10',
+};
+
 // Opening-night dates per season, used as the default seasonStartDate when
 // the wizard pre-fills it. Mirrors the *_SEASON_END shape — bump yearly.
 export const NBA_SEASON_START: Record<string, string> = {
@@ -323,8 +312,17 @@ export const WNBA_SEASON_START: Record<string, string> = {
   '2027': '2027-05-15',
 };
 
+// Kickoff (opening game) dates. 2026 opener is Wed Sep 9 per BDL; 2027 is an
+// estimate (Thu after Labor Day) — season_config overrides it.
+export const NFL_SEASON_START: Record<string, string> = {
+  '2025': '2025-09-04',
+  '2026': '2026-09-09',
+  '2027': '2027-09-09',
+};
+
 export const CURRENT_NBA_SEASON = '2026-27';
 export const CURRENT_WNBA_SEASON = '2026';
+export const CURRENT_NFL_SEASON = '2026';
 
 // ── Season config cache ───────────────────────────────────────────────────
 // Hydrated from the `season_config` table on app startup (see
@@ -357,7 +355,9 @@ function cachedSeasonRow(sport: Sport, season: string): SeasonConfigRow | undefi
 export function getCurrentSeason(sport: Sport): string {
   const current = seasonConfigCache?.find((r) => r.sport === sport && r.is_current);
   if (current) return current.season;
-  return sport === 'wnba' ? CURRENT_WNBA_SEASON : CURRENT_NBA_SEASON;
+  if (sport === 'wnba') return CURRENT_WNBA_SEASON;
+  if (sport === 'nfl') return CURRENT_NFL_SEASON;
+  return CURRENT_NBA_SEASON;
 }
 
 // Previous season label, derived from CURRENT_*_SEASON.
@@ -388,13 +388,17 @@ export function rookieDraftStartOffset(offseasonStep: string | null | undefined)
 export function getSeasonEnd(sport: Sport, season: string): string | undefined {
   const cached = cachedSeasonRow(sport, season);
   if (cached) return cached.end_date;
-  return sport === 'wnba' ? WNBA_SEASON_END[season] : NBA_SEASON_END[season];
+  if (sport === 'wnba') return WNBA_SEASON_END[season];
+  if (sport === 'nfl') return NFL_SEASON_END[season];
+  return NBA_SEASON_END[season];
 }
 
 export function getSeasonStart(sport: Sport, season: string): string | undefined {
   const cached = cachedSeasonRow(sport, season);
   if (cached) return cached.start_date;
-  return sport === 'wnba' ? WNBA_SEASON_START[season] : NBA_SEASON_START[season];
+  if (sport === 'wnba') return WNBA_SEASON_START[season];
+  if (sport === 'nfl') return NFL_SEASON_START[season];
+  return NBA_SEASON_START[season];
 }
 
 /** Last date a fantasy season for this sport+season may be scheduled to. A
@@ -446,6 +450,9 @@ export const WNBA_MERGE_WINDOWS: Record<string, MergeWindow[]> = {
 export function getMergeWindows(sport: Sport, season: string): MergeWindow[] {
   const cached = cachedSeasonRow(sport, season);
   if (cached) return cached.merge_windows ?? [];
+  // NFL has no league-wide breaks — byes are per-team, handled by useTeamByes,
+  // not by double weeks.
+  if (sport === 'nfl') return [];
   return (sport === 'wnba' ? WNBA_MERGE_WINDOWS : NBA_MERGE_WINDOWS)[season] ?? [];
 }
 
@@ -458,7 +465,7 @@ export function getMergeWindows(sport: Sport, season: string): MergeWindow[] {
 const SPORT_NEXT_SEASON_OPENS: Record<Sport, { month: number; day: number } | undefined> = {
   nba: { month: 7, day: 1 },
   wnba: { month: 4, day: 20 },
-  nfl: undefined,
+  nfl: { month: 5, day: 1 }, // post-late-April NFL draft
   nhl: undefined,
   mlb: undefined,
 };
@@ -666,16 +673,17 @@ export function getMaxPlayoffWeeks(sport: Sport): number {
 }
 
 // Format a season string from its starting calendar year, sport-aware.
-// NBA seasons span two years ('2025-26'); WNBA seasons are single-year ('2026').
+// NBA seasons span two years ('2025-26'); WNBA and NFL are single-year
+// ('2026') — the registry's seasonFormat is the source of truth.
 export function formatSeason(startYear: number, sport: Sport): string {
-  if (sport === 'wnba') return String(startYear);
+  if (getSportModule(sport).seasonFormat === 'single-year') return String(startYear);
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
 }
 
 // Compact, apostrophe-prefixed season label for tight chips/badges.
-// WNBA '2025' → "'25"; NBA '2024-25' → "'24-'25".
+// WNBA/NFL '2025' → "'25"; NBA '2024-25' → "'24-'25".
 export function formatSeasonShort(season: string, sport: Sport): string {
-  if (sport === 'wnba') return `'${season.slice(-2)}`;
+  if (getSportModule(sport).seasonFormat === 'single-year') return `'${season.slice(-2)}`;
   const [start, end] = season.split('-');
   return `'${start.slice(-2)}-'${end}`;
 }
@@ -703,10 +711,12 @@ export function startDateBelongsToSeason(
 }
 
 // Rough opening month per sport, for the placeholder shown before a season's
-// start date has been set. NBA tips off mid-October; the WNBA in mid-May.
+// start date has been set. NBA tips off mid-October; the WNBA in mid-May;
+// the NFL in early September.
 export const SPORT_OPENING_MONTH: Partial<Record<Sport, string>> = {
   nba: 'Oct',
   wnba: 'May',
+  nfl: 'Sep',
 };
 
 export type DraftType = (typeof DRAFT_TYPE_OPTIONS)[number];

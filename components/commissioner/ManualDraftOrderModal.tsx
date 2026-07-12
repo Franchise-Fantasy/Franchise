@@ -14,7 +14,7 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
-import { manuallyAssignDraftSlots } from '@/lib/draft';
+import { manuallyAssignDraftSlots, reorderRookieDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
 
@@ -29,7 +29,17 @@ interface ManualDraftOrderModalProps {
   visible: boolean;
   onClose: () => void;
   leagueId: string;
-  draftId: string;
+  /**
+   * Startup-draft mode: reorder this draft's round-1 slots. Assigns each slot's
+   * `current_team_id`/`original_team_id` to the dragged team.
+   */
+  draftId?: string;
+  /**
+   * Rookie-draft mode (imported dynasty leagues): reorder the upcoming rookie
+   * season's seeded picks by original team, before the draft is created.
+   * Provide instead of `draftId`. Preserves traded ownership.
+   */
+  season?: string;
 }
 
 // Fixed visual dimensions so the static pick-number column aligns with
@@ -42,9 +52,14 @@ export function ManualDraftOrderModal({
   onClose,
   leagueId,
   draftId,
+  season,
 }: ManualDraftOrderModalProps) {
   const c = useColors();
   const queryClient = useQueryClient();
+
+  // No draftId + a season → reorder the upcoming (not-yet-created) rookie
+  // draft's seeded picks by original team instead of a live draft's slots.
+  const isRookieMode = !draftId && !!season;
 
   const [teams, setTeams] = useState<Team[]>([]);
   const [loading, setLoading] = useState(true);
@@ -54,25 +69,41 @@ export function ManualDraftOrderModal({
   // 3…" labels visually paired with the cards no matter how far you
   // scroll within the sheet.
   const scrollY = useRef(new Animated.Value(0)).current;
+  // The order as loaded, so a rookie-mode save can no-op when nothing was
+  // dragged (avoids needlessly rewriting — and flattening — later rounds).
+  const initialOrder = useRef<string[]>([]);
 
   useEffect(() => {
     if (!visible) return;
     void loadTeams();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, leagueId, draftId]);
+  }, [visible, leagueId, draftId, season]);
 
   async function loadTeams() {
     setLoading(true);
 
-    // Existing slot assignments take priority — if the commissioner is
-    // editing after saving, preserve their order on re-open.
-    const { data: picks } = await supabase
-      .from('draft_picks')
-      .select('slot_number, current_team_id, teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key)')
-      .eq('draft_id', draftId)
-      .eq('round', 1)
-      .not('current_team_id', 'is', null)
-      .order('slot_number', { ascending: true });
+    // Rookie mode: order is defined by the pick's ORIGINAL team (trades move
+    // current_team_id but not the slot), so seed the board from original teams.
+    const { data: picks } = isRookieMode
+      ? await supabase
+          .from('draft_picks')
+          .select('slot_number, teams!draft_picks_original_team_id_fkey(id, name, tricode, logo_key)')
+          .eq('league_id', leagueId)
+          .eq('season', season!)
+          .eq('round', 1)
+          .is('draft_id', null)
+          .is('player_id', null)
+          .not('original_team_id', 'is', null)
+          .order('slot_number', { ascending: true })
+      // Startup mode: existing slot assignments take priority — if the
+      // commissioner is editing after saving, preserve their order on re-open.
+      : await supabase
+          .from('draft_picks')
+          .select('slot_number, teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key)')
+          .eq('draft_id', draftId!)
+          .eq('round', 1)
+          .not('current_team_id', 'is', null)
+          .order('slot_number', { ascending: true });
 
     if (picks && picks.length > 0) {
       const ordered = picks
@@ -88,6 +119,7 @@ export function ManualDraftOrderModal({
 
       if (unique.length > 0) {
         setTeams(unique);
+        initialOrder.current = unique.map((t) => t.id);
         setLoading(false);
         return;
       }
@@ -102,6 +134,7 @@ export function ManualDraftOrderModal({
       .order('name', { ascending: true });
 
     setTeams(allTeams ?? []);
+    initialOrder.current = (allTeams ?? []).map((t) => t.id);
     setLoading(false);
   }
 
@@ -109,10 +142,25 @@ export function ManualDraftOrderModal({
     if (teams.length === 0) return;
     setSaving(true);
     try {
-      await manuallyAssignDraftSlots(leagueId, draftId, teams.map((t) => t.id));
-      queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['leagueDraft', leagueId] });
-      queryClient.invalidateQueries({ queryKey: ['draftSlotsAssigned', draftId] });
+      const orderedIds = teams.map((t) => t.id);
+      if (isRookieMode) {
+        // Skip the write (which touches every round) when nothing was dragged —
+        // preserves any intentional per-round order the commissioner only peeked at.
+        const unchanged =
+          orderedIds.length === initialOrder.current.length &&
+          orderedIds.every((id, i) => id === initialOrder.current[i]);
+        if (!unchanged) {
+          await reorderRookieDraftPicks(leagueId, season!, orderedIds);
+          queryClient.invalidateQueries({ queryKey: ['draftHub'] });
+          queryClient.invalidateQueries({ queryKey: ['commishAllPicks'] });
+          queryClient.invalidateQueries({ queryKey: ['rookieOrderEditable', leagueId] });
+        }
+      } else {
+        await manuallyAssignDraftSlots(leagueId, draftId!, orderedIds);
+        queryClient.invalidateQueries({ queryKey: ['activeDraft', leagueId] });
+        queryClient.invalidateQueries({ queryKey: ['leagueDraft', leagueId] });
+        queryClient.invalidateQueries({ queryKey: ['draftSlotsAssigned', draftId] });
+      }
       onClose();
     } catch (err: any) {
       Alert.alert('Error', err?.message ?? 'Failed to save draft order');
@@ -186,7 +234,7 @@ export function ManualDraftOrderModal({
     <BottomSheet
       visible={visible}
       onClose={onClose}
-      title="Draft Order"
+      title={isRookieMode ? 'Rookie Draft Order' : 'Draft Order'}
       subtitle="Long press to drag — top team picks first"
       height="85%"
       scrollableBody={false}

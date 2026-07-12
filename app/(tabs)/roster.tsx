@@ -31,6 +31,7 @@ import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { PlayerName } from "@/components/player/PlayerName";
 import { AnimatedFpts } from "@/components/roster/AnimatedFpts";
+import { ByeWeekBanner } from "@/components/roster/ByeWeekBanner";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
 import { OverCapBanner } from "@/components/roster/OverCapBanner";
@@ -100,6 +101,7 @@ import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
 import { useRosterChanges } from "@/hooks/useRosterChanges";
 import { useRosterGameLogs } from "@/hooks/useRosterGameLogs";
 import { useRosterHeroOpponent } from "@/hooks/useRosterHeroOpponent";
+import { useTeamByes } from "@/hooks/useTeamByes";
 import { useWeekScores } from "@/hooks/useWeekScores";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
@@ -263,6 +265,10 @@ export default function RosterScreen() {
       ) ?? null,
     [weeks, selectedDate],
   );
+
+  // NFL bye-week detection: which pro teams play at all in the viewed league
+  // week (query disabled for basketball sports).
+  const { isOnBye } = useTeamByes(sport, currentWeek?.start_date, currentWeek?.end_date);
 
   // Schedule exists but the selected day is before tip-off (the draft-day gap
   // before opening night). Surfaces an "upcoming" hero that keeps day-nav live
@@ -438,7 +444,7 @@ export default function RosterScreen() {
       const { data } = await supabase
         .from("player_games")
         .select(
-          'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, matchup',
+          'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, matchup',
         )
         .in("player_id", playerIds)
         .eq("game_date", selectedDate);
@@ -684,6 +690,13 @@ export default function RosterScreen() {
   const starterSlots = slots.filter((s) => s.slotPosition !== "BE");
   const benchSlots = slots.filter((s) => s.slotPosition === "BE");
 
+  // NFL bye detection for the current league week: starters whose pro team
+  // has no game this week score nothing — surface a warning banner + a BYE
+  // tag on their rows. No-op (query disabled) for basketball.
+  const byeStarters = starterSlots
+    .map((s) => s.player)
+    .filter((p): p is NonNullable<typeof p> => !!p && isOnBye(p.nbaTricode));
+
   // Per-starter availability for the selected date — drives the hero's
   // lineup-health bar. Each starter slot falls into exactly one bucket:
   //   playing — has a game today and is active (will score)
@@ -898,40 +911,6 @@ export default function RosterScreen() {
 
   // ─── Unified roster move handler ──────────────────────────────────────────
 
-  const upsertDailySlot = async (
-    playerId: string,
-    slot: string,
-    dateOverride?: string,
-  ) => {
-    const lineupDate = dateOverride ?? selectedDate;
-    // Never rewrite an already-played day's lineup. Past days are locked: a
-    // finalized matchup froze its score off that day's snapshot, and the
-    // matchup detail page recomputes from daily_lineups for unfinalized weeks —
-    // mutating history here is what made finalized scores drift.
-    if (lineupDate < today) return;
-    const { error } = await supabase.from("daily_lineups").upsert(
-      {
-        league_id: leagueId!,
-        team_id: teamId!,
-        player_id: playerId,
-        lineup_date: lineupDate,
-        roster_slot: slot,
-      },
-      { onConflict: "team_id,player_id,lineup_date" },
-    );
-    if (error) throw error;
-  };
-
-  // Supabase update builders don't throw — they resolve with { error }. Without
-  // this wrapper the surrounding try/catch never sees RLS/constraint failures
-  // and the UI happily proceeds, then snaps back on refetch.
-  const runUpdate = async (
-    query: PromiseLike<{ error: { message: string } | null }>,
-  ) => {
-    const { error } = await query;
-    if (error) throw error;
-  };
-
   /**
    * Handles all roster moves: swaps, bench, IR, TAXI, promotions, fills.
    * sourcePlayer moves to destSlotPosition. If destPlayer exists, they go to sourceSlotPosition.
@@ -1016,136 +995,40 @@ export default function RosterScreen() {
     try {
       const isIrTaxiInvolved = srcIsIR || srcIsTaxi || dstIsIR || dstIsTaxi;
 
+      // A move whose player is mid-game doesn't take effect until tomorrow.
+      // Only IR/TAXI changes can be deferred — a plain lineup swap on a started
+      // game is simply not offered.
       const deferred =
         isIrTaxiInvolved &&
         (isPlayerLocked(sourcePlayer) || isPlayerLocked(destPlayer));
-      const effectiveDate = deferred ? addDays(today, 1) : selectedDate;
 
-      // ── 0. Pin today's slot when deferred ──
-      // When a game is in progress, the move doesn't take effect until tomorrow.
-      // Lock the player's current slot into today's daily_lineups so resolveSlot
-      // returns the old slot for today (instead of falling back to league_players).
-      if (deferred) {
-        await upsertDailySlot(sourcePlayer.player_id, sourceSlotPosition, today);
-        if (destPlayer) {
-          await upsertDailySlot(destPlayer.player_id, destSlotPosition, today);
-        }
-      }
-
-      // ── 1. Displace destination player ──
-      if (destPlayer) {
-        if (dstIsIR) {
-          await upsertDailySlot(destPlayer.player_id, "BE", effectiveDate);
-          await runUpdate(
-            supabase
-              .from("daily_lineups")
-              .update({ roster_slot: "BE" })
-              .eq("team_id", teamId)
-              .eq("league_id", leagueId)
-              .eq("player_id", destPlayer.player_id)
-              .eq("roster_slot", "IR")
-              .gt("lineup_date", effectiveDate),
-          );
-          await runUpdate(
-            supabase
-              .from("league_players")
-              .update({ roster_slot: "BE" })
-              .eq("league_id", leagueId)
-              .eq("team_id", teamId)
-              .eq("player_id", destPlayer.player_id),
-          );
-        } else if (dstIsTaxi) {
-          await upsertDailySlot(destPlayer.player_id, "BE", effectiveDate);
-          await runUpdate(
-            supabase
-              .from("league_players")
-              .update({ roster_slot: "BE" })
-              .eq("league_id", leagueId)
-              .eq("team_id", teamId)
-              .eq("player_id", destPlayer.player_id),
-          );
-        } else {
-          // Normal swap: displaced player goes to source slot
-          await upsertDailySlot(destPlayer.player_id, sourceSlotPosition);
-        }
-      }
-
-      // ── 2. Move source player to destination ──
-      await upsertDailySlot(
-        sourcePlayer.player_id,
-        destSlotPosition,
-        isIrTaxiInvolved ? effectiveDate : undefined,
+      // One transaction. This used to be up to eight separate writes (pin
+      // today's slots, bench the displaced player in daily_lineups AND
+      // league_players, rewrite their future rows, then the same for the moving
+      // player), and a failure part-way through committed a partial swap —
+      // either a hole where nobody occupied the slot, or two players in one
+      // seat, which is the duplicate-active-slot corruption that over-counted
+      // scoring.
+      const { data: moveResult, error: moveError } = await supabase.rpc(
+        "apply_roster_move",
+        {
+          p_league_id: leagueId,
+          p_team_id: teamId,
+          p_source_player_id: sourcePlayer.player_id,
+          p_source_slot: sourceSlotPosition,
+          p_dest_slot: destSlotPosition,
+          p_selected_date: selectedDate,
+          ...(destPlayer ? { p_dest_player_id: destPlayer.player_id } : {}),
+          ...(deferred ? { p_deferred: true } : {}),
+        },
       );
+      if (moveError) throw moveError;
 
-      // ── 3. Update future entries + league_players for IR/TAXI ──
-      if (dstIsIR) {
-        await runUpdate(
-          supabase
-            .from("daily_lineups")
-            .update({ roster_slot: "IR" })
-            .eq("team_id", teamId)
-            .eq("league_id", leagueId)
-            .eq("player_id", sourcePlayer.player_id)
-            .gt("lineup_date", effectiveDate),
-        );
-        await runUpdate(
-          supabase
-            .from("league_players")
-            .update({ roster_slot: "IR" })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", sourcePlayer.player_id),
-        );
-      } else if (dstIsTaxi) {
-        await runUpdate(
-          supabase
-            .from("league_players")
-            .update({ roster_slot: ROSTER_SLOT.TAXI, promoted_from_taxi: false })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", sourcePlayer.player_id),
-        );
-      } else if (srcIsIR) {
-        await runUpdate(
-          supabase
-            .from("daily_lineups")
-            .update({ roster_slot: "BE" })
-            .eq("team_id", teamId)
-            .eq("league_id", leagueId)
-            .eq("player_id", sourcePlayer.player_id)
-            .eq("roster_slot", "IR")
-            .gt("lineup_date", effectiveDate),
-        );
-        await runUpdate(
-          supabase
-            .from("league_players")
-            .update({ roster_slot: destSlotPosition })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", sourcePlayer.player_id),
-        );
-      } else if (srcIsTaxi) {
-        await runUpdate(
-          supabase
-            .from("daily_lineups")
-            .update({ roster_slot: "BE" })
-            .eq("team_id", teamId)
-            .eq("league_id", leagueId)
-            .eq("player_id", sourcePlayer.player_id)
-            .eq("roster_slot", ROSTER_SLOT.TAXI)
-            .gt("lineup_date", effectiveDate),
-        );
-        // Promotion off the taxi squad is one-way: flag the player so they
-        // can't be sent back to taxi (see getQuickActions / getEligibleFillPlayers).
-        await runUpdate(
-          supabase
-            .from("league_players")
-            .update({ roster_slot: destSlotPosition, promoted_from_taxi: true })
-            .eq("league_id", leagueId)
-            .eq("team_id", teamId)
-            .eq("player_id", sourcePlayer.player_id),
-        );
-      }
+      // The server owns the slate clock, so it decides which day the move lands
+      // on; use its answer to prefetch the right days below.
+      const effectiveDate =
+        (moveResult as { effective_date?: string } | null)?.effective_date ??
+        (deferred ? addDays(today, 1) : selectedDate);
 
       // ── 4. Query invalidation ──
       if (isIrTaxiInvolved) {
@@ -1539,6 +1422,7 @@ export default function RosterScreen() {
       liveMap,
       daySchedule,
       dayGameStats,
+      sport,
     });
 
   // Pre-formatted next-game projected fpts for a player, e.g. "18.3" — or null
@@ -1701,6 +1585,7 @@ export default function RosterScreen() {
                   windowSize: winSize,
                 }
               : undefined,
+            sport,
           )
         : null;
     // "Proj"/"Prev" windows swap the context number for the next-game projection
@@ -1812,7 +1697,7 @@ export default function RosterScreen() {
             }}
             delayLongPress={400}
             accessibilityRole="button"
-            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${matchupDisplay ? `, ${matchupDisplay}` : ""}${didNotPlay ? ", did not play" : ""}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ""}${seasonAvg.stats}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
+            accessibilityLabel={`${slot.player!.name}, ${formatPosition(slot.player!.position)}, ${slot.player!.pro_team}${isOnBye(slot.player!.nbaTricode) ? ", on bye this week" : ""}${matchupDisplay ? `, ${matchupDisplay}` : ""}${didNotPlay ? ", did not play" : ""}${seasonAvg ? `, season average ${seasonAvg.fpts ? `${seasonAvg.fpts} fantasy points per game, ` : ""}${seasonAvg.stats}` : ""}${!isCategories && fpts !== null ? `, ${formatScore(fpts)} fantasy points` : ""}${isLive ? ", live" : ""}${locked ? ", locked" : ""}`}
             accessibilityHint="Tap for player details, long press to change slot"
           >
             {/* Headshot + team pill + on-court dot (all anchored to the wrap) */}
@@ -1922,7 +1807,11 @@ export default function RosterScreen() {
                 </View>
               ) : (
                 <SeasonMetaLine
-                  position={slot.player.position}
+                  position={
+                    isOnBye(slot.player.nbaTricode)
+                      ? `${slot.player.position} · BYE`
+                      : slot.player.position
+                  }
                   seasonAvg={contextAvg}
                   valueLabel={contextLabel}
                   c={c}
@@ -1960,7 +1849,7 @@ export default function RosterScreen() {
                       let gameStats: Record<string, number | boolean> | null =
                         null;
                       if (liveData) {
-                        gameStats = liveToGameLog(liveData) as Record<
+                        gameStats = liveToGameLog(liveData, sport) as Record<
                           string,
                           number | boolean
                         >;
@@ -1968,7 +1857,7 @@ export default function RosterScreen() {
                         const dayGame = dayGameStats?.get(
                           slot.player!.player_id,
                         );
-                        if (dayGame) gameStats = dayToStatRecord(dayGame);
+                        if (dayGame) gameStats = dayToStatRecord(dayGame, sport);
                       }
                       if (gameStats) {
                         setFptsBreakdown({
@@ -2143,6 +2032,7 @@ export default function RosterScreen() {
           hasIR={irSlots.length > 0}
         />
       )}
+      {byeStarters.length > 0 && <ByeWeekBanner players={byeStarters} />}
 
       <ScrollView
         contentContainerStyle={[

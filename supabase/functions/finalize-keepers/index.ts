@@ -39,44 +39,18 @@ Deno.serve(async (req) => {
     if (league.league_type !== 'keeper') throw new HttpError('This action is only available for keeper leagues');
     if (league.offseason_step !== 'keeper_pending') throw new HttpError('League is not in the keeper declaration phase');
 
-    // Get all kept player IDs
-    const { data: declarations, error: declErr } = await supabaseAdmin
-      .from('keeper_declarations')
-      .select('player_id')
-      .eq('league_id', league_id)
-      .eq('season', league.season);
-    if (declErr) throw declErr;
+    // Release non-kept players, clear this season's declarations, and advance
+    // the offseason step in ONE transaction. Running these as three separate
+    // writes risked an unrecoverable wipe: if the declarations delete landed
+    // but the step advance failed, a commissioner retry saw zero keepers and
+    // released the entire league. See finalize_keepers_atomic.
+    const { data: result, error: rpcErr } = await supabaseAdmin.rpc('finalize_keepers_atomic', {
+      p_league_id: league_id,
+      p_season: league.season,
+    });
+    if (rpcErr) throw rpcErr;
 
-    const keptPlayerIds = (declarations ?? []).map((d: any) => d.player_id);
-
-    // Release non-kept players
-    if (keptPlayerIds.length > 0) {
-      await supabaseAdmin
-        .from('league_players')
-        .delete()
-        .eq('league_id', league_id)
-        .not('player_id', 'in', `(${keptPlayerIds.map((id: string) => `"${id}"`).join(',')})`);
-    } else {
-      // No keepers declared — release everyone
-      await supabaseAdmin
-        .from('league_players')
-        .delete()
-        .eq('league_id', league_id);
-    }
-
-    // Clean up declarations for this season
-    await supabaseAdmin
-      .from('keeper_declarations')
-      .delete()
-      .eq('league_id', league_id)
-      .eq('season', league.season);
-
-    // Advance offseason step
-    const { error: updateErr } = await supabaseAdmin
-      .from('leagues')
-      .update({ offseason_step: 'ready_for_new_season' })
-      .eq('id', league_id);
-    if (updateErr) throw updateErr;
+    const keptCount = (result as { kept_count: number } | null)?.kept_count ?? 0;
 
     // Notify league
     try {
@@ -92,7 +66,7 @@ Deno.serve(async (req) => {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }
 
-    return jsonResponse({ message: 'Keepers finalized successfully', kept_count: keptPlayerIds.length });
+    return jsonResponse({ message: 'Keepers finalized successfully', kept_count: keptCount });
   } catch (error) {
     return handleError(error, 'finalize-keepers');
   }

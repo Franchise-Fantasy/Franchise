@@ -10,6 +10,7 @@ import {
   calculateAvgFantasyPoints,
   calculateGameFantasyPoints,
 } from "@/utils/scoring/fantasyPoints";
+import { NFL_GAME_COLUMNS, nflStatFields, nflStatLine } from "@/utils/scoring/nflStatLine";
 import { averageGames, lastNPlayedGames } from "@/utils/scoring/windowAverages";
 
 // Data layer for the roster tab: the per-date roster fetch + the small pure
@@ -17,7 +18,9 @@ import { averageGames, lastNPlayedGames } from "@/utils/scoring/windowAverages";
 // only the RosterScreen view. Render-neutral — no UI here — so the read-only
 // team-roster mirror page is unaffected.
 
-// Per-player game stats fetched for a specific past date
+// Per-player game stats fetched for a specific past date. NFL rows carry the
+// NFL_GAME_COLUMNS instead (nulls on the basketball fields) — consumers index
+// dynamically per sport.
 export interface DayGameStats {
   player_id: string;
   pts: number;
@@ -36,10 +39,13 @@ export interface DayGameStats {
   double_double: boolean;
   triple_double: boolean;
   matchup: string | null;
+  [nflCol: string]: unknown;
 }
 
-// Compact stat line shown below player name: "20 PTS · 8 REB · 5 AST"
-export function buildStatLine(stats: Record<string, number>): string {
+// Compact stat line shown below player name: "20 PTS · 8 REB · 5 AST" for
+// basketball; position-shaped "18/27 245Y 2TD" for NFL.
+export function buildStatLine(stats: Record<string, number>, sport?: string | null): string {
+  if (sport === "nfl") return nflStatLine(stats);
   const fields: [string, string][] = [
     ["pts", "PTS"],
     ["reb", "REB"],
@@ -73,7 +79,28 @@ export function buildSeasonAverages(
   scoringWeights: ScoringWeight[] | undefined,
   isCategories: boolean,
   windowOverride?: { gameLog: PlayerGameLog[] | undefined; windowSize: number },
+  sport?: string | null,
 ): SeasonAverages | null {
+  if (sport === "nfl") {
+    // NFL: position-shaped per-game averages ("251.3Y 1.8TD 0.7INT") from the
+    // matview's avg_* columns; Lx window overrides are basketball-only v1.
+    if ((player.games_played ?? 0) === 0) return null;
+    const avgRec: Record<string, number> = {};
+    for (const col of NFL_GAME_COLUMNS) {
+      const v = (player as unknown as Record<string, unknown>)[`avg_${col}`];
+      if (typeof v === "number") avgRec[col] = v;
+    }
+    const stats = nflStatFields(avgRec)
+      .map(([key, label]) => `${(avgRec[key] ?? 0).toFixed(1)}${label}`)
+      .join(" ");
+    let fpts: string | null = null;
+    if (!isCategories && scoringWeights) {
+      const value = calculateAvgFantasyPoints(player, scoringWeights, sport);
+      if (value > 0) fpts = value.toFixed(1);
+    }
+    return { stats, fpts };
+  }
+
   if (windowOverride && windowOverride.windowSize > 0) {
     const played = lastNPlayedGames(windowOverride.gameLog, windowOverride.windowSize);
     if (played.length > 0) {
@@ -123,6 +150,7 @@ export interface SlotStatsContext {
   liveMap: Map<string, LivePlayerStats>;
   daySchedule: Map<string, ScheduleEntry> | undefined;
   dayGameStats: Map<string, DayGameStats> | undefined;
+  sport?: string | null;
 }
 
 const EMPTY_SLOT_STATS: SlotStats = {
@@ -139,7 +167,7 @@ export function computeSlotStats(
   player: RosterPlayer | null,
   ctx: SlotStatsContext,
 ): SlotStats {
-  const { scoringWeights, isToday, isPastDate, isCategories, liveMap, daySchedule, dayGameStats } =
+  const { scoringWeights, isToday, isPastDate, isCategories, liveMap, daySchedule, dayGameStats, sport } =
     ctx;
 
   if (!player || !scoringWeights) return EMPTY_SLOT_STATS;
@@ -155,18 +183,18 @@ export function computeSlotStats(
     if (!hasGame) return EMPTY_SLOT_STATS;
 
     if (live) {
-      const stats = liveToGameLog(live);
+      const stats = liveToGameLog(live, sport);
       const fpts = isCategories
         ? null
         : Math.round(
-            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
           ) / 10;
       return {
         fpts,
         statLine:
           live.game_status === 1
             ? null
-            : buildStatLine(stats as Record<string, number>),
+            : buildStatLine(stats as Record<string, number>, sport),
         isLive: live.game_status === 2,
         matchup: live.matchup || null,
         gameTimeUtc: null,
@@ -185,15 +213,15 @@ export function computeSlotStats(
     const live = liveMap.get(player.player_id);
     // Still-live game from yesterday that crossed midnight
     if (live && live.game_status === 2) {
-      const stats = liveToGameLog(live);
+      const stats = liveToGameLog(live, sport);
       const fpts = isCategories
         ? null
         : Math.round(
-            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
           ) / 10;
       return {
         fpts,
-        statLine: buildStatLine(stats as Record<string, number>),
+        statLine: buildStatLine(stats as Record<string, number>, sport),
         isLive: true,
         matchup: live.matchup || null,
         gameTimeUtc: null,
@@ -201,15 +229,15 @@ export function computeSlotStats(
     }
     const dayGame = dayGameStats?.get(player.player_id);
     if (dayGame) {
-      const stats = dayToStatRecord(dayGame);
+      const stats = dayToStatRecord(dayGame, sport);
       const fpts = isCategories
         ? null
         : Math.round(
-            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
           ) / 10;
       return {
         fpts,
-        statLine: buildStatLine(stats as Record<string, number>),
+        statLine: buildStatLine(stats as Record<string, number>, sport),
         isLive: false,
         matchup: dayGame.matchup ?? null,
         gameTimeUtc: null,
@@ -220,15 +248,15 @@ export function computeSlotStats(
     // live_player_stats writes and player_games writes during/after a game
     // ends, and any race where dayGameStats hasn't loaded.
     if (live && live.game_status === 3) {
-      const stats = liveToGameLog(live);
+      const stats = liveToGameLog(live, sport);
       const fpts = isCategories
         ? null
         : Math.round(
-            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights) * 10,
+            calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
           ) / 10;
       return {
         fpts,
-        statLine: buildStatLine(stats as Record<string, number>),
+        statLine: buildStatLine(stats as Record<string, number>, sport),
         isLive: false,
         matchup: live.matchup || null,
         gameTimeUtc: null,
@@ -273,7 +301,15 @@ export function computeSlotStats(
   };
 }
 
-export function dayToStatRecord(g: DayGameStats): Record<string, number | boolean> {
+export function dayToStatRecord(g: DayGameStats, sport?: string | null): Record<string, number | boolean> {
+  if (sport === "nfl") {
+    const out: Record<string, number | boolean> = {};
+    for (const col of NFL_GAME_COLUMNS) {
+      const v = g[col];
+      if (typeof v === "number") out[col] = v;
+    }
+    return out;
+  }
   return {
     pts: g.pts,
     reb: g.reb,

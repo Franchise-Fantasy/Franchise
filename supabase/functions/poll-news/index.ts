@@ -40,6 +40,8 @@ const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string; expectedC
   wnba: [
     { url: 'https://www.rotowire.com/rss/news.php?sport=WNBA', source: 'rotowire', expectedChannelTag: 'WNBA' },
   ],
+  // No NFL feed configured (and no NFL cron entry) — an nfl call is a clean no-op.
+  nfl: [],
 };
 
 // The RSS feed only holds the latest 5 items, so a post-game burst overflows it

@@ -2,12 +2,14 @@ import { ScrollViewStyleReset } from "expo-router/html";
 import { type PropsWithChildren } from "react";
 
 /**
- * Web-only HTML shell for the static/single export. `ScrollViewStyleReset`
- * provides the react-native-web root reset (full-height html/body/#root,
- * body overflow hidden) — keep it so the app fills the viewport. The extra
- * style sets the page (gutter) background to the brand turf green so the
- * centered app column in AppFrame reads as an intentional frame on wide
- * desktops instead of a white band. This file has no effect on native.
+ * Web-only HTML shell. `ScrollViewStyleReset` provides the react-native-web root
+ * reset (full-height html/body/#root, body overflow hidden). No effect on native.
+ *
+ * HEADS UP: this file only runs for STATIC rendering. The app's web output is
+ * `"single"` (SPA — see app.json), where Expo serves its own default HTML shell
+ * and never evaluates `+html.tsx`, so nothing here currently reaches the page.
+ * Global CSS that must actually apply is injected at runtime instead — see
+ * components/web/globalWebStyles.ts. Kept for the day web output goes `static`.
  */
 export default function Root({ children }: PropsWithChildren) {
   return (

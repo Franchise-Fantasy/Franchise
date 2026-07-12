@@ -6,19 +6,28 @@
  * place. Transient 5xx/429s recover within the same cron tick instead
  * of skipping the whole cycle.
  *
- * BDL exposes NBA at `/v1` and WNBA at `/wnba/v1` with the same auth and
- * response shapes — callers pass `sport` and we route accordingly.
+ * BDL exposes NBA at `/v1`, WNBA at `/wnba/v1`, and NFL at `/nfl/v1` with the
+ * same auth and envelope shapes — callers pass `sport` and we route
+ * accordingly.
+ *
+ * NFL quirks (verified 2026-07-10, see wiki "NFL Support"):
+ *   - `start_date`/`end_date` params are silently IGNORED on /nfl/v1/games;
+ *     filter by `seasons[]`, `weeks[]`, `dates[]`, `postseason` instead.
+ *   - No preseason data; postseason games restart `week` numbering at 1.
+ *   - Score fields use NBA-style names (home_team_score/visitor_team_score).
  */
 
 import { fetchWithRetry } from './retry.ts';
 
-export type Sport = "nba" | "wnba";
+export type Sport = "nba" | "wnba" | "nfl";
 
 const BDL_HOST = "https://api.balldontlie.io";
 const BDL_API_KEY = Deno.env.get("BDL_API_KEY") ?? "";
 
 function bdlPrefix(sport: Sport): string {
-  return sport === "wnba" ? "/wnba/v1" : "/v1";
+  if (sport === "wnba") return "/wnba/v1";
+  if (sport === "nfl") return "/nfl/v1";
+  return "/v1";
 }
 
 /**
@@ -102,6 +111,10 @@ export async function bdlFetchAll(
  * NBA reports "Q1"/"Q3"/"OT" while in-progress and "Final" when over.
  * WNBA reports the verbatim strings "pre" / "in" / "post" for the three
  * lifecycle states. Halftime appears as "Half" in NBA feeds.
+ * NFL: "Final" when over; pre-game is a kickoff string like
+ * "9/9 - 8:20 PM EDT" (falls through to scheduled). Live-status strings
+ * are unverified until the first live NFL slate (no preseason in BDL) —
+ * quarter strings would match the existing Q\d/Half/OT patterns.
  */
 export function mapGameStatus(status: string): number {
   if (status === "Final" || status === "post") return 3;
@@ -177,6 +190,12 @@ export function toIsoDuration(time: string): string {
  * expands "G" → PG-SG and "F" → SF-PF so slot eligibility still works.
  * Hyphen direction is normalized so "F-G"/"C-F" don't create duplicate
  * spelling variants alongside "G-F"/"F-C".
+ *
+ * NFL: BDL's `position_abbreviation` tokens map to the app's disjoint set
+ * (QB/RB/WR/TE/K). "PK" → "K"; fullbacks roster as RBs. Returns null for
+ * any other token (OL/IDP/UNK) — sync-players drops those players, which
+ * is also what keeps BDL's offensive-line "G"/"C" tokens from colliding
+ * with the basketball spectrum.
  */
 export function coerceBdlPosition(
   raw: string | null | undefined,
@@ -185,6 +204,19 @@ export function coerceBdlPosition(
   if (!raw) return null;
   const trimmed = raw.trim().toUpperCase();
   if (!trimmed) return null;
+
+  if (sport === "nfl") {
+    const nflMap: Record<string, string> = {
+      QB: "QB",
+      RB: "RB",
+      FB: "RB",
+      WR: "WR",
+      TE: "TE",
+      PK: "K",
+      K: "K",
+    };
+    return nflMap[trimmed] ?? null;
+  }
 
   if (sport === "wnba") {
     const wnbaMap: Record<string, string> = {

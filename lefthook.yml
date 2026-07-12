@@ -13,6 +13,9 @@ pre-commit:
     paired-files:
       glob: "*"
       run: npm run check:paired-files
+    sport-scope:
+      glob: "*"
+      run: npm run check:sport-scope
 
 pre-push:
   commands:

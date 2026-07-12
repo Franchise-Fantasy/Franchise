@@ -3,28 +3,45 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { PlayerName } from '@/components/player/PlayerName';
+import { BottomSheet } from '@/components/ui/BottomSheet';
+import { BrandButton } from '@/components/ui/BrandButton';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
+import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
 
-interface DeclareKeepersProps {
+interface DeclareKeepersSheetProps {
+  visible: boolean;
+  onClose: () => void;
   leagueId: string;
   teamId: string;
   season: string;
   keeperCount: number;
   isCommissioner: boolean;
+  /** Commissioner-only. The parent closes this sheet BEFORE running it — the
+   *  finalize flow opens a confirm dialog, and stacking that over the sheet's
+   *  Modal freezes taps on iOS. */
+  onFinalize: () => void;
 }
 
-export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommissioner }: DeclareKeepersProps) {
+export function DeclareKeepersSheet({
+  visible,
+  onClose,
+  leagueId,
+  teamId,
+  season,
+  keeperCount,
+  isCommissioner,
+  onFinalize,
+}: DeclareKeepersSheetProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
 
-  // Fetch my roster
+  // My roster
   const { data: roster } = useQuery({
     queryKey: queryKeys.keeperRoster(leagueId, teamId),
     queryFn: async () => {
@@ -39,9 +56,10 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
         position: lp.players?.position ?? '',
       }));
     },
+    enabled: visible,
   });
 
-  // Fetch my declarations
+  // My declarations
   const { data: myDeclarations } = useQuery({
     queryKey: queryKeys.keeperDeclarations(leagueId, teamId, season as unknown as number),
     queryFn: async () => {
@@ -53,9 +71,10 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
         .eq('season', season);
       return new Set((data ?? []).map((d: any) => d.player_id));
     },
+    enabled: visible,
   });
 
-  // Commissioner: fetch all teams' declaration counts
+  // Commissioner: every team's declaration progress
   const { data: teamStatuses } = useQuery({
     queryKey: queryKeys.keeperDeclarations(leagueId, 'all', season as unknown as number),
     queryFn: async () => {
@@ -79,17 +98,15 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
       }
       return results;
     },
-    enabled: isCommissioner,
+    enabled: isCommissioner && visible,
   });
 
   const declaredSet = myDeclarations ?? new Set<string>();
   const declaredCount = declaredSet.size;
 
-  // Toggle keeper declaration
   const toggleKeeper = useMutation({
     mutationFn: async (playerId: string) => {
       if (declaredSet.has(playerId)) {
-        // Remove
         await supabase
           .from('keeper_declarations')
           .delete()
@@ -101,7 +118,6 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
         if (declaredCount >= keeperCount) {
           throw new Error(`You can only keep ${keeperCount} players`);
         }
-        // Add
         await supabase
           .from('keeper_declarations')
           .insert({ league_id: leagueId, team_id: teamId, season, player_id: playerId });
@@ -116,27 +132,75 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
     },
   });
 
+  const allTeamsReady =
+    !!teamStatuses && teamStatuses.length > 0 && teamStatuses.every((t) => t.count >= keeperCount);
+
   return (
-    <View style={styles.wrapper}>
-      {/* My keeper selections */}
-      <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
-        Declare Keepers ({declaredCount}/{keeperCount})
-      </ThemedText>
+    <BottomSheet
+      visible={visible}
+      onClose={onClose}
+      title="Declare Keepers"
+      subtitle={`${declaredCount} of ${keeperCount} selected`}
+      height="85%"
+      scrollableBody
+      footer={
+        <View style={styles.footer}>
+          <BrandButton
+            label="Done"
+            variant="secondary"
+            size="large"
+            onPress={onClose}
+            style={styles.footerBtn}
+            accessibilityLabel="Done selecting keepers"
+          />
+          {isCommissioner && (
+            <BrandButton
+              label="Finalize"
+              variant="primary"
+              size="large"
+              onPress={() => {
+                // Close first: finalize opens a confirm dialog, and an overlay
+                // stacked on this sheet's Modal freezes taps on iOS.
+                onClose();
+                onFinalize();
+              }}
+              style={styles.footerBtn}
+              accessibilityLabel="Finalize keepers and release all non-kept players"
+            />
+          )}
+        </View>
+      }
+    >
+      {isCommissioner && !allTeamsReady && teamStatuses && (
+        <ThemedText style={[styles.warn, { color: c.secondaryText }]}>
+          Not every team has finished picking. Finalizing now releases the undeclared teams&apos;
+          entire rosters.
+        </ThemedText>
+      )}
 
       {roster?.map((player) => {
         const isKept = declaredSet.has(player.playerId);
+        const atLimit = !isKept && declaredCount >= keeperCount;
         return (
           <TouchableOpacity
             key={player.playerId}
             accessibilityRole="checkbox"
             accessibilityLabel={`${player.name}, ${player.position}`}
-            accessibilityState={{ checked: isKept }}
-            style={[styles.playerRow, { borderColor: c.border }, isKept && { backgroundColor: c.accent + '15' }]}
+            accessibilityState={{ checked: isKept, disabled: atLimit }}
+            disabled={atLimit}
+            style={[
+              styles.playerRow,
+              { borderColor: c.border },
+              isKept && { backgroundColor: c.accent + '15' },
+              atLimit && styles.playerRowDisabled,
+            ]}
             onPress={() => toggleKeeper.mutate(player.playerId)}
           >
             <View style={styles.playerInfo}>
               <PlayerName name={player.name} style={styles.playerName} />
-              <ThemedText style={[styles.playerPos, { color: c.secondaryText }]}>{player.position}</ThemedText>
+              <ThemedText style={[styles.playerPos, { color: c.secondaryText }]}>
+                {player.position}
+              </ThemedText>
             </View>
             <Ionicons
               name={isKept ? 'checkmark-circle' : 'ellipse-outline'}
@@ -148,10 +212,11 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
       })}
 
       {(!roster || roster.length === 0) && (
-        <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>No players on roster.</ThemedText>
+        <ThemedText style={[styles.emptyText, { color: c.secondaryText }]}>
+          No players on roster.
+        </ThemedText>
       )}
 
-      {/* Commissioner: team declaration status */}
       {isCommissioner && teamStatuses && (
         <View style={styles.commSection}>
           <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.sectionTitle}>
@@ -162,7 +227,9 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
             return (
               <View key={t.name} style={styles.teamStatusRow}>
                 <ThemedText style={{ fontSize: ms(13) }}>{t.name}</ThemedText>
-                <ThemedText style={[styles.teamStatusCount, { color: isDone ? c.success : c.secondaryText }]}>
+                <ThemedText
+                  style={[styles.teamStatusCount, { color: isDone ? c.success : c.secondaryText }]}
+                >
                   {t.count}/{keeperCount} {isDone ? '✓' : ''}
                 </ThemedText>
               </View>
@@ -170,15 +237,22 @@ export function DeclareKeepers({ leagueId, teamId, season, keeperCount, isCommis
           })}
         </View>
       )}
-    </View>
+    </BottomSheet>
   );
 }
 
 const styles = StyleSheet.create({
-  wrapper: {
-    marginBottom: s(12),
-    borderRadius: 12,
-    ...cardShadow,
+  footer: {
+    flexDirection: 'row',
+    gap: s(8),
+    alignItems: 'center',
+  },
+  footerBtn: {
+    flex: 1,
+  },
+  warn: {
+    fontSize: ms(12),
+    marginBottom: s(10),
   },
   sectionTitle: {
     fontSize: ms(14),
@@ -193,6 +267,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderRadius: 6,
     marginBottom: s(2),
+  },
+  playerRowDisabled: {
+    opacity: 0.4,
   },
   playerInfo: {
     flex: 1,

@@ -310,9 +310,15 @@ async function matchPlayers(
   extractedPlayers: ExtractedPlayer[],
   supabaseAdmin: any,
 ): Promise<{ matched: any[]; unmatched: any[] }> {
+  // Screenshot import is a basketball feature (the extraction prompts are
+  // basketball-specific); keep NFL names out of the match pool. The extract
+  // body doesn't carry the league sport, so this matches across nba+wnba —
+  // per-sport scoping needs the client to send sport (screenshot-import
+  // Phase 2).
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
-    .select('id, name, pro_team, position');
+    .select('id, name, pro_team, position')
+    .in('sport', ['nba', 'wnba']);
 
   // Index by compact full name (spacing/hyphen-insensitive) for exact hits,
   // and by compact surname for abbreviation + OCR-slip fallbacks.
@@ -744,7 +750,9 @@ async function handleSearchOrCreatePlayer(
     return jsonResponse({ created: false, players: hits });
   }
 
-  // Not found — create a new player record
+  // Not found — create a new player record. sport is explicit (never rely on
+  // the column DEFAULT): this endpoint is part of the basketball screenshot
+  // import, so manually-created players are NBA.
   const { data: newPlayer, error } = await supabaseAdmin
     .from('players')
     .insert({
@@ -752,6 +760,7 @@ async function handleSearchOrCreatePlayer(
       position: position ?? null,
       pro_team: null,
       status: 'active',
+      sport: 'nba',
     })
     .select('id, name, pro_team, position')
     .single();

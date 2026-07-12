@@ -4,6 +4,7 @@ import { AppState } from 'react-native';
 import { supabase } from '@/lib/supabase';
 import { addDays } from '@/utils/dates';
 import { getSportToday } from '@/utils/leagueTime';
+import { NFL_GAME_COLUMNS } from '@/utils/scoring/nflStatLine';
 
 export interface LivePlayerStats {
   player_id: string;
@@ -29,6 +30,9 @@ export interface LivePlayerStats {
   ftm: number;
   fta: number;
   pf: number;
+  // NFL columns (null on basketball rows; see NFL_GAME_COLUMNS). Indexed
+  // dynamically by liveToGameLog's NFL branch rather than listed out here.
+  [nflCol: string]: unknown;
 }
 
 // "1st", "2nd", "3rd", "4th", "OT", "OT2", ...
@@ -149,7 +153,9 @@ export function useLivePlayerStats(
     const yesterday = addDays(today, -1);
     dateRef.current = today;
 
-    const liveCols = 'player_id, game_id, game_date, game_status, period, game_clock, matchup, home_score, away_score, oncourt, pts, reb, ast, blk, stl, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf';
+    // Basketball + NFL columns in one literal — the other sport's columns come
+    // back null and are ignored by the sport's stat map.
+    const liveCols = 'player_id, game_id, game_date, game_status, period, game_clock, matchup, home_score, away_score, oncourt, pts, reb, ast, blk, stl, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts';
     const [todayRes, yesterdayRes] = await Promise.all([
       supabase
         .from('live_player_stats')
@@ -217,7 +223,20 @@ function buildMap(rows: LivePlayerStats[]): Map<string, LivePlayerStats> {
 }
 
 // Convert LivePlayerStats to the shape calculateGameFantasyPoints expects.
-export function liveToGameLog(live: LivePlayerStats): Record<string, number | boolean> {
+// NFL rows pass their own columns through (incl. the derived dst_pa_pts tier);
+// basketball keeps the dd/td derivation from 10+ stat counts.
+export function liveToGameLog(
+  live: LivePlayerStats,
+  sport?: string | null,
+): Record<string, number | boolean> {
+  if (sport === 'nfl') {
+    const out: Record<string, number | boolean> = {};
+    for (const col of NFL_GAME_COLUMNS) {
+      const v = live[col];
+      if (typeof v === 'number') out[col] = v;
+    }
+    return out;
+  }
   const cats = [live.pts, live.reb, live.ast, live.stl, live.blk].filter(v => v >= 10).length;
   return {
     pts: live.pts, reb: live.reb, ast: live.ast, stl: live.stl,

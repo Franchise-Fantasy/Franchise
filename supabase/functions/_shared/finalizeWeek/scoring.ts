@@ -7,24 +7,17 @@
 // teamScoring.ts (compute team totals from indexed data).
 
 import { resolveSlot as sharedResolveSlot } from '../resolveSlot.ts';
+import { getSportModule } from '../../../../utils/sports/registry.ts';
 
-export const STAT_TO_GAME: Record<string, string> = {
-  PTS: 'pts',
-  REB: 'reb',
-  AST: 'ast',
-  STL: 'stl',
-  BLK: 'blk',
-  TO: 'tov',
-  '3PM': '3pm',
-  '3PA': '3pa',
-  FGM: 'fgm',
-  FGA: 'fga',
-  FTM: 'ftm',
-  FTA: 'fta',
-  PF: 'pf',
-  DD: 'double_double',
-  TD: 'triple_double',
-};
+// Sport-aware stat_name → player_games column map. Basketball callers that
+// don't pass a sport keep the NBA map (identical to the old hardcoded copy);
+// NFL leagues resolve PASS_YD → pass_yd etc. via the shared registry.
+export function statToGameFor(sport?: string | null): Record<string, string> {
+  return getSportModule(sport).statToGame;
+}
+
+// Legacy export — the NBA map. Prefer statToGameFor(sport) in new code.
+export const STAT_TO_GAME: Record<string, string> = getSportModule('nba').statToGame;
 
 export interface ScoringWeight {
   stat_name: string;
@@ -66,10 +59,12 @@ const PERCENTAGE_STATS: Record<string, { numerator: string; denominator: string 
 
 export function aggregateGameStats(
   gameLogs: Record<string, unknown>[],
+  sport?: string | null,
 ): Record<string, number> {
+  const statToGame = statToGameFor(sport);
   const totals: Record<string, number> = {};
   for (const game of gameLogs) {
-    for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+    for (const [, gameKey] of Object.entries(statToGame)) {
       const raw = game[gameKey];
       if (raw == null) continue;
       const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
@@ -131,10 +126,12 @@ export function compareCategoryStats(
 export function calculateGameFpts(
   game: Record<string, number>,
   weights: ScoringWeight[],
+  sport?: string | null,
 ): number {
+  const statToGame = statToGameFor(sport);
   let total = 0;
   for (const w of weights) {
-    const field = STAT_TO_GAME[w.stat_name];
+    const field = statToGame[w.stat_name];
     if (field && game[field] != null) {
       total += game[field] * w.point_value;
     }

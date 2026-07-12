@@ -188,18 +188,24 @@ export function FreeAgentStatusRibbon({
                   <TouchableOpacity
                     onPress={() => onEditClaimBid(claim)}
                     hitSlop={8}
-                    style={{ marginRight: 8 }}
+                    style={ribbonStyles.claimAction}
                     accessibilityRole="button"
                     accessibilityLabel={`Edit bid for ${claim.player?.name ?? 'player'} claim`}
                   >
-                    <Ionicons name="pencil" size={18} color={c.accent} />
+                    <Ionicons name="pencil" size={18} color={c.accent} accessible={false} />
+                    <ThemedText
+                      style={[ribbonStyles.claimActionLabel, { color: c.accent }]}
+                      accessible={false}
+                    >
+                      Bid
+                    </ThemedText>
                   </TouchableOpacity>
                 )}
                 {rosterIsFull && (
                   <TouchableOpacity
                     onPress={() => onEditClaimDrop(claim)}
                     hitSlop={8}
-                    style={{ marginRight: 8 }}
+                    style={ribbonStyles.claimAction}
                     accessibilityRole="button"
                     accessibilityLabel={`${hasNoDrop ? 'Set' : 'Change'} drop player for ${claim.player?.name ?? 'player'} claim`}
                   >
@@ -207,16 +213,33 @@ export function FreeAgentStatusRibbon({
                       name="person-remove-outline"
                       size={18}
                       color={hasNoDrop ? c.danger : c.accent}
+                      accessible={false}
                     />
+                    <ThemedText
+                      style={[
+                        ribbonStyles.claimActionLabel,
+                        { color: hasNoDrop ? c.danger : c.accent },
+                      ]}
+                      accessible={false}
+                    >
+                      {hasNoDrop ? 'Set drop' : 'Drop'}
+                    </ThemedText>
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
                   onPress={() => onRequestCancelClaim(claim)}
                   hitSlop={8}
+                  style={ribbonStyles.claimAction}
                   accessibilityRole="button"
                   accessibilityLabel={`Cancel claim for ${claim.player?.name ?? 'player'}`}
                 >
-                  <Ionicons name="close-circle" size={20} color={c.secondaryText} />
+                  <Ionicons name="close-circle" size={20} color={c.secondaryText} accessible={false} />
+                  <ThemedText
+                    style={[ribbonStyles.claimActionLabel, { color: c.secondaryText }]}
+                    accessible={false}
+                  >
+                    Cancel
+                  </ThemedText>
                 </TouchableOpacity>
               </View>
             );
@@ -294,6 +317,20 @@ function RibbonPill({
 }
 
 const ribbonStyles = StyleSheet.create({
+  // Icon + caption stack for the pending-claim row actions. The captions exist
+  // because three bare icons (edit bid / set drop / cancel) were indistinguishable
+  // — "person-remove" in particular read as "drop this player now" rather than
+  // "choose who gets dropped when this claim processes".
+  claimAction: {
+    alignItems: 'center',
+    marginLeft: s(10),
+    minWidth: s(34),
+  },
+  claimActionLabel: {
+    fontSize: ms(9),
+    fontWeight: '600',
+    marginTop: s(2),
+  },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',

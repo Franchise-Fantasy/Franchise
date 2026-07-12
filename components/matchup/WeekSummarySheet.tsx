@@ -24,13 +24,17 @@ import { ms, s } from "@/utils/scale";
 import {
   calculateGameFantasyPoints,
   formatScore,
-  STAT_TO_GAME,
 } from "@/utils/scoring/fantasyPoints";
+import { getSportModule } from "@/utils/sports/registry";
 
-// Canonical stat ordering for the breakdown grid.
+// Canonical stat ordering for the breakdown grid (basketball then NFL —
+// a league's scoring settings only ever contain one sport's stat names).
 const STAT_ORDER = [
   "PTS", "REB", "AST", "BLK", "STL", "TO",
   "3PM", "3PA", "FGM", "FGA", "FG%", "FTM", "FTA", "FT%", "PF", "DD", "TD",
+  "PASS_YD", "PASS_TD", "PASS_INT", "RUSH_YD", "RUSH_TD",
+  "REC", "REC_YD", "REC_TD", "FUM_LOST", "RET_TD", "FG", "XP",
+  "DST_SACK", "DST_INT", "DST_FUM_REC", "DST_TD", "DST_PA",
 ];
 
 // Percentage categories (CAT leagues) — derived per-player from made/attempted
@@ -94,6 +98,7 @@ export function mergeLiveWeekStats(
   players: RosterPlayer[],
   liveMap: Map<string, LivePlayerStats> | undefined,
   scoring: ScoringWeight[],
+  sport?: string | null,
 ): RosterPlayer[] {
   if (!liveMap) return players;
   return players.map((p) => {
@@ -106,8 +111,8 @@ export function mergeLiveWeekStats(
     )
       return p;
 
-    const liveGameLog = liveToGameLog(live);
-    const liveFpts = calculateGameFantasyPoints(liveGameLog as any, scoring);
+    const liveGameLog = liveToGameLog(live, sport);
+    const liveFpts = calculateGameFantasyPoints(liveGameLog as any, scoring, sport);
 
     const merged: Record<string, number> = { ...(p.weekGameStats ?? {}) };
     for (const [key, val] of Object.entries(liveGameLog)) {
@@ -174,7 +179,7 @@ export function WeekSummarySheet({
   );
 
   const ranked = useMemo(() => {
-    const merged = mergeLiveWeekStats(players, liveMap, scoring);
+    const merged = mergeLiveWeekStats(players, liveMap, scoring, sport);
     return merged
       .filter(
         (p) =>
@@ -207,12 +212,15 @@ export function WeekSummarySheet({
         raw.roster_slot === "IR" ||
         raw.roster_slot === ROSTER_SLOT.DROPPED;
       // Live stats carry no minutes, so use production as the played-proxy
-      // for today's *final* games — drops today's DNPs.
+      // for today's *final* games — drops today's DNPs. NFL live rows only
+      // exist for players who appeared (BDL omits non-participants), so row
+      // existence is the played-proxy there.
       const livePlayed =
         !!live &&
         live.game_status === 3 &&
         !benched &&
-        (live.pts > 0 ||
+        (sport === "nfl" ||
+          live.pts > 0 ||
           live.reb > 0 ||
           live.ast > 0 ||
           live.stl > 0 ||
@@ -224,7 +232,7 @@ export function WeekSummarySheet({
       if (livePlayed) {
         games += 1;
         points = round1(
-          points + calculateGameFantasyPoints(liveToGameLog(live!) as any, scoring),
+          points + calculateGameFantasyPoints(liveToGameLog(live!, sport) as any, scoring, sport),
         );
       }
       m.set(raw.player_id, { games, points });
@@ -244,13 +252,14 @@ export function WeekSummarySheet({
     return expected > 0 ? Math.round((points / expected - 1) * 100) : null;
   }, [ranked, completedById]);
 
+  const statToGame = getSportModule(sport).statToGame;
   const statColumns = useMemo(
     () =>
       scoring
         .map((w): StatColumn | null => {
           const pct = PERCENTAGE_STATS[w.stat_name];
           if (pct) return { label: w.stat_name, pct };
-          const key = STAT_TO_GAME[w.stat_name] as string | undefined;
+          const key = statToGame[w.stat_name] as string | undefined;
           return key ? { label: w.stat_name, key } : null;
         })
         .filter((col): col is StatColumn => col != null)
@@ -259,7 +268,7 @@ export function WeekSummarySheet({
           const bi = STAT_ORDER.indexOf(b.label);
           return (ai === -1 ? 999 : ai) - (bi === -1 ? 999 : bi);
         }),
-    [scoring],
+    [scoring, statToGame],
   );
 
   return (

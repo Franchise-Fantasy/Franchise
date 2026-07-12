@@ -1,75 +1,8 @@
-// Edge-function position-limit checks.
-//
-// Pure spectrum primitives come from utils/roster/rosterSlotsShared.ts and are
-// byte-identical between client and edge. Only the roster-traversal logic
-// (activeOnly, countByPosition, checkPositionLimits*) lives here.
-
-import {
-  baseSlotName,
-  getLimitMatchKeys,
+// Thin re-export — the position-limit checkers live in rosterSlotsShared.ts
+// (the zero-dep file shared byte-for-byte with client code) so client and
+// edge can't drift. Client twin: utils/roster/positionLimits.ts.
+export {
+  checkPositionLimits,
+  checkPositionLimitsForRoster,
+  type PositionLimits,
 } from '../../../utils/roster/rosterSlotsShared.ts';
-
-export type PositionLimits = Partial<Record<string, number | null>>;
-
-interface RosterPlayer {
-  position: string;
-  roster_slot?: string;
-}
-
-const IR_TAXI_SLOTS = ['IR', 'TAXI'];
-
-function activeOnly(roster: RosterPlayer[]): RosterPlayer[] {
-  return roster.filter(
-    (p) => !p.roster_slot || !IR_TAXI_SLOTS.includes(baseSlotName(p.roster_slot)),
-  );
-}
-
-function countByPosition(roster: RosterPlayer[]): Record<string, number> {
-  const counts: Record<string, number> = { PG: 0, SG: 0, SF: 0, PF: 0, C: 0, G: 0, F: 0 };
-  for (const p of roster) {
-    for (const key of getLimitMatchKeys(p.position)) {
-      counts[key] = (counts[key] ?? 0) + 1;
-    }
-  }
-  return counts;
-}
-
-/**
- * Check whether adding a single player would violate any position limit.
- * Returns null if ok, or the first violated limit.
- */
-export function checkPositionLimits(
-  limits: PositionLimits | null | undefined,
-  currentRoster: RosterPlayer[],
-  incomingPlayerPosition: string,
-): { position: string; current: number; max: number } | null {
-  if (!limits || Object.keys(limits).length === 0) return null;
-
-  const counts = countByPosition(activeOnly(currentRoster));
-  for (const pos of getLimitMatchKeys(incomingPlayerPosition)) {
-    const max = limits[pos];
-    if (max != null && max > 0 && (counts[pos] ?? 0) >= max) {
-      return { position: pos, current: counts[pos] ?? 0, max };
-    }
-  }
-  return null;
-}
-
-/**
- * Check whether a full roster violates any position limit (for trades).
- * Returns null if ok, or the first violated limit.
- */
-export function checkPositionLimitsForRoster(
-  limits: PositionLimits | null | undefined,
-  roster: RosterPlayer[],
-): { position: string; count: number; max: number } | null {
-  if (!limits || Object.keys(limits).length === 0) return null;
-
-  const counts = countByPosition(activeOnly(roster));
-  for (const [pos, max] of Object.entries(limits)) {
-    if (max != null && max > 0 && (counts[pos] ?? 0) > max) {
-      return { position: pos, count: counts[pos] ?? 0, max };
-    }
-  }
-  return null;
-}

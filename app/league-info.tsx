@@ -25,6 +25,7 @@ import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
 import { ImportTeamRosterModal } from '@/components/commissioner/ImportTeamRosterModal';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
+import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
@@ -140,6 +141,38 @@ export default function LeagueInfoScreen() {
     isCommissioner,
   );
 
+  // Imported dynasty leagues seed the UPCOMING rookie draft order from the
+  // standings entered at import time. Until the rookie draft is actually created
+  // (its picks still have no draft_id), the commissioner can fix a mistaken
+  // order. `true` only when such editable picks exist, so the action stays
+  // hidden once the draft is created or for non-import leagues. The reorder
+  // applies the chosen order to every round (see reorderRookieDraftPicks), and
+  // only writes when the order actually changed, so a peek-and-close is a no-op.
+  const rookieSeason = league?.season ?? '';
+  const { data: canEditRookieOrder = false } = useQuery({
+    queryKey: ['rookieOrderEditable', leagueId],
+    queryFn: async () => {
+      const { count, error } = await supabase
+        .from('draft_picks')
+        .select('id', { count: 'exact', head: true })
+        .eq('league_id', leagueId!)
+        .eq('season', rookieSeason)
+        .eq('round', 1)
+        .is('draft_id', null)
+        .is('player_id', null);
+      if (error) throw error;
+      return (count ?? 0) > 0;
+    },
+    enabled:
+      isCommissioner &&
+      (league?.league_type ?? 'dynasty') === 'dynasty' &&
+      !!league?.imported_from &&
+      league?.offseason_step === 'rookie_draft_pending' &&
+      !!leagueId &&
+      !!rookieSeason,
+    staleTime: 1000 * 60,
+  });
+
   const playoffsComplete = (() => {
     if (!bracket || bracket.length === 0) return false;
     const totalRounds = calcRounds(league?.playoff_teams ?? 8);
@@ -161,6 +194,7 @@ export default function LeagueInfoScreen() {
   const [showForceAddDrop, setShowForceAddDrop] = useState(false);
   const [showForceMove, setShowForceMove] = useState(false);
   const [showPickConditions, setShowPickConditions] = useState(false);
+  const [showEditDraftOrder, setShowEditDraftOrder] = useState(false);
   const [showPaymentLedger, setShowPaymentLedger] = useState(false);
   const [showSendAnnouncement, setShowSendAnnouncement] = useState(false);
   const [showLeagueNotifs, setShowLeagueNotifs] = useState(false);
@@ -473,14 +507,24 @@ export default function LeagueInfoScreen() {
                 label="Force Roster Move"
                 c={c}
                 onPress={() => setShowForceMove(true)}
-                last={!((league?.league_type ?? 'dynasty') === 'dynasty' && league?.pick_conditions_enabled)}
+                last={(league?.league_type ?? 'dynasty') !== 'dynasty'}
               />
               {(league?.league_type ?? 'dynasty') === 'dynasty' && (
                 <CommAction
                   icon="shield-checkmark"
-                  label="Manage Picks"
+                  label="Manage Draft Picks"
                   c={c}
                   onPress={() => setShowPickConditions(true)}
+                  last={!canEditRookieOrder}
+                />
+              )}
+              {canEditRookieOrder && (
+                <CommAction
+                  icon="reorder-three"
+                  label="Edit Draft Order"
+                  subLabel="Fix the imported rookie draft order"
+                  c={c}
+                  onPress={() => setShowEditDraftOrder(true)}
                   last
                 />
               )}
@@ -968,6 +1012,14 @@ export default function LeagueInfoScreen() {
             pickConditionsEnabled={!!league?.pick_conditions_enabled}
             onClose={() => setShowPickConditions(false)}
           />
+          {league?.season && (
+            <ManualDraftOrderModal
+              visible={showEditDraftOrder}
+              leagueId={leagueId}
+              season={league.season}
+              onClose={() => setShowEditDraftOrder(false)}
+            />
+          )}
           <ImportTeamRosterModal
             visible={!!importRosterTeam}
             leagueId={leagueId}

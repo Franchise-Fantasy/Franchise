@@ -11,7 +11,7 @@ import {
   Line as SkiaLine,
   vec,
 } from "@shopify/react-native-skia";
-import { scaleLinear } from "d3-scale";
+import { scaleLinear, type ScaleLinear } from "d3-scale";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   LayoutChangeEvent,
@@ -67,6 +67,28 @@ const PAD = { top: s(16), right: s(12), bottom: s(36), left: s(40) };
 const CHART_HEIGHT = s(400);
 const DOT_RADIUS = s(6);
 
+/** Tap radius, in screen pixels. Marks render at a fixed size no matter how far
+ *  the chart is stretched, so this stays a real 44pt touch target — and
+ *  stretching an axis pulls clustered dots apart underneath it, which is the
+ *  whole reason to stretch. */
+const HIT_RADIUS = s(22);
+/** Floor on a pinch's per-axis finger spread. Fingers held level have a vertical
+ *  spread near zero, and dividing by that would fling the FPTS axis to infinity.
+ *  The floor makes an axis-aligned pinch leave the other axis alone instead. */
+const MIN_PINCH_SPAN = 40;
+/** How far either axis can stretch past its fitted domain. */
+const MAX_AXIS_ZOOM = 10;
+
+/** The slice of data on screen. Each axis is windowed independently — that's
+ *  what lets a pinch change the chart's aspect ratio instead of magnifying it. */
+type Domain = { x: [number, number]; y: [number, number] };
+
+/** Ages and FPTS are whole numbers at the fitted domain but go fractional once
+ *  an axis is stretched, so ticks get at most one decimal. */
+function formatTick(t: number): string {
+  return Number.isInteger(t) ? String(t) : String(Math.round(t * 10) / 10);
+}
+
 // Maps an age bucket to the brand Badge variant. Rising → vintageGold,
 // prime → turfGreen, vet → merlot — same palette as AGE_BUCKET_COLORS.
 function bucketBadgeVariant(bucket: 'rising' | 'prime' | 'vet'): BadgeVariant {
@@ -81,7 +103,11 @@ interface PointsAgeAnalyticsProps {
   weights: ScoringWeight[] | undefined;
   scoringType: string | undefined;
   prevSeasonFptsMap?: Map<string, number>;
+  /** The team being charted — any team in the league, via the analytics TeamRail. */
   teamId: string;
+  /** The signed-in user's team. Feeds PlayerDetailModal, whose add/drop actions
+   *  must target the user's own roster even while another team is charted. */
+  myTeamId: string;
   leagueId: string;
   sport: Sport;
   curveChips: PositionCurve[];
@@ -99,6 +125,7 @@ export function PointsAgeAnalytics({
   scoringType,
   prevSeasonFptsMap,
   teamId,
+  myTeamId,
   leagueId,
   sport,
   curveChips,
@@ -257,11 +284,9 @@ export function PointsAgeAnalytics({
   const axisTitleColor = isDark ? "rgba(255,255,255,0.45)" : "rgba(0,0,0,0.4)";
   const gridColor = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
 
-  // Scales
-  const { xScale, yScale, xTicks, yTicks } = useMemo(() => {
-    if (!scatterData.length || plotW <= 0) {
-      return { xScale: null, yScale: null, xTicks: [], yTicks: [] };
-    }
+  // The fitted domain — the whole roster, and what FIT returns to.
+  const baseDomain = useMemo<Domain | null>(() => {
+    if (!scatterData.length) return null;
 
     const ages = scatterData.map((d) => d.age);
     const fpts = scatterData.map((d) => d.avgFpts);
@@ -269,16 +294,41 @@ export function PointsAgeAnalytics({
     const maxAge = Math.ceil(Math.max(...ages)) + 1;
     const maxFpts = Math.ceil(Math.max(...fpts) * 1.12);
 
-    const xs = scaleLinear().domain([minAge, maxAge]).range([0, plotW]).nice();
-    const ys = scaleLinear().domain([0, maxFpts]).range([plotH, 0]).nice();
+    // .nice() is applied once, here, rather than on every zoom frame — rounding
+    // a live window would make the axes twitch as the fingers move.
+    return {
+      x: scaleLinear().domain([minAge, maxAge]).nice().domain() as [number, number],
+      y: scaleLinear().domain([0, maxFpts]).nice().domain() as [number, number],
+    };
+  }, [scatterData]);
 
+  // The window currently on screen; null means fitted. The gesture rewrites the
+  // domain rather than transforming the rendered chart, so dots, names and ticks
+  // all keep their size — stretching an axis reveals structure instead of
+  // magnifying pixels.
+  const [domain, setDomain] = useState<Domain | null>(null);
+  const view = domain ?? baseDomain;
+  const isZoomed = domain !== null;
+
+  type Axes = {
+    xScale: ScaleLinear<number, number> | null;
+    yScale: ScaleLinear<number, number> | null;
+    xTicks: number[];
+    yTicks: number[];
+  };
+  const { xScale, yScale, xTicks, yTicks } = useMemo((): Axes => {
+    if (!view || plotW <= 0) {
+      return { xScale: null, yScale: null, xTicks: [], yTicks: [] };
+    }
+    const xs = scaleLinear().domain(view.x).range([0, plotW]);
+    const ys = scaleLinear().domain(view.y).range([plotH, 0]);
     return {
       xScale: xs,
       yScale: ys,
-      xTicks: xs.ticks(Math.min(5, Math.floor((maxAge - minAge) / 2))),
-      yTicks: ys.ticks(5).filter((t) => t > 0 && t < maxFpts),
+      xTicks: xs.ticks(5),
+      yTicks: ys.ticks(5).filter((t) => t > view.y[0] && t < view.y[1]),
     };
-  }, [scatterData, plotW, plotH]);
+  }, [view, plotW, plotH]);
 
   // Skia path through the selected player's career (age, fpts) points, in the
   // chart's plot-area coordinate space. Null until there are ≥2 seasons.
@@ -311,19 +361,35 @@ export function PointsAgeAnalytics({
     });
   }, [scatterData, selectedCurve]);
 
-  // When the position-curve filter changes, clear any selected dot — the
-  // filtered scatter may no longer include it, so its detail card and
-  // career-trajectory line would otherwise linger over a hidden dot.
+  // Dots outside the zoom window are dropped rather than drawn and clipped: the
+  // Skia marks would clip fine, but the player-name labels are absolutely
+  // positioned RN Text and would otherwise pile up in the axis gutters.
+  const visibleScatter = useMemo(() => {
+    if (!view) return [];
+    return filteredScatter.filter(
+      (d) =>
+        d.age >= view.x[0] &&
+        d.age <= view.x[1] &&
+        d.avgFpts >= view.y[0] &&
+        d.avgFpts <= view.y[1],
+    );
+  }, [filteredScatter, view]);
+
+  // When the position-curve filter changes, clear any selected dot and refit —
+  // the filtered scatter may no longer include the selection, and a zoom window
+  // framed around the old set means nothing for the new one.
   useEffect(() => {
     setSelectedPlayer(null);
+    setDomain(null);
   }, [selectedCurve]);
 
-  // Select the dot nearest a tap, in the chart's own (untransformed)
-  // coordinate space — the gesture handler maps the raw touch back out of the
-  // zoom/pan transform before calling this.
+  // Select the dot nearest a tap. Both the touch and the dots are in screen
+  // pixels — the chart isn't transformed any more — so a fixed radius means
+  // stretching an axis genuinely buys precision: the dots spread apart
+  // underneath a touch target that stays the same size.
   const selectAtPoint = useCallback(
     (touchX: number, touchY: number) => {
-      if (!xScale || !yScale || !filteredScatter.length) return;
+      if (!xScale || !yScale || !visibleScatter.length) return;
 
       const adjX = touchX - PAD.left;
       const adjY = touchY - PAD.top;
@@ -331,17 +397,18 @@ export function PointsAgeAnalytics({
       let closest: AgeFptsPoint | null = null;
       let closestDist = Infinity;
 
-      for (const point of filteredScatter) {
-        const px = xScale(point.age);
-        const py = yScale(point.avgFpts);
-        const dist = Math.sqrt((adjX - px) ** 2 + (adjY - py) ** 2);
+      for (const point of visibleScatter) {
+        const dist = Math.hypot(
+          adjX - xScale(point.age),
+          adjY - yScale(point.avgFpts),
+        );
         if (dist < closestDist) {
           closestDist = dist;
           closest = point;
         }
       }
 
-      if (closest && closestDist < 35) {
+      if (closest && closestDist < HIT_RADIUS) {
         selectPlayer(
           selectedPlayer?.playerId === closest.playerId ? null : closest,
         );
@@ -349,85 +416,130 @@ export function PointsAgeAnalytics({
         selectPlayer(null);
       }
     },
-    [xScale, yScale, filteredScatter, selectedPlayer],
+    [xScale, yScale, visibleScatter, selectedPlayer, selectPlayer],
   );
 
-  // ── Pinch-to-zoom + pan on the scatter ── lets a user pull apart clustered
-  // dots to tap the right player. The whole rendered chart (Canvas + label
-  // overlays) is transformed together as one layer; double-tap resets. The tap
-  // gesture inverts the same transform so hit-testing stays accurate when
-  // zoomed. Scale is clamped to 1–5× and pan can't push content off-screen.
-  const zoomScale = useSharedValue(1);
-  const savedZoom = useSharedValue(1);
-  const panX = useSharedValue(0);
-  const panY = useSharedValue(0);
-  const savedPanX = useSharedValue(0);
-  const savedPanY = useSharedValue(0);
+  // ── Two-finger stretch ── the gesture worklets run on the UI thread and can't
+  // read React state, so the live window is mirrored into a shared value and the
+  // gesture snapshots it on touch-down.
+  const viewSV = useSharedValue<[number, number, number, number]>([0, 1, 0, 1]);
+  useEffect(() => {
+    if (view) viewSV.value = [view.x[0], view.x[1], view.y[0], view.y[1]];
+  }, [view, viewSV]);
 
-  const chartTransformStyle = useAnimatedStyle(() => ({
-    transform: [
-      { translateX: panX.value },
-      { translateY: panY.value },
-      { scale: zoomScale.value },
-    ],
-  }));
+  const startView = useSharedValue<[number, number, number, number]>([0, 1, 0, 1]);
+  const startSpanX = useSharedValue(0);
+  const startSpanY = useSharedValue(0);
+  const startFocalX = useSharedValue(0);
+  const startFocalY = useSharedValue(0);
 
   const chartGesture = useMemo(() => {
-    // RN scales a View around its center, so the inverse used by the tap below
-    // assumes a center origin too: cx/cy are the chart's midpoint.
-    const cx = canvasWidth / 2;
-    const cy = CHART_HEIGHT / 2;
-    const pinch = Gesture.Pinch()
-      .onUpdate((e) => {
-        zoomScale.value = Math.min(5, Math.max(1, savedZoom.value * e.scale));
-        const maxX = Math.max(0, (zoomScale.value - 1) * cx);
-        const maxY = Math.max(0, (zoomScale.value - 1) * cy);
-        panX.value = Math.min(maxX, Math.max(-maxX, panX.value));
-        panY.value = Math.min(maxY, Math.max(-maxY, panY.value));
+    const bx0 = baseDomain?.x[0] ?? 0;
+    const bx1 = baseDomain?.x[1] ?? 1;
+    const by0 = baseDomain?.y[0] ?? 0;
+    const by1 = baseDomain?.y[1] ?? 1;
+    const baseW = bx1 - bx0;
+    const baseH = by1 - by0;
+
+    // Horizontal and vertical finger spread are measured separately, so a
+    // sideways pinch pulls the age axis apart while leaving FPTS alone, an
+    // upward one stretches production, and a diagonal one does both. That's the
+    // aspect-ratio change — a uniform magnifier can't separate two players who
+    // differ only in age, because it scales the gap and the dot together.
+    const stretch = Gesture.Manual()
+      .onTouchesDown((e, manager) => {
+        if (e.numberOfTouches < 2) return;
+        const [a, b] = e.allTouches;
+        startSpanX.value = Math.abs(a.x - b.x);
+        startSpanY.value = Math.abs(a.y - b.y);
+        startFocalX.value = (a.x + b.x) / 2;
+        startFocalY.value = (a.y + b.y) / 2;
+        startView.value = viewSV.value;
+        // Only claim the touch once a second finger lands — a one-finger drag
+        // still belongs to the analytics ScrollView.
+        manager.activate();
       })
-      .onEnd(() => {
-        savedZoom.value = zoomScale.value;
-        savedPanX.value = panX.value;
-        savedPanY.value = panY.value;
-      });
-    const pan = Gesture.Pan()
-      // Two-finger pan only, so a one-finger drag still scrolls the analytics
-      // list — panning happens together with the pinch that zoomed in.
-      .minPointers(2)
-      .averageTouches(true)
-      .onUpdate((e) => {
-        const maxX = Math.max(0, (zoomScale.value - 1) * cx);
-        const maxY = Math.max(0, (zoomScale.value - 1) * cy);
-        panX.value = Math.min(maxX, Math.max(-maxX, savedPanX.value + e.translationX));
-        panY.value = Math.min(maxY, Math.max(-maxY, savedPanY.value + e.translationY));
+      .onTouchesMove((e) => {
+        if (e.numberOfTouches < 2 || plotW <= 0 || plotH <= 0) return;
+        const [a, b] = e.allTouches;
+        const [sx0, sx1, sy0, sy1] = startView.value;
+
+        const kx =
+          Math.max(Math.abs(a.x - b.x), MIN_PINCH_SPAN) /
+          Math.max(startSpanX.value, MIN_PINCH_SPAN);
+        const ky =
+          Math.max(Math.abs(a.y - b.y), MIN_PINCH_SPAN) /
+          Math.max(startSpanY.value, MIN_PINCH_SPAN);
+
+        // The window narrows as the fingers spread. Clamped so neither axis
+        // stretches past MAX_AXIS_ZOOM or shrinks back past the fitted domain.
+        const w = Math.min(baseW, Math.max(baseW / MAX_AXIS_ZOOM, (sx1 - sx0) / kx));
+        const h = Math.min(baseH, Math.max(baseH / MAX_AXIS_ZOOM, (sy1 - sy0) / ky));
+
+        // Whatever data sat under the fingers' midpoint when the pinch started
+        // stays under it as they move — which makes the pan fall out for free.
+        const anchorX = sx0 + ((startFocalX.value - PAD.left) / plotW) * (sx1 - sx0);
+        const anchorY = sy1 - ((startFocalY.value - PAD.top) / plotH) * (sy1 - sy0);
+        const focalFx = ((a.x + b.x) / 2 - PAD.left) / plotW;
+        const focalFy = ((a.y + b.y) / 2 - PAD.top) / plotH;
+
+        let x0 = anchorX - focalFx * w;
+        let x1 = x0 + w;
+        let y1 = anchorY + focalFy * h;
+        let y0 = y1 - h;
+
+        // Keep the window over the data — panning off into blank space is never
+        // useful on a scatter this small.
+        if (x0 < bx0) { x0 = bx0; x1 = bx0 + w; }
+        if (x1 > bx1) { x1 = bx1; x0 = bx1 - w; }
+        if (y0 < by0) { y0 = by0; y1 = by0 + h; }
+        if (y1 > by1) { y1 = by1; y0 = by1 - h; }
+
+        // Touch events keep firing while fingers rest, and each commit costs a
+        // full React render of the chart. Skip the ones that wouldn't move a
+        // pixel.
+        const [px0, px1, py0, py1] = viewSV.value;
+        const epsX = baseW / 2000;
+        const epsY = baseH / 2000;
+        if (
+          Math.abs(x0 - px0) < epsX &&
+          Math.abs(x1 - px1) < epsX &&
+          Math.abs(y0 - py0) < epsY &&
+          Math.abs(y1 - py1) < epsY
+        ) {
+          return;
+        }
+
+        viewSV.value = [x0, x1, y0, y1];
+        runOnJS(setDomain)({ x: [x0, x1], y: [y0, y1] });
       })
-      .onEnd(() => {
-        savedPanX.value = panX.value;
-        savedPanY.value = panY.value;
-      });
-    const doubleTap = Gesture.Tap()
-      .numberOfTaps(2)
-      .onEnd(() => {
-        zoomScale.value = withTiming(1);
-        panX.value = withTiming(0);
-        panY.value = withTiming(0);
-        savedZoom.value = 1;
-        savedPanX.value = 0;
-        savedPanY.value = 0;
-      });
+      .onTouchesUp((e, manager) => {
+        if (e.numberOfTouches < 2) manager.end();
+      })
+      .onTouchesCancelled((_, manager) => manager.end());
+
+    // Bounded so a quick two-finger pinch can't also land as a tap and toggle a
+    // selection out from under the stretch.
     const tap = Gesture.Tap()
-      .maxDuration(250)
+      .maxDuration(500)
+      .maxDistance(s(12))
       .onEnd((e) => {
-        const s = zoomScale.value;
-        const contentX = (e.x - cx * (1 - s) - panX.value) / s;
-        const contentY = (e.y - cy * (1 - s) - panY.value) / s;
-        runOnJS(selectAtPoint)(contentX, contentY);
+        runOnJS(selectAtPoint)(e.x, e.y);
       });
-    return Gesture.Simultaneous(
-      Gesture.Simultaneous(pinch, pan),
-      Gesture.Exclusive(doubleTap, tap),
-    );
-  }, [canvasWidth, selectAtPoint]);
+
+    return Gesture.Simultaneous(stretch, tap);
+  }, [
+    baseDomain,
+    plotW,
+    plotH,
+    selectAtPoint,
+    viewSV,
+    startView,
+    startSpanX,
+    startSpanY,
+    startFocalX,
+    startFocalY,
+  ]);
 
   if (!profile || profile.totalWithAge < 3) {
     return (
@@ -601,16 +713,17 @@ export function PointsAgeAnalytics({
         </TouchableOpacity>
       </View>
 
-      {/* ── Chart ── pinch to zoom, drag to pan, double-tap to reset. ── */}
+      {/* ── Chart ── pinch an axis to stretch it; FIT returns to the full roster. ── */}
+      <View style={styles.chartWrap}>
       <GestureDetector gesture={chartGesture}>
         <View
           style={styles.chartArea}
           onLayout={onLayout}
           accessibilityRole="image"
-          accessibilityLabel={`Age versus fantasy points scatterplot with ${filteredScatter.length} players, ${selectedCurve} aging curve. Pinch to zoom, drag to pan, double-tap to reset.`}
+          accessibilityLabel={`Age versus fantasy points scatterplot with ${visibleScatter.length} players, ${selectedCurve} aging curve. Tap a dot for player details. Pinch sideways to stretch the age axis, or up and down to stretch fantasy points, pulling clustered players apart.`}
         >
-          {canvasWidth > 0 && xScale && yScale ? (
-            <Animated.View style={[StyleSheet.absoluteFill, chartTransformStyle]}>
+          {canvasWidth > 0 && xScale && yScale && view ? (
+            <>
             {/* Skia Canvas — graphics only, no text */}
             <Canvas
               style={{ width: canvasWidth, height: CHART_HEIGHT }}
@@ -622,6 +735,10 @@ export function PointsAgeAnalytics({
                   { translateY: PAD.top },
                 ]}
               >
+              {/* Everything that lives inside the plot rect is clipped to it — a
+                  stretched window pushes dots, gridlines and the age markers out
+                  past the axes. */}
+              <Group clip={rect(0, 0, plotW, plotH)}>
                 {/* Prime zone */}
                 {(() => {
                   const primeLeft = Math.max(0, xScale(PEAK_YEARS.start));
@@ -675,28 +792,11 @@ export function PointsAgeAnalytics({
                   <DashPathEffect intervals={[4, 3]} />
                 </SkiaLine>
 
-                {/* Gap line between roster and production age (hidden if <0.5yr apart) */}
-                {(() => {
-                  const diff = Math.abs(profile.weightedProductionAge - profile.avgAge);
-                  if (diff < 0.5) return null;
-                  const x1 = xScale(profile.avgAge);
-                  const x2 = xScale(profile.weightedProductionAge);
-                  const gapY = plotH + 4 + 3;
-                  return (
-                    <SkiaLine
-                      p1={vec(x1, gapY)}
-                      p2={vec(x2, gapY)}
-                      color={prodColor + "66"}
-                      strokeWidth={1.5}
-                    />
-                  );
-                })()}
-
                 {/* Selected player's career trajectory — past seasons
-                    plotted on the same age/FPTS axes, clipped to the
-                    plot area and ending at the current dot. */}
+                    plotted on the same age/FPTS axes, ending at the
+                    current dot. */}
                 {trajectoryPath && (
-                  <Group clip={rect(0, 0, plotW, plotH)} opacity={detailOpacity}>
+                  <Group opacity={detailOpacity}>
                     <SkiaPath
                       path={trajectoryPath}
                       color={c.gold}
@@ -718,7 +818,7 @@ export function PointsAgeAnalytics({
                 )}
 
                 {/* Data dots */}
-                {filteredScatter.map((point) => {
+                {visibleScatter.map((point) => {
                   const cx = xScale(point.age);
                   const cy = yScale(point.avgFpts);
                   const bucket = ageBucket(point.age);
@@ -755,6 +855,27 @@ export function PointsAgeAnalytics({
                   );
                 })}
               </Group>
+
+                {/* Gap bracket between roster and production age — drawn in the
+                    bottom gutter, so it sits outside the plot clip. Hidden while
+                    stretched: it spans two markers that a zoom window can push
+                    off-screen, and a bracket to nowhere reads as a bug. */}
+                {!isZoomed && (() => {
+                  const diff = Math.abs(profile.weightedProductionAge - profile.avgAge);
+                  if (diff < 0.5) return null;
+                  const x1 = xScale(profile.avgAge);
+                  const x2 = xScale(profile.weightedProductionAge);
+                  const gapY = plotH + 4 + 3;
+                  return (
+                    <SkiaLine
+                      p1={vec(x1, gapY)}
+                      p2={vec(x2, gapY)}
+                      color={prodColor + "66"}
+                      strokeWidth={1.5}
+                    />
+                  );
+                })()}
+              </Group>
             </Canvas>
 
             {/* ── RN Text overlays (absolutely positioned over Canvas) ── */}
@@ -774,7 +895,7 @@ export function PointsAgeAnalytics({
                   },
                 ]}
               >
-                {tick}
+                {formatTick(tick)}
               </Text>
             ))}
 
@@ -807,7 +928,7 @@ export function PointsAgeAnalytics({
                   },
                 ]}
               >
-                {tick}
+                {formatTick(tick)}
               </Text>
             ))}
 
@@ -826,8 +947,9 @@ export function PointsAgeAnalytics({
               FPTS/G
             </Text>
 
-            {/* Gap label between roster and production age lines (hidden if <0.5yr apart) */}
-            {(() => {
+            {/* Gap label — pairs with the bracket above, so it hides on the same
+                terms (under 0.5yr apart, or while an axis is stretched). */}
+            {!isZoomed && (() => {
               const diff = profile.weightedProductionAge - profile.avgAge;
               if (Math.abs(diff) < 0.5) return null;
               const x1 = xScale(profile.avgAge);
@@ -852,7 +974,7 @@ export function PointsAgeAnalytics({
             {/* Player name labels — nudged to avoid overlaps */}
             {(() => {
               // Compute initial label positions
-              const labels = filteredScatter.map((point) => {
+              const labels = visibleScatter.map((point) => {
                 const cx = xScale(point.age);
                 const cy = yScale(point.avgFpts);
                 const label = point.shortName;
@@ -916,10 +1038,27 @@ export function PointsAgeAnalytics({
               });
             })()}
 
-            </Animated.View>
+            </>
           ) : null}
         </View>
       </GestureDetector>
+
+      {/* Sits outside the GestureDetector so pressing it can't also register as
+          a tap on the chart underneath. */}
+      {isZoomed ? (
+        <TouchableOpacity
+          style={[styles.fitPill, { backgroundColor: c.card, borderColor: c.border }]}
+          onPress={() => setDomain(null)}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Fit chart to the full roster"
+        >
+          <ThemedText type="varsity" style={[styles.fitPillText, { color: c.text }]}>
+            FIT
+          </ThemedText>
+        </TouchableOpacity>
+      ) : null}
+      </View>
 
       {/* ── Player Detail Card (always same size) — gold rule
           eyebrow + Alfa Slab name + Badge for bucket. ── */}
@@ -1036,9 +1175,17 @@ export function PointsAgeAnalytics({
         title="How to Read This Chart"
       >
         <Text style={[styles.modalText, { color: c.secondaryText }]}>
-          Each dot is a player on your roster, plotted by age (x-axis) and
+          Each dot is a player on the roster, plotted by age (x-axis) and
           average fantasy points per game (y-axis). Tap any dot to see player
           details.
+        </Text>
+
+        <Text style={[styles.modalText, { color: c.secondaryText }]}>
+          When players bunch together, pinch to stretch an axis: sideways spreads
+          them by age, up and down spreads them by fantasy points. The chart
+          re-plots into the stretched window rather than magnifying, so the dots
+          move apart while everything stays readable — and easier to tap. FIT
+          returns to the full roster.
         </Text>
 
         <View style={styles.modalSwatchRow}>
@@ -1085,7 +1232,7 @@ export function PointsAgeAnalytics({
       <PlayerDetailModal
         player={modalPlayer}
         leagueId={leagueId ?? ""}
-        teamId={teamId ?? undefined}
+        teamId={myTeamId ?? undefined}
         onClose={() => setModalPlayer(null)}
       />
     </ScrollView>
@@ -1179,13 +1326,35 @@ const styles = StyleSheet.create({
     letterSpacing: 1.0,
   },
 
-  // Chart — positioned relative so text overlays work; overflow hidden clips
-  // the zoomed/panned content to the chart bounds.
+  // Anchors the FIT pill over the chart. The pill is a sibling of the
+  // GestureDetector rather than a child, so its press doesn't also land as a
+  // chart tap.
+  chartWrap: {
+    position: "relative",
+  },
+  // Chart — positioned relative so text overlays work; overflow hidden keeps a
+  // half-clipped edge dot from spilling into the axis gutters.
   chartArea: {
     marginBottom: 0,
     position: "relative",
     height: CHART_HEIGHT,
     overflow: "hidden",
+  },
+  fitPill: {
+    position: "absolute",
+    top: s(4),
+    right: s(4),
+    minWidth: s(44),
+    paddingHorizontal: s(10),
+    paddingVertical: s(6),
+    borderRadius: 6,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  fitPillText: {
+    fontSize: ms(11),
+    letterSpacing: 1.0,
   },
 
   // Absolutely positioned text labels over the Canvas

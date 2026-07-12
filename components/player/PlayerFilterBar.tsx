@@ -842,6 +842,10 @@ const styles = StyleSheet.create({
   },
   modal: {
     width: '100%',
+    // Without a cap this dialog spans the whole viewport on a monitor, leaving
+    // the chips floating in dead space. A phone's padded backdrop is already
+    // narrower than this, so the cap never engages there.
+    maxWidth: 540,
     maxHeight: '80%',
     borderRadius: 16,
     borderWidth: StyleSheet.hairlineWidth,

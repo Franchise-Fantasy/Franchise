@@ -150,6 +150,7 @@ function buildTeamDataFromFrozen(
   playerScores: FrozenPlayerScore[],
   selectedDate: string,
   scoring: ScoringWeight[],
+  sport?: string | null,
 ): TeamMatchupData {
   const activeGamesAll: Record<string, number | boolean>[] = [];
 
@@ -191,7 +192,7 @@ function buildTeamDataFromFrozen(
       seasonAvgFpts: null,
       dayPoints: round1(dayGame?.fpts ?? 0),
       dayMatchup: dayGame?.matchup ?? null,
-      dayStatLine: dayGame ? buildStatLine(dayGame.stats as Record<string, number>, scoring) : null,
+      dayStatLine: dayGame ? buildStatLine(dayGame.stats as Record<string, number>, scoring, sport) : null,
       dayGameStats: dayGame?.stats ?? null,
       projectedFpts: null,
       weekGameStats: weekStats,
@@ -533,13 +534,13 @@ export async function fetchWeekMatchupData(
   ]);
 
   const myTeam = useFrozenMy
-    ? buildTeamDataFromFrozen(teamId, myInfo, myFrozen!, selectedDate, scoring)
+    ? buildTeamDataFromFrozen(teamId, myInfo, myFrozen!, selectedDate, scoring, sport)
     : buildLiveTeam(teamId, myInfo, myResult!);
 
   let opponentTeam: TeamMatchupData | null = null;
   if (opponentId && oppInfo) {
     opponentTeam = useFrozenOpp
-      ? buildTeamDataFromFrozen(opponentId, oppInfo, oppFrozen!, selectedDate, scoring)
+      ? buildTeamDataFromFrozen(opponentId, oppInfo, oppFrozen!, selectedDate, scoring, sport)
       : oppResult
         ? buildLiveTeam(opponentId, oppInfo, oppResult)
         : null;
@@ -615,6 +616,7 @@ export async function fetchMatchupDataById(
         matchup.home_player_scores!,
         selectedDate,
         scoring,
+        sport,
       )
     : buildLiveTeam(matchup.home_team_id, homeInfo, homeResult!);
 
@@ -627,6 +629,7 @@ export async function fetchMatchupDataById(
           matchup.away_player_scores!,
           selectedDate,
           scoring,
+          sport,
         )
       : awayResult
         ? buildLiveTeam(matchup.away_team_id, awayInfo, awayResult)

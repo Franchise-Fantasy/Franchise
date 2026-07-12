@@ -46,50 +46,51 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
     return weeks[weeks.length - 1]?.endDate;
   }, [state.sport, state.season, seasonStartDate, state.regularSeasonWeeks, state.combineCupWeek]);
 
-  return (
-    <View style={styles.container}>
-      <FormSection title="Trade Review">
-        <FieldGroup
-          label="Veto Type"
-          helperText={
-            state.tradeVetoType === 'Commissioner'
-              ? 'Only the commissioner can veto trades during the review period.'
-              : state.tradeVetoType === 'League Vote'
-                ? 'League members can vote to veto. The commissioner can also veto directly.'
-                : 'Trades are processed immediately with no review period.'
-          }
-        >
-          <SegmentedControl
-            options={TRADE_VETO_OPTIONS}
-            selectedIndex={TRADE_VETO_OPTIONS.indexOf(state.tradeVetoType)}
-            onSelect={(i) => onChange('tradeVetoType', TRADE_VETO_OPTIONS[i])}
-          />
-        </FieldGroup>
+  const review = (
+    <FormSection key="trade-review" title="Trade Review">
+      <FieldGroup
+        label="Veto Type"
+        helperText={
+          state.tradeVetoType === 'Commissioner'
+            ? 'Only the commissioner can veto trades during the review period.'
+            : state.tradeVetoType === 'League Vote'
+              ? 'League members can vote to veto. The commissioner can also veto directly.'
+              : 'Trades are processed immediately with no review period.'
+        }
+      >
+        <SegmentedControl
+          options={TRADE_VETO_OPTIONS}
+          selectedIndex={TRADE_VETO_OPTIONS.indexOf(state.tradeVetoType)}
+          onSelect={(i) => onChange('tradeVetoType', TRADE_VETO_OPTIONS[i])}
+        />
+      </FieldGroup>
 
-        <AnimatedSection visible={state.tradeVetoType !== 'None'}>
-          <NumberStepper
-            label="Review Period (hours)"
-            value={state.tradeReviewPeriodHours}
-            onValueChange={(v) => onChange('tradeReviewPeriodHours', v)}
-            min={1}
-            max={72}
-            last
-          />
-        </AnimatedSection>
+      <AnimatedSection visible={state.tradeVetoType !== 'None'}>
+        <NumberStepper
+          label="Review Period (hours)"
+          value={state.tradeReviewPeriodHours}
+          onValueChange={(v) => onChange('tradeReviewPeriodHours', v)}
+          min={1}
+          max={72}
+          last
+        />
+      </AnimatedSection>
 
-        <AnimatedSection visible={state.tradeVetoType === 'League Vote'}>
-          <NumberStepper
-            label="Votes to Veto"
-            value={state.tradeVotesToVeto}
-            onValueChange={(v) => onChange('tradeVotesToVeto', v)}
-            min={1}
-            max={Math.max(state.teams - 1, 1)}
-            last
-          />
-        </AnimatedSection>
-      </FormSection>
+      <AnimatedSection visible={state.tradeVetoType === 'League Vote'}>
+        <NumberStepper
+          label="Votes to Veto"
+          value={state.tradeVotesToVeto}
+          onValueChange={(v) => onChange('tradeVotesToVeto', v)}
+          min={1}
+          max={Math.max(state.teams - 1, 1)}
+          last
+        />
+      </AnimatedSection>
+    </FormSection>
+  );
 
-      <FormSection title="Trade Rules">
+  const rules = (
+    <FormSection key="trade-rules" title="Trade Rules">
         <ToggleRow
           icon="calendar-outline"
           label="Trade Deadline"
@@ -154,18 +155,27 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
             />
           </>
         )}
-      </FormSection>
+    </FormSection>
+  );
 
-      <FormSection title="Extras">
-        <ToggleRow
-          icon="megaphone-outline"
-          label="League Intel"
-          description="Automatically announce when multiple teams are bidding or interested in the same player"
-          value={state.autoRumorsEnabled}
-          onToggle={(v) => onChange('autoRumorsEnabled', v)}
-          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
-        />
-      </FormSection>
+  const extras = (
+    <FormSection key="extras" title="Extras">
+      <ToggleRow
+        icon="megaphone-outline"
+        label="League Intel"
+        description="Automatically announce when multiple teams are bidding or interested in the same player"
+        value={state.autoRumorsEnabled}
+        onToggle={(v) => onChange('autoRumorsEnabled', v)}
+        c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+      />
+    </FormSection>
+  );
+
+  return (
+    <View style={styles.container}>
+      {review}
+      {rules}
+      {extras}
     </View>
   );
 }

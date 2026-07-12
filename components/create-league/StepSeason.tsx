@@ -33,6 +33,7 @@ import { planScheduleWeeks } from '@/utils/league/scheduleWindows';
 import { computeMaxWeeks, defaultSeasonStart } from '@/utils/league/seasonWeeks';
 import { week1Length } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
+import { getSportModule } from '@/utils/sports/registry';
 
 interface StepSeasonProps {
   state: LeagueWizardState;
@@ -60,8 +61,11 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
     ? ymdToDate(state.seasonStartDate)
     : defaultSeasonStart(state.sport, state.season);
   const startDow = seasonStart.getDay(); // 0=Sun
-  const week1Days = week1Length(startDow);
-  const week1IsAtypical = week1Days !== 7; // anything other than Mon-Sun
+  // NBA/WNBA weeks end Sunday; NFL weeks end Monday (Tue–Mon, so MNF counts).
+  const weekEndDow = getSportModule(state.sport).weekEndDow;
+  const weekEndDayName = weekEndDow === 1 ? 'Monday' : 'Sunday';
+  const week1Days = week1Length(startDow, weekEndDow);
+  const week1IsAtypical = week1Days !== 7; // anything other than a full week
 
   // Pro-league season boundary (sport-aware) — parse as local midnight to
   // avoid UTC timezone shift.
@@ -140,6 +144,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
     regularSeasonWeeks: state.regularSeasonWeeks,
     playoffWeeks: state.playoffWeeks,
     mergeWindows: previewMergeWindows,
+    weekEndDow,
   });
   const regularSeasonEnd = ymdToDate(plannedWeeks[state.regularSeasonWeeks - 1]?.endDate ?? seasonStartIso);
   const playoffsEnd = ymdToDate(plannedWeeks[plannedWeeks.length - 1]?.endDate ?? seasonStartIso);
@@ -369,7 +374,7 @@ export function StepSeason({ state, onChange }: StepSeasonProps) {
       <Section title="Season Preview">
         {week1IsAtypical && (
           <ThemedText style={[styles.note, { color: c.secondaryText }]}>
-            Week 1 is {week1Days > 7 ? 'a long' : 'a short'} week ({week1Days} days) ending Sunday.
+            Week 1 is {week1Days > 7 ? 'a long' : 'a short'} week ({week1Days} days) ending {weekEndDayName}.
           </ThemedText>
         )}
         {doubleWeekLabels.length > 0 && (

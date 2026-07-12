@@ -8,6 +8,7 @@ import { resolveSlot , isActiveSlot } from '@/utils/roster/resolveSlot';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { aggregateTeamStats } from '@/utils/scoring/categoryScoring';
 import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { NFL_GAME_COLUMNS } from '@/utils/scoring/nflStatLine';
 
 
 interface Week {
@@ -75,11 +76,14 @@ export async function fetchTeamData(
   // Fetch game logs, season stats, and dropped player info in parallel
   const weekEndForQuery = selectedDate >= today ? addDays(today, -1) : week.end_date;
 
+  // One literal select covers both sports — the other sport's columns come
+  // back null and are skipped everywhere (a dynamic per-sport string would
+  // break supabase-js's select-string type parser).
   const [{ data: gameLogs }, { data: seasonStats }, { data: playerInfoRows }] = await Promise.all([
     supabase
       .from('player_games')
       .select(
-        'player_id, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date, matchup',
+        'player_id, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, game_date, matchup',
       )
       .in('player_id', allPlayerIds)
       .gte('game_date', week.start_date)
@@ -87,7 +91,7 @@ export async function fetchTeamData(
     supabase
       .from('player_season_stats')
       .select(
-        'player_id, games_played, total_pts, total_reb, total_ast, total_stl, total_blk, total_tov, total_fgm, total_fga, total_3pm, total_3pa, total_ftm, total_fta, total_pf, total_dd, total_td',
+        'player_id, games_played, total_pts, total_reb, total_ast, total_stl, total_blk, total_tov, total_fgm, total_fga, total_3pm, total_3pa, total_ftm, total_fta, total_pf, total_dd, total_td, total_pass_yd, total_pass_td, total_pass_int, total_rush_yd, total_rush_td, total_rec, total_rec_yd, total_rec_td, total_fum_lost, total_ret_td, total_fg_made, total_xp_made, total_dst_sacks, total_dst_int, total_dst_fum_rec, total_dst_td, total_dst_pa_pts',
       )
       .in('player_id', allPlayerIds),
     supabase
@@ -108,10 +112,15 @@ export async function fetchTeamData(
   const dayStatsMap = new Map<string, Record<string, number>>();
   const activeGames: Record<string, any>[] = [];
 
+  const weekStatKeys: readonly string[] =
+    sport === 'nfl'
+      ? NFL_GAME_COLUMNS
+      : ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fgm', 'fga', '3pm', '3pa', 'ftm', 'fta', 'pf', 'double_double', 'triple_double'];
+
   for (const game of gameLogs ?? []) {
     const slot = resolveGameSlotFast(game.player_id, game.game_date as string);
     const slotIsActive = isActiveSlot(slot);
-    const fp = calculateGameFantasyPoints(game as any, scoring);
+    const fp = calculateGameFantasyPoints(game as any, scoring, sport);
 
     if (slotIsActive) {
       activeGames.push(game);
@@ -125,8 +134,8 @@ export async function fetchTeamData(
 
       // Accumulate per-player weekly stat totals for summary modal
       const existing = weekStatsMap.get(game.player_id) ?? {};
-      for (const key of ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fgm', 'fga', '3pm', '3pa', 'ftm', 'fta', 'pf', 'double_double', 'triple_double'] as const) {
-        const val = game[key];
+      for (const key of weekStatKeys) {
+        const val = (game as Record<string, any>)[key];
         if (val != null) {
           const numVal = typeof val === 'boolean' ? (val ? 1 : 0) : val;
           existing[key] = (existing[key] ?? 0) + numVal;
@@ -141,20 +150,29 @@ export async function fetchTeamData(
     if (game.game_date === selectedDate) {
       dayPointsMap.set(game.player_id, (dayPointsMap.get(game.player_id) ?? 0) + fp);
       if (game.matchup) dayMatchupMap.set(game.player_id, game.matchup);
-      dayStatsMap.set(game.player_id, {
-        pts: game.pts,
-        reb: game.reb,
-        ast: game.ast,
-        stl: game.stl,
-        blk: game.blk,
-        tov: game.tov,
-        fgm: game.fgm,
-        fga: game.fga,
-        '3pm': game['3pm'],
-        ftm: game.ftm,
-        fta: game.fta,
-        pf: game.pf,
-      });
+      if (sport === 'nfl') {
+        const ds: Record<string, number> = {};
+        for (const key of NFL_GAME_COLUMNS) {
+          const val = (game as Record<string, any>)[key];
+          if (val != null) ds[key] = val;
+        }
+        dayStatsMap.set(game.player_id, ds);
+      } else {
+        dayStatsMap.set(game.player_id, {
+          pts: game.pts,
+          reb: game.reb,
+          ast: game.ast,
+          stl: game.stl,
+          blk: game.blk,
+          tov: game.tov,
+          fgm: game.fgm,
+          fga: game.fga,
+          '3pm': game['3pm'],
+          ftm: game.ftm,
+          fta: game.fta,
+          pf: game.pf,
+        });
+      }
     }
   }
 
@@ -162,7 +180,7 @@ export async function fetchTeamData(
 
   const projMap = new Map<string, number>();
   for (const ps of seasonStats ?? []) {
-    projMap.set(ps.player_id as string, calculateAvgFantasyPoints(ps as any, scoring));
+    projMap.set(ps.player_id as string, calculateAvgFantasyPoints(ps as any, scoring, sport));
   }
 
   // Build roster player list — use slotMap from fetchTeamSlots for display slot
@@ -192,7 +210,7 @@ export async function fetchTeamData(
       dayMatchup: dayMatchupMap.get(pid) ?? null,
       dayStatLine: (() => {
         const ds = dayStatsMap.get(pid);
-        return ds ? buildStatLine(ds, scoring) : null;
+        return ds ? buildStatLine(ds, scoring, sport) : null;
       })(),
       // Raw per-day box score — feeds the matchup cell's stat blocks + the
       // FPTS breakdown. Without this the past-day blocks render all zeros.

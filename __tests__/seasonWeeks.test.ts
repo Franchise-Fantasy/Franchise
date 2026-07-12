@@ -32,6 +32,14 @@ describe('computeMaxWeeks', () => {
       computeMaxWeeks('2025-26', 'nba', january, false),
     );
   });
+
+  it('fits all 18 NFL 2026 weeks (Tue–Mon weeks against the Monday end_date)', () => {
+    // Kickoff Wed Sep 9 → 6-day Week 1 ending Mon Sep 14, then Tue–Mon weeks.
+    // Week 18 ends Mon Jan 11, 2027 — NFL_SEASON_END must be that Monday (not
+    // the Sunday the real games end) or the 18th week gets silently dropped.
+    const kickoff = new Date(2026, 8, 9); // Wed Sep 9, 2026
+    expect(computeMaxWeeks('2026', 'nfl', kickoff)).toBe(18);
+  });
 });
 
 describe('applyCupWeekToggle', () => {

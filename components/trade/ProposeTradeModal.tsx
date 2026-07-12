@@ -28,12 +28,14 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLockedTradeAssets, usePendingDropPlayerIds } from '@/hooks/useTeamRosterForTrade';
 import { sendNotification } from '@/lib/notifications';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
+import { Json } from '@/types/database.types';
 import { PlayerSeasonStats } from '@/types/player';
 import { TradeBuilderTeam, estimatePickFpts } from '@/types/trade';
 import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
@@ -128,6 +130,7 @@ export function ProposeTradeModal({
   });
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const sport = useActiveLeagueSport(leagueId);
   const isCategories = leagueSettings?.scoring_type === 'h2h_categories';
   const isDynastyLeague = (leagueSettings?.league_type ?? 'dynasty') === 'dynasty';
   const pickConditionsEnabled = isDynastyLeague && (leagueSettings?.pick_conditions_enabled ?? false);
@@ -198,7 +201,7 @@ export function ProposeTradeModal({
             const externalIdMap: Record<string, string | null> = {};
             for (const row of data) {
               if (!row.player_id) continue;
-              fptsMap[row.player_id] = calculateAvgFantasyPoints(row as PlayerSeasonStats, scoringWeights);
+              fptsMap[row.player_id] = calculateAvgFantasyPoints(row as PlayerSeasonStats, scoringWeights, sport);
               externalIdMap[row.player_id] = (row as PlayerSeasonStats).external_id_nba ?? null;
             }
             dispatch({ type: 'UPDATE_PLAYER_FPTS', fptsMap, externalIdMap });
@@ -221,7 +224,7 @@ export function ProposeTradeModal({
         .then(({ data }) => {
           if (cancelled) return;
           const avgFpts = data && scoringWeights
-            ? calculateAvgFantasyPoints(data as PlayerSeasonStats, scoringWeights)
+            ? calculateAvgFantasyPoints(data as PlayerSeasonStats, scoringWeights, sport)
             : 0;
           dispatch({
             type: 'SEED_MY_TEAM',
@@ -371,47 +374,27 @@ export function ProposeTradeModal({
         return;
       }
 
-      const { data: proposal, error: propError } = await supabase
-        .from('trade_proposals')
-        .insert({
-          league_id: leagueId,
-          proposed_by_team_id: teamId,
-          status: 'pending',
-          notes: state.notes || null,
-          counteroffer_of: counterofferData?.originalProposalId ?? null,
-          is_in_draft: isInDraft,
-        })
-        .select('id')
-        .single();
+      // The proposal, its team rows, its items, and the cancellation of the
+      // proposal it replaces all commit together. As four separate writes, a
+      // failure after the first left a PHANTOM proposal — visible in the trades
+      // list and acceptable, but carrying no assets — and a failure after the
+      // cancel destroyed the original while leaving the replacement malformed.
+      const { data: proposalId, error: propError } = await supabase.rpc('create_trade_proposal', {
+        p_league_id: leagueId,
+        p_proposed_by_team_id: teamId,
+        p_team_ids: [teamId, ...state.selectedTeamIds],
+        p_items: items as unknown as Json,
+        p_notes: state.notes || undefined,
+        p_counteroffer_of: counterofferData?.originalProposalId ?? undefined,
+        p_is_in_draft: isInDraft,
+        p_cancel_proposal_id:
+          counterofferData?.originalProposalId ?? editData?.originalProposalId ?? undefined,
+      });
       if (propError) throw propError;
-
-      if (counterofferData?.originalProposalId || editData?.originalProposalId) {
-        await supabase
-          .from('trade_proposals')
-          .update({ status: 'cancelled' })
-          .eq('id', (counterofferData?.originalProposalId ?? editData?.originalProposalId)!);
-      }
-
-      const allTeamIds = [teamId, ...state.selectedTeamIds];
-      const teamRows = allTeamIds.map((tid) => ({
-        proposal_id: proposal.id,
-        team_id: tid,
-        status: tid === teamId ? 'accepted' : 'pending',
-        responded_at: tid === teamId ? new Date().toISOString() : null,
-      }));
-      const { error: teamsError } = await supabase.from('trade_proposal_teams').insert(teamRows);
-      if (teamsError) throw teamsError;
-
-      const itemRows = items.map((item) => ({
-        proposal_id: proposal.id,
-        ...item,
-      }));
-      const { error: itemsError } = await supabase.from('trade_proposal_items').insert(itemRows);
-      if (itemsError) throw itemsError;
 
       // Fire-and-forget bidding-war check
       supabase.rpc('check_bidding_wars', {
-        p_proposal_id: proposal.id,
+        p_proposal_id: proposalId as string,
         p_league_id: leagueId,
       }).then(() => {}, () => {});
 
@@ -439,8 +422,8 @@ export function ProposeTradeModal({
       });
 
       postTradeUpdate.mutate({
-        proposalId: proposal.id,
-        teamIds: allTeamIds,
+        proposalId: proposalId as string,
+        teamIds: [teamId, ...state.selectedTeamIds],
         event: isCounteroffer ? 'countered' : 'proposed',
         teamName: myTeam?.name ?? 'A team',
         actingTeamId: null,

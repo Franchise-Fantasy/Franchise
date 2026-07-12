@@ -14,6 +14,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { DEFAULT_ROSTER_SLOTS, getDefaultRosterSlots, type PositionLimits, type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { Json } from '@/types/database.types';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 
@@ -58,12 +59,18 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
       .map((r) => ({ league_id: leagueId, position: r.position, slot_count: r.slot_count }));
     const rosterSize = rows.reduce((sum, r) => (r.position === 'IR' || r.position === ROSTER_SLOT.TAXI) ? sum : sum + r.slot_count, 0);
 
-    const { error: delErr } = await supabase.from('league_roster_config').delete().eq('league_id', leagueId);
-    if (delErr) { setSaving(false); Alert.alert('Error', delErr.message); return; }
-    const { error: insErr } = await supabase.from('league_roster_config').insert(rows);
-    if (insErr) { setSaving(false); Alert.alert('Error', insErr.message); return; }
-    const posLimitsPayload = Object.keys(editPosLimits).length > 0 ? editPosLimits : null;
-    await supabase.from('leagues').update({ roster_size: rosterSize, position_limits: posLimitsPayload }).eq('id', leagueId);
+    // Replacing the config is a wipe-and-reinsert, so it has to be one
+    // transaction: as two writes, a failed insert left the league with NO roster
+    // configuration at all — no slots to resolve lineups against, nothing
+    // scoreable — and the only fix was to save again.
+    const { error } = await supabase.rpc('replace_roster_config', {
+      p_league_id: leagueId,
+      p_rows: rows as unknown as Json,
+      p_roster_size: rosterSize,
+      p_position_limits:
+        Object.keys(editPosLimits).length > 0 ? (editPosLimits as unknown as Json) : undefined,
+    });
+    if (error) { setSaving(false); Alert.alert('Error', error.message); return; }
 
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['leagueRosterConfig', leagueId] });

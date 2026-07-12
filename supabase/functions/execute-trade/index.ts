@@ -792,10 +792,14 @@ Deno.serve(async (req) => {
     // Build trade summary for chat announcement
     let hypeTier: 'minor' | 'major' | 'blockbuster' = 'minor';
     try {
-      // Fetch league-wide player rankings for hype scoring (exclude nulls so thresholds are accurate)
+      // Fetch league-wide player rankings for hype scoring (exclude nulls so
+      // thresholds are accurate). Scoped to this league's sport — an unscoped
+      // top-150 mixed NBA and WNBA scorers, so WNBA trades always ranked
+      // "minor" against NBA thresholds.
       const { data: allPlayerStats } = await supabaseAdmin
         .from('player_season_stats')
         .select('player_id, avg_pts')
+        .eq('sport', sport ?? 'nba')
         .not('avg_pts', 'is', null)
         .order('avg_pts', { ascending: false })
         .limit(150);

@@ -6,6 +6,7 @@ import {
 } from '@/constants/LeagueDefaults';
 import { schedulableEnd, planScheduleWeeks } from '@/utils/league/scheduleWindows';
 import { earliestSeasonStart } from '@/utils/league/seasonStart';
+import { getSportModule } from '@/utils/sports/registry';
 
 // No `@/utils/dates` import here (even though it has the equivalent
 // `toDateStr`) — this file must stay React Native-free so the seasonWeeks
@@ -119,6 +120,7 @@ export function computeMaxWeeks(
     regularSeasonWeeks: 60,
     playoffWeeks: 0,
     mergeWindows: windows,
+    weekEndDow: getSportModule(sport).weekEndDow,
   });
   return Math.max(1, planned.filter((w) => w.endDate <= cap).length);
 }
@@ -148,6 +150,7 @@ export function regularSeasonWeekEndDates(
     regularSeasonWeeks,
     playoffWeeks: 0,
     mergeWindows: windows,
+    weekEndDow: getSportModule(sport).weekEndDow,
   });
   return planned.map((w) => ({ weekNumber: w.weekNumber, endDate: w.endDate }));
 }

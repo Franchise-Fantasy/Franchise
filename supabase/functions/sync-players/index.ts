@@ -15,28 +15,33 @@ const supabase = createClient(
 const POSITION_SPECTRUM = ['PG', 'SG', 'SF', 'PF', 'C'];
 
 // Must match CURRENT_*_SEASON in constants/LeagueDefaults.ts.
-// NBA uses dash format ("2025-26"), WNBA uses single-year format ("2026").
+// NBA uses dash format ("2025-26"), WNBA/NFL use single-year format ("2026").
 const CURRENT_SEASON: Record<Sport, string> = {
   nba: '2026-27',
   wnba: '2026',
+  nfl: '2026',
 };
 
 const SLEEPER_PLAYERS_URL = 'https://api.sleeper.app/v1/players/nba';
 
+// Basketball-only enrichment (NFL has no Stats-host equivalent and is
+// filtered out before these are reached).
+type BasketballSport = Exclude<Sport, 'nfl'>;
+
 // stats.nba.com / stats.wnba.com share the same response shape; only the host
 // and LeagueID differ (00 = NBA, 10 = WNBA). The IDs they return populate
 // `players.external_id_nba`, which is what cdn.{nba,wnba}.com headshots key on.
-const STATS_HOSTS: Record<Sport, { host: string; leagueId: string; origin: string; referer: string }> = {
+const STATS_HOSTS: Record<BasketballSport, { host: string; leagueId: string; origin: string; referer: string }> = {
   nba:  { host: 'stats.nba.com',  leagueId: '00', origin: 'https://www.nba.com',  referer: 'https://www.nba.com/' },
   wnba: { host: 'stats.wnba.com', leagueId: '10', origin: 'https://www.wnba.com', referer: 'https://www.wnba.com/' },
 };
 
-function buildStatsUrl(sport: Sport, season: string): string {
+function buildStatsUrl(sport: BasketballSport, season: string): string {
   const { host, leagueId } = STATS_HOSTS[sport];
   return `https://${host}/stats/commonallplayers?LeagueID=${leagueId}&Season=${season}&IsOnlyCurrentSeason=1`;
 }
 
-function buildStatsHeaders(sport: Sport): Record<string, string> {
+function buildStatsHeaders(sport: BasketballSport): Record<string, string> {
   const { origin, referer } = STATS_HOSTS[sport];
   // stats.{nba,wnba}.com block non-browser user agents.
   return {
@@ -112,7 +117,7 @@ interface StatsLookup {
   draftYearByName?: Map<string, number>;
 }
 
-async function fetchStatsIds(sport: Sport, season: string): Promise<StatsLookup> {
+async function fetchStatsIds(sport: BasketballSport, season: string): Promise<StatsLookup> {
   if (sport === 'wnba') return fetchEspnWnbaAthletes(season);
   return fetchNbaStatsIds(season);
 }
@@ -234,7 +239,7 @@ Deno.serve(async (req: Request) => {
   let sport: Sport = 'nba';
   try {
     const body = await req.json();
-    if (body?.sport === 'wnba') sport = 'wnba';
+    if (body?.sport === 'wnba' || body?.sport === 'nfl') sport = body.sport;
   } catch {
     // No body / not JSON — default sport stays 'nba'.
   }
@@ -260,8 +265,20 @@ Deno.serve(async (req: Request) => {
       const name = `${bp.first_name ?? ''} ${bp.last_name ?? ''}`.trim();
       if (!name) continue;
 
-      // BDL's draft_year is a plain calendar year (e.g. 2018) for both sports,
+      // NFL: the token lives in position_abbreviation (position is the full
+      // word, e.g. "Quarterback"); basketball keys off position.
+      const rawPosition = sport === 'nfl' ? bp.position_abbreviation : bp.position;
+      const coercedPosition = coerceBdlPosition(rawPosition, sport);
+
+      // NFL pool is offense + K only — coerceBdlPosition returns null for
+      // OL/IDP/punters/UNK, and those players are dropped entirely (no IDP
+      // formats in v1; also keeps BDL's offensive-line "G"/"C" tokens out of
+      // the basketball position namespace).
+      if (sport === 'nfl' && !coercedPosition) continue;
+
+      // BDL's draft_year is a plain calendar year (e.g. 2018) for basketball,
       // or null for undrafted/unknown. Drives taxi-squad rookie eligibility.
+      // The NFL players feed has no draft_year field.
       const draftYear =
         typeof bp.draft_year === 'number' && bp.draft_year > 1900 ? bp.draft_year : null;
 
@@ -270,35 +287,41 @@ Deno.serve(async (req: Request) => {
         name,
         normName: normalizeName(name),
         pro_team: team,
-        bdl_position: coerceBdlPosition(bp.position, sport),
+        bdl_position: coercedPosition,
         draft_year: draftYear,
       });
     }
 
     // 3. Enrichment — runs in parallel, each can fail independently.
     //    - Sleeper position spectrum: NBA only (Sleeper has no WNBA support).
-    //    - League Stats personId (for cdn.{nba,wnba}.com headshots): both sports.
+    //    - League Stats personId (for cdn.{nba,wnba}.com headshots): basketball
+    //      only. NFL has no enrichment source (no headshots in v1 — ESPN is a
+    //      forbidden source); BDL position/team data is used as-is.
     //    - WNBA additionally pulls birthdates from the same ESPN endpoint.
     let sleeperPos: { byNameTeam: Map<string, string>; byName: Map<string, string> } | null = null;
     let statsIds: StatsLookup | null = null;
 
     const enrichmentTasks: Array<Promise<unknown>> = [];
     const sleeperIdx = sport === 'nba' ? enrichmentTasks.push(fetchSleeperPositions()) - 1 : -1;
-    const statsIdx = enrichmentTasks.push(fetchStatsIds(sport, CURRENT_SEASON[sport])) - 1;
+    const statsIdx = sport !== 'nfl'
+      ? enrichmentTasks.push(fetchStatsIds(sport, CURRENT_SEASON[sport])) - 1
+      : -1;
     const enrichmentResults = await Promise.allSettled(enrichmentTasks);
 
     if (sleeperIdx >= 0) {
       const r = enrichmentResults[sleeperIdx];
       if (r.status === 'fulfilled') {
-        sleeperPos = r.value as typeof sleeperPos;
+        // Explicit target type — `as typeof sleeperPos` would self-reference
+        // the flow-narrowed type (null) and break narrowing in the closures.
+        sleeperPos = r.value as { byNameTeam: Map<string, string>; byName: Map<string, string> };
       } else {
         console.error('Sleeper fetch failed:', (r.reason as any)?.message ?? r.reason);
       }
     }
-    {
+    if (statsIdx >= 0) {
       const r = enrichmentResults[statsIdx];
       if (r.status === 'fulfilled') {
-        statsIds = r.value as typeof statsIds;
+        statsIds = r.value as StatsLookup;
       } else {
         console.error(`${sport} Stats fetch failed:`, (r.reason as any)?.message ?? r.reason);
       }
@@ -475,6 +498,7 @@ Deno.serve(async (req: Request) => {
         if (draftYear) row.draft_year = draftYear;
         return row;
       });
+      // sport-scope: toInsert rows carry sport explicitly (built above)
       const { error: insertErr } = await supabase.from('players').insert(toInsert);
       if (insertErr) throw new Error(`Insert failed: ${insertErr.message}`);
       newlyInserted = newPlayers.length;
@@ -524,6 +548,37 @@ Deno.serve(async (req: Request) => {
       else waivedCount = waivedIds.length;
     }
 
+    // 8b. NFL only: ensure the 32 synthetic D/ST "players" exist — one per
+    // team, identity (sport='nfl', position='DST', pro_team). They have no
+    // external_id_bdl (BDL has no defense entity), so the waived sweep above
+    // can never touch them. Their stat rows are written by poll-live-stats
+    // from BDL team_stats.
+    let dstCreated = 0;
+    if (sport === 'nfl') {
+      const teamsResp = await bdlFetchAll(sport, '/teams');
+      const { data: existingDst } = await supabase
+        .from('players')
+        .select('pro_team')
+        .eq('sport', 'nfl')
+        .eq('position', 'DST');
+      const haveDst = new Set((existingDst ?? []).map((d) => d.pro_team));
+      const dstRows = (teamsResp ?? [])
+        .filter((t: any) => t?.abbreviation && t?.name && !haveDst.has(t.abbreviation))
+        .map((t: any) => ({
+          name: `${t.name} D/ST`,
+          sport: 'nfl',
+          position: 'DST',
+          pro_team: t.abbreviation,
+          status: 'active',
+        }));
+      if (dstRows.length > 0) {
+        // sport-scope: every dstRow is built above with sport:'nfl' set explicitly
+        const { error: dstErr } = await supabase.from('players').insert(dstRows);
+        if (dstErr) throw new Error(`D/ST insert failed: ${dstErr.message}`);
+        dstCreated = dstRows.length;
+      }
+    }
+
     // 9. Refresh materialized view so changes appear in stats queries
     const { error: refreshErr } = await supabase.rpc('refresh_player_season_stats');
     if (refreshErr) console.error('Mat view refresh error:', refreshErr.message);
@@ -542,6 +597,7 @@ Deno.serve(async (req: Request) => {
       birthdates_backfilled: birthdatesBackfilled,
       draft_years_backfilled: draftYearsBackfilled,
       waived_cleared: waivedCount,
+      dst_created: dstCreated,
       sleeper_ok: sleeperPos !== null,
       nba_stats_ok: statsIds !== null,
       sample_new: sampleNames,

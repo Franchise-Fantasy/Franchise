@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_tokens: {
@@ -1039,6 +1014,7 @@ export type Database = {
           season: string
           sport: string
           status: string | null
+          week: number | null
         }
         Insert: {
           away_score?: number | null
@@ -1053,6 +1029,7 @@ export type Database = {
           season: string
           sport?: string
           status?: string | null
+          week?: number | null
         }
         Update: {
           away_score?: number | null
@@ -1067,6 +1044,7 @@ export type Database = {
           season?: string
           sport?: string
           status?: string | null
+          week?: number | null
         }
         Relationships: []
       }
@@ -1994,10 +1972,21 @@ export type Database = {
           ast: number
           away_score: number
           blk: number
+          dst_fum_rec: number | null
+          dst_int: number | null
+          dst_pa_pts: number | null
+          dst_pts_allowed: number | null
+          dst_sacks: number | null
+          dst_safety: number | null
+          dst_td: number | null
+          fg_att: number | null
+          fg_long: number | null
+          fg_made: number | null
           fga: number
           fgm: number
           fta: number
           ftm: number
+          fum_lost: number | null
           game_clock: string | null
           game_date: string
           game_id: string
@@ -2006,15 +1995,31 @@ export type Database = {
           matchup: string | null
           min: number
           oncourt: boolean
+          pass_att: number | null
+          pass_cmp: number | null
+          pass_int: number | null
+          pass_td: number | null
+          pass_yd: number | null
           period: number | null
           pf: number
           player_id: string
           pts: number
           reb: number
+          rec: number | null
+          rec_td: number | null
+          rec_yd: number | null
+          ret_td: number | null
+          rush_att: number | null
+          rush_td: number | null
+          rush_yd: number | null
           sport: string
           stl: number
+          targets: number | null
           tov: number
+          two_pt: number | null
           updated_at: string
+          xp_att: number | null
+          xp_made: number | null
         }
         Insert: {
           "3pa"?: number
@@ -2022,10 +2027,21 @@ export type Database = {
           ast?: number
           away_score?: number
           blk?: number
+          dst_fum_rec?: number | null
+          dst_int?: number | null
+          dst_pa_pts?: number | null
+          dst_pts_allowed?: number | null
+          dst_sacks?: number | null
+          dst_safety?: number | null
+          dst_td?: number | null
+          fg_att?: number | null
+          fg_long?: number | null
+          fg_made?: number | null
           fga?: number
           fgm?: number
           fta?: number
           ftm?: number
+          fum_lost?: number | null
           game_clock?: string | null
           game_date: string
           game_id: string
@@ -2034,15 +2050,31 @@ export type Database = {
           matchup?: string | null
           min?: number
           oncourt?: boolean
+          pass_att?: number | null
+          pass_cmp?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yd?: number | null
           period?: number | null
           pf?: number
           player_id: string
           pts?: number
           reb?: number
+          rec?: number | null
+          rec_td?: number | null
+          rec_yd?: number | null
+          ret_td?: number | null
+          rush_att?: number | null
+          rush_td?: number | null
+          rush_yd?: number | null
           sport?: string
           stl?: number
+          targets?: number | null
           tov?: number
+          two_pt?: number | null
           updated_at?: string
+          xp_att?: number | null
+          xp_made?: number | null
         }
         Update: {
           "3pa"?: number
@@ -2050,10 +2082,21 @@ export type Database = {
           ast?: number
           away_score?: number
           blk?: number
+          dst_fum_rec?: number | null
+          dst_int?: number | null
+          dst_pa_pts?: number | null
+          dst_pts_allowed?: number | null
+          dst_sacks?: number | null
+          dst_safety?: number | null
+          dst_td?: number | null
+          fg_att?: number | null
+          fg_long?: number | null
+          fg_made?: number | null
           fga?: number
           fgm?: number
           fta?: number
           ftm?: number
+          fum_lost?: number | null
           game_clock?: string | null
           game_date?: string
           game_id?: string
@@ -2062,15 +2105,31 @@ export type Database = {
           matchup?: string | null
           min?: number
           oncourt?: boolean
+          pass_att?: number | null
+          pass_cmp?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yd?: number | null
           period?: number | null
           pf?: number
           player_id?: string
           pts?: number
           reb?: number
+          rec?: number | null
+          rec_td?: number | null
+          rec_yd?: number | null
+          ret_td?: number | null
+          rush_att?: number | null
+          rush_td?: number | null
+          rush_yd?: number | null
           sport?: string
           stl?: number
+          targets?: number | null
           tov?: number
+          two_pt?: number | null
           updated_at?: string
+          xp_att?: number | null
+          xp_made?: number | null
         }
         Relationships: [
           {
@@ -3512,23 +3571,50 @@ export type Database = {
           ast: number
           blk: number
           double_double: boolean
+          dst_fum_rec: number | null
+          dst_int: number | null
+          dst_pa_pts: number | null
+          dst_pts_allowed: number | null
+          dst_sacks: number | null
+          dst_safety: number | null
+          dst_td: number | null
+          fg_att: number | null
+          fg_long: number | null
+          fg_made: number | null
           fga: number
           fgm: number
           fta: number
           ftm: number
+          fum_lost: number | null
           game_date: string | null
           game_id: string
           id: string
           matchup: string | null
           min: number
+          pass_att: number | null
+          pass_cmp: number | null
+          pass_int: number | null
+          pass_td: number | null
+          pass_yd: number | null
           pf: number
           player_id: string
           pts: number
           reb: number
+          rec: number | null
+          rec_td: number | null
+          rec_yd: number | null
+          ret_td: number | null
+          rush_att: number | null
+          rush_td: number | null
+          rush_yd: number | null
           sport: string
           stl: number
+          targets: number | null
           tov: number
           triple_double: boolean
+          two_pt: number | null
+          xp_att: number | null
+          xp_made: number | null
         }
         Insert: {
           "3pa"?: number
@@ -3536,23 +3622,50 @@ export type Database = {
           ast?: number
           blk?: number
           double_double?: boolean
+          dst_fum_rec?: number | null
+          dst_int?: number | null
+          dst_pa_pts?: number | null
+          dst_pts_allowed?: number | null
+          dst_sacks?: number | null
+          dst_safety?: number | null
+          dst_td?: number | null
+          fg_att?: number | null
+          fg_long?: number | null
+          fg_made?: number | null
           fga?: number
           fgm?: number
           fta?: number
           ftm?: number
+          fum_lost?: number | null
           game_date?: string | null
           game_id: string
           id?: string
           matchup?: string | null
           min?: number
+          pass_att?: number | null
+          pass_cmp?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yd?: number | null
           pf?: number
           player_id: string
           pts?: number
           reb?: number
+          rec?: number | null
+          rec_td?: number | null
+          rec_yd?: number | null
+          ret_td?: number | null
+          rush_att?: number | null
+          rush_td?: number | null
+          rush_yd?: number | null
           sport?: string
           stl?: number
+          targets?: number | null
           tov?: number
           triple_double?: boolean
+          two_pt?: number | null
+          xp_att?: number | null
+          xp_made?: number | null
         }
         Update: {
           "3pa"?: number
@@ -3560,23 +3673,50 @@ export type Database = {
           ast?: number
           blk?: number
           double_double?: boolean
+          dst_fum_rec?: number | null
+          dst_int?: number | null
+          dst_pa_pts?: number | null
+          dst_pts_allowed?: number | null
+          dst_sacks?: number | null
+          dst_safety?: number | null
+          dst_td?: number | null
+          fg_att?: number | null
+          fg_long?: number | null
+          fg_made?: number | null
           fga?: number
           fgm?: number
           fta?: number
           ftm?: number
+          fum_lost?: number | null
           game_date?: string | null
           game_id?: string
           id?: string
           matchup?: string | null
           min?: number
+          pass_att?: number | null
+          pass_cmp?: number | null
+          pass_int?: number | null
+          pass_td?: number | null
+          pass_yd?: number | null
           pf?: number
           player_id?: string
           pts?: number
           reb?: number
+          rec?: number | null
+          rec_td?: number | null
+          rec_yd?: number | null
+          ret_td?: number | null
+          rush_att?: number | null
+          rush_td?: number | null
+          rush_yd?: number | null
           sport?: string
           stl?: number
+          targets?: number | null
           tov?: number
           triple_double?: boolean
+          two_pt?: number | null
+          xp_att?: number | null
+          xp_made?: number | null
         }
         Relationships: [
           {
@@ -3620,11 +3760,37 @@ export type Database = {
           total_ast: number | null
           total_blk: number | null
           total_dd: number | null
+          total_dst_fum_rec: number | null
+          total_dst_int: number | null
+          total_dst_pa_pts: number | null
+          total_dst_pts_allowed: number | null
+          total_dst_sacks: number | null
+          total_dst_safety: number | null
+          total_dst_td: number | null
+          total_fg_att: number | null
+          total_fg_made: number | null
+          total_fum_lost: number | null
+          total_pass_att: number | null
+          total_pass_cmp: number | null
+          total_pass_int: number | null
+          total_pass_td: number | null
+          total_pass_yd: number | null
           total_pts: number | null
           total_reb: number | null
+          total_rec: number | null
+          total_rec_td: number | null
+          total_rec_yd: number | null
+          total_ret_td: number | null
+          total_rush_att: number | null
+          total_rush_td: number | null
+          total_rush_yd: number | null
           total_stl: number | null
+          total_targets: number | null
           total_td: number | null
           total_tov: number | null
+          total_two_pt: number | null
+          total_xp_att: number | null
+          total_xp_made: number | null
         }
         Insert: {
           avg_3pa?: number | null
@@ -3650,11 +3816,37 @@ export type Database = {
           total_ast?: number | null
           total_blk?: number | null
           total_dd?: number | null
+          total_dst_fum_rec?: number | null
+          total_dst_int?: number | null
+          total_dst_pa_pts?: number | null
+          total_dst_pts_allowed?: number | null
+          total_dst_sacks?: number | null
+          total_dst_safety?: number | null
+          total_dst_td?: number | null
+          total_fg_att?: number | null
+          total_fg_made?: number | null
+          total_fum_lost?: number | null
+          total_pass_att?: number | null
+          total_pass_cmp?: number | null
+          total_pass_int?: number | null
+          total_pass_td?: number | null
+          total_pass_yd?: number | null
           total_pts?: number | null
           total_reb?: number | null
+          total_rec?: number | null
+          total_rec_td?: number | null
+          total_rec_yd?: number | null
+          total_ret_td?: number | null
+          total_rush_att?: number | null
+          total_rush_td?: number | null
+          total_rush_yd?: number | null
           total_stl?: number | null
+          total_targets?: number | null
           total_td?: number | null
           total_tov?: number | null
+          total_two_pt?: number | null
+          total_xp_att?: number | null
+          total_xp_made?: number | null
         }
         Update: {
           avg_3pa?: number | null
@@ -3680,11 +3872,37 @@ export type Database = {
           total_ast?: number | null
           total_blk?: number | null
           total_dd?: number | null
+          total_dst_fum_rec?: number | null
+          total_dst_int?: number | null
+          total_dst_pa_pts?: number | null
+          total_dst_pts_allowed?: number | null
+          total_dst_sacks?: number | null
+          total_dst_safety?: number | null
+          total_dst_td?: number | null
+          total_fg_att?: number | null
+          total_fg_made?: number | null
+          total_fum_lost?: number | null
+          total_pass_att?: number | null
+          total_pass_cmp?: number | null
+          total_pass_int?: number | null
+          total_pass_td?: number | null
+          total_pass_yd?: number | null
           total_pts?: number | null
           total_reb?: number | null
+          total_rec?: number | null
+          total_rec_td?: number | null
+          total_rec_yd?: number | null
+          total_ret_td?: number | null
+          total_rush_att?: number | null
+          total_rush_td?: number | null
+          total_rush_yd?: number | null
           total_stl?: number | null
+          total_targets?: number | null
           total_td?: number | null
           total_tov?: number | null
+          total_two_pt?: number | null
+          total_xp_att?: number | null
+          total_xp_made?: number | null
         }
         Relationships: [
           {
@@ -6025,16 +6243,42 @@ export type Database = {
           avg_3pm: number | null
           avg_ast: number | null
           avg_blk: number | null
+          avg_dst_fum_rec: number | null
+          avg_dst_int: number | null
+          avg_dst_pa_pts: number | null
+          avg_dst_pts_allowed: number | null
+          avg_dst_sacks: number | null
+          avg_dst_safety: number | null
+          avg_dst_td: number | null
+          avg_fg_att: number | null
+          avg_fg_made: number | null
           avg_fga: number | null
           avg_fgm: number | null
           avg_fta: number | null
           avg_ftm: number | null
+          avg_fum_lost: number | null
           avg_min: number | null
+          avg_pass_att: number | null
+          avg_pass_cmp: number | null
+          avg_pass_int: number | null
+          avg_pass_td: number | null
+          avg_pass_yd: number | null
           avg_pf: number | null
           avg_pts: number | null
           avg_reb: number | null
+          avg_rec: number | null
+          avg_rec_td: number | null
+          avg_rec_yd: number | null
+          avg_ret_td: number | null
+          avg_rush_att: number | null
+          avg_rush_td: number | null
+          avg_rush_yd: number | null
           avg_stl: number | null
+          avg_targets: number | null
           avg_tov: number | null
+          avg_two_pt: number | null
+          avg_xp_att: number | null
+          avg_xp_made: number | null
           birthdate: string | null
           draft_year: number | null
           external_id_nba: string | null
@@ -6052,16 +6296,42 @@ export type Database = {
           total_ast: number | null
           total_blk: number | null
           total_dd: number | null
+          total_dst_fum_rec: number | null
+          total_dst_int: number | null
+          total_dst_pa_pts: number | null
+          total_dst_pts_allowed: number | null
+          total_dst_sacks: number | null
+          total_dst_safety: number | null
+          total_dst_td: number | null
+          total_fg_att: number | null
+          total_fg_made: number | null
           total_fga: number | null
           total_fgm: number | null
           total_fta: number | null
           total_ftm: number | null
+          total_fum_lost: number | null
+          total_pass_att: number | null
+          total_pass_cmp: number | null
+          total_pass_int: number | null
+          total_pass_td: number | null
+          total_pass_yd: number | null
           total_pf: number | null
           total_pts: number | null
           total_reb: number | null
+          total_rec: number | null
+          total_rec_td: number | null
+          total_rec_yd: number | null
+          total_ret_td: number | null
+          total_rush_att: number | null
+          total_rush_td: number | null
+          total_rush_yd: number | null
           total_stl: number | null
+          total_targets: number | null
           total_td: number | null
           total_tov: number | null
+          total_two_pt: number | null
+          total_xp_att: number | null
+          total_xp_made: number | null
         }
         Relationships: []
       }
@@ -6077,6 +6347,36 @@ export type Database = {
         }
         Returns: Json
       }
+      advance_season_atomic: {
+        Args: {
+          p_faab_budget: number
+          p_is_redraft: boolean
+          p_league_id: string
+          p_league_updates: Json
+          p_new_picks: Json
+          p_new_season: string
+          p_pick_updates: Json
+          p_taxi_promote_ids: string[]
+          p_taxi_transactions: Json
+          p_team_ids: string[]
+          p_team_seasons: Json
+          p_waiver_order: string[]
+        }
+        Returns: Json
+      }
+      apply_roster_move: {
+        Args: {
+          p_deferred?: boolean
+          p_dest_player_id?: string
+          p_dest_slot: string
+          p_league_id: string
+          p_selected_date: string
+          p_source_player_id: string
+          p_source_slot: string
+          p_team_id: string
+        }
+        Returns: Json
+      }
       archive_league: { Args: { p_league_id: string }; Returns: Json }
       archive_season_player_stats: {
         Args: { p_season: string; p_sport: string }
@@ -6086,9 +6386,43 @@ export type Database = {
         Args: { p_league_id: string; p_player_id?: string; p_team_id: string }
         Returns: undefined
       }
+      assign_draft_slots_manual: {
+        Args: { p_draft_id: string; p_league_id: string; p_team_ids: string[] }
+        Returns: undefined
+      }
+      assign_imported_team: {
+        Args: {
+          p_imported_team_id: string
+          p_league_id: string
+          p_member_team_id: string
+        }
+        Returns: undefined
+      }
       assign_initial_draft_slots: {
         Args: { p_league_id: string }
         Returns: undefined
+      }
+      assign_team_divisions: {
+        Args: { p_division_1_team_ids: string[]; p_league_id: string }
+        Returns: undefined
+      }
+      award_waiver_claim: {
+        Args: {
+          p_bid_amount: number
+          p_claim_id: string
+          p_drop_player_id: string
+          p_drop_waiver_until: string
+          p_execute_drop: boolean
+          p_is_faab: boolean
+          p_league_id: string
+          p_notes: string
+          p_now: string
+          p_player_id: string
+          p_position: string
+          p_team_id: string
+          p_today: string
+        }
+        Returns: Json
       }
       batch_update_matchup_scores: {
         Args: { p_updates: Json }
@@ -6114,11 +6448,63 @@ export type Database = {
       }
       claim_imported_team: { Args: { team_id_input: string }; Returns: string }
       cleanup_rate_limits: { Args: never; Returns: undefined }
+      commissioner_roster_action: {
+        Args: {
+          p_action: string
+          p_league_id: string
+          p_notes?: string
+          p_player_id: string
+          p_position?: string
+          p_target_slot?: string
+          p_team_id: string
+        }
+        Returns: Json
+      }
+      create_playoff_round_atomic: {
+        Args: {
+          p_league_id: string
+          p_pairings: Json
+          p_round: number
+          p_schedule_id: string
+          p_season: string
+          p_third_place?: Json
+          p_week_number: number
+        }
+        Returns: Json
+      }
+      create_trade_proposal: {
+        Args: {
+          p_cancel_proposal_id?: string
+          p_counteroffer_of?: string
+          p_is_in_draft?: boolean
+          p_items: Json
+          p_league_id: string
+          p_notes?: string
+          p_proposed_by_team_id: string
+          p_team_ids: string[]
+        }
+        Returns: string
+      }
       cron_watchdog: { Args: never; Returns: number }
       decrement_team_count: { Args: { lid: string }; Returns: number }
       dedup_active_lineup_slots: {
         Args: { p_end_date: string; p_start_date: string }
         Returns: number
+      }
+      execute_autodraft_pick: {
+        Args: {
+          p_draft_id: string
+          p_is_rookie_draft: boolean
+          p_league_id: string
+          p_next_time_limit: number
+          p_pick_number: number
+          p_player_id: string
+          p_player_position: string
+          p_roster_slot: string
+          p_team_id: string
+          p_used_queue_entry_id?: string
+        }
+        Returns: Json
       }
       execute_draft_pick: {
         Args: {
@@ -6149,6 +6535,34 @@ export type Database = {
         }
         Returns: string
       }
+      finalize_keepers_atomic: {
+        Args: { p_league_id: string; p_season: string }
+        Returns: Json
+      }
+      finalize_matchup_atomic: {
+        Args: {
+          p_away_category_wins: number
+          p_away_player_scores: Json
+          p_away_score: number
+          p_away_team_id: string
+          p_category_results: Json
+          p_category_ties: number
+          p_home_category_wins: number
+          p_home_player_scores: Json
+          p_home_score: number
+          p_home_team_id: string
+          p_is_playoff: boolean
+          p_league_id: string
+          p_matchup_id: string
+          p_schedule_id: string
+          p_winner_team_id: string
+        }
+        Returns: Json
+      }
+      generate_schedule_atomic: {
+        Args: { p_league_id: string; p_matchups: Json; p_weeks: Json }
+        Returns: Json
+      }
       get_conversations: {
         Args: { p_league_id: string; p_team_id: string }
         Returns: {
@@ -6170,16 +6584,42 @@ export type Database = {
           avg_3pm: number
           avg_ast: number
           avg_blk: number
+          avg_dst_fum_rec: number
+          avg_dst_int: number
+          avg_dst_pa_pts: number
+          avg_dst_pts_allowed: number
+          avg_dst_sacks: number
+          avg_dst_safety: number
+          avg_dst_td: number
+          avg_fg_att: number
+          avg_fg_made: number
           avg_fga: number
           avg_fgm: number
           avg_fta: number
           avg_ftm: number
+          avg_fum_lost: number
           avg_min: number
+          avg_pass_att: number
+          avg_pass_cmp: number
+          avg_pass_int: number
+          avg_pass_td: number
+          avg_pass_yd: number
           avg_pf: number
           avg_pts: number
           avg_reb: number
+          avg_rec: number
+          avg_rec_td: number
+          avg_rec_yd: number
+          avg_ret_td: number
+          avg_rush_att: number
+          avg_rush_td: number
+          avg_rush_yd: number
           avg_stl: number
+          avg_targets: number
           avg_tov: number
+          avg_two_pt: number
+          avg_xp_att: number
+          avg_xp_made: number
           birthdate: string
           draft_year: number
           external_id_nba: string
@@ -6199,16 +6639,42 @@ export type Database = {
           total_ast: number
           total_blk: number
           total_dd: number
+          total_dst_fum_rec: number
+          total_dst_int: number
+          total_dst_pa_pts: number
+          total_dst_pts_allowed: number
+          total_dst_sacks: number
+          total_dst_safety: number
+          total_dst_td: number
+          total_fg_att: number
+          total_fg_made: number
           total_fga: number
           total_fgm: number
           total_fta: number
           total_ftm: number
+          total_fum_lost: number
+          total_pass_att: number
+          total_pass_cmp: number
+          total_pass_int: number
+          total_pass_td: number
+          total_pass_yd: number
           total_pf: number
           total_pts: number
           total_reb: number
+          total_rec: number
+          total_rec_td: number
+          total_rec_yd: number
+          total_ret_td: number
+          total_rush_att: number
+          total_rush_td: number
+          total_rush_yd: number
           total_stl: number
+          total_targets: number
           total_td: number
           total_tov: number
+          total_two_pt: number
+          total_xp_att: number
+          total_xp_made: number
         }[]
       }
       get_draft_room_init: { Args: { p_draft_id: string }; Returns: Json }
@@ -6219,16 +6685,42 @@ export type Database = {
           avg_3pm: number
           avg_ast: number
           avg_blk: number
+          avg_dst_fum_rec: number
+          avg_dst_int: number
+          avg_dst_pa_pts: number
+          avg_dst_pts_allowed: number
+          avg_dst_sacks: number
+          avg_dst_safety: number
+          avg_dst_td: number
+          avg_fg_att: number
+          avg_fg_made: number
           avg_fga: number
           avg_fgm: number
           avg_fta: number
           avg_ftm: number
+          avg_fum_lost: number
           avg_min: number
+          avg_pass_att: number
+          avg_pass_cmp: number
+          avg_pass_int: number
+          avg_pass_td: number
+          avg_pass_yd: number
           avg_pf: number
           avg_pts: number
           avg_reb: number
+          avg_rec: number
+          avg_rec_td: number
+          avg_rec_yd: number
+          avg_ret_td: number
+          avg_rush_att: number
+          avg_rush_td: number
+          avg_rush_yd: number
           avg_stl: number
+          avg_targets: number
           avg_tov: number
+          avg_two_pt: number
+          avg_xp_att: number
+          avg_xp_made: number
           birthdate: string
           draft_year: number
           external_id_nba: string
@@ -6247,16 +6739,42 @@ export type Database = {
           total_ast: number
           total_blk: number
           total_dd: number
+          total_dst_fum_rec: number
+          total_dst_int: number
+          total_dst_pa_pts: number
+          total_dst_pts_allowed: number
+          total_dst_sacks: number
+          total_dst_safety: number
+          total_dst_td: number
+          total_fg_att: number
+          total_fg_made: number
           total_fga: number
           total_fgm: number
           total_fta: number
           total_ftm: number
+          total_fum_lost: number
+          total_pass_att: number
+          total_pass_cmp: number
+          total_pass_int: number
+          total_pass_td: number
+          total_pass_yd: number
           total_pf: number
           total_pts: number
           total_reb: number
+          total_rec: number
+          total_rec_td: number
+          total_rec_yd: number
+          total_ret_td: number
+          total_rush_att: number
+          total_rush_td: number
+          total_rush_yd: number
           total_stl: number
+          total_targets: number
           total_td: number
           total_tov: number
+          total_two_pt: number
+          total_xp_att: number
+          total_xp_made: number
         }[]
       }
       get_matchup_init: {
@@ -6317,16 +6835,42 @@ export type Database = {
           avg_3pm: number
           avg_ast: number
           avg_blk: number
+          avg_dst_fum_rec: number
+          avg_dst_int: number
+          avg_dst_pa_pts: number
+          avg_dst_pts_allowed: number
+          avg_dst_sacks: number
+          avg_dst_safety: number
+          avg_dst_td: number
+          avg_fg_att: number
+          avg_fg_made: number
           avg_fga: number
           avg_fgm: number
           avg_fta: number
           avg_ftm: number
+          avg_fum_lost: number
           avg_min: number
+          avg_pass_att: number
+          avg_pass_cmp: number
+          avg_pass_int: number
+          avg_pass_td: number
+          avg_pass_yd: number
           avg_pf: number
           avg_pts: number
           avg_reb: number
+          avg_rec: number
+          avg_rec_td: number
+          avg_rec_yd: number
+          avg_ret_td: number
+          avg_rush_att: number
+          avg_rush_td: number
+          avg_rush_yd: number
           avg_stl: number
+          avg_targets: number
           avg_tov: number
+          avg_two_pt: number
+          avg_xp_att: number
+          avg_xp_made: number
           birthdate: string
           draft_year: number
           external_id_nba: string
@@ -6345,16 +6889,42 @@ export type Database = {
           total_ast: number
           total_blk: number
           total_dd: number
+          total_dst_fum_rec: number
+          total_dst_int: number
+          total_dst_pa_pts: number
+          total_dst_pts_allowed: number
+          total_dst_sacks: number
+          total_dst_safety: number
+          total_dst_td: number
+          total_fg_att: number
+          total_fg_made: number
           total_fga: number
           total_fgm: number
           total_fta: number
           total_ftm: number
+          total_fum_lost: number
+          total_pass_att: number
+          total_pass_cmp: number
+          total_pass_int: number
+          total_pass_td: number
+          total_pass_yd: number
           total_pf: number
           total_pts: number
           total_reb: number
+          total_rec: number
+          total_rec_td: number
+          total_rec_yd: number
+          total_ret_td: number
+          total_rush_att: number
+          total_rush_td: number
+          total_rush_yd: number
           total_stl: number
+          total_targets: number
           total_td: number
           total_tov: number
+          total_two_pt: number
+          total_xp_att: number
+          total_xp_made: number
         }[]
       }
       get_team_roster_stats: {
@@ -6364,16 +6934,42 @@ export type Database = {
           avg_3pm: number | null
           avg_ast: number | null
           avg_blk: number | null
+          avg_dst_fum_rec: number | null
+          avg_dst_int: number | null
+          avg_dst_pa_pts: number | null
+          avg_dst_pts_allowed: number | null
+          avg_dst_sacks: number | null
+          avg_dst_safety: number | null
+          avg_dst_td: number | null
+          avg_fg_att: number | null
+          avg_fg_made: number | null
           avg_fga: number | null
           avg_fgm: number | null
           avg_fta: number | null
           avg_ftm: number | null
+          avg_fum_lost: number | null
           avg_min: number | null
+          avg_pass_att: number | null
+          avg_pass_cmp: number | null
+          avg_pass_int: number | null
+          avg_pass_td: number | null
+          avg_pass_yd: number | null
           avg_pf: number | null
           avg_pts: number | null
           avg_reb: number | null
+          avg_rec: number | null
+          avg_rec_td: number | null
+          avg_rec_yd: number | null
+          avg_ret_td: number | null
+          avg_rush_att: number | null
+          avg_rush_td: number | null
+          avg_rush_yd: number | null
           avg_stl: number | null
+          avg_targets: number | null
           avg_tov: number | null
+          avg_two_pt: number | null
+          avg_xp_att: number | null
+          avg_xp_made: number | null
           birthdate: string | null
           draft_year: number | null
           external_id_nba: string | null
@@ -6391,16 +6987,42 @@ export type Database = {
           total_ast: number | null
           total_blk: number | null
           total_dd: number | null
+          total_dst_fum_rec: number | null
+          total_dst_int: number | null
+          total_dst_pa_pts: number | null
+          total_dst_pts_allowed: number | null
+          total_dst_sacks: number | null
+          total_dst_safety: number | null
+          total_dst_td: number | null
+          total_fg_att: number | null
+          total_fg_made: number | null
           total_fga: number | null
           total_fgm: number | null
           total_fta: number | null
           total_ftm: number | null
+          total_fum_lost: number | null
+          total_pass_att: number | null
+          total_pass_cmp: number | null
+          total_pass_int: number | null
+          total_pass_td: number | null
+          total_pass_yd: number | null
           total_pf: number | null
           total_pts: number | null
           total_reb: number | null
+          total_rec: number | null
+          total_rec_td: number | null
+          total_rec_yd: number | null
+          total_ret_td: number | null
+          total_rush_att: number | null
+          total_rush_td: number | null
+          total_rush_yd: number | null
           total_stl: number | null
+          total_targets: number | null
           total_td: number | null
           total_tov: number | null
+          total_two_pt: number | null
+          total_xp_att: number | null
+          total_xp_made: number | null
         }[]
         SetofOptions: {
           from: "*"
@@ -6457,6 +7079,15 @@ export type Database = {
         Args: { p_league_id: string; p_proposal_id: string }
         Returns: boolean
       }
+      join_league_team: {
+        Args: {
+          p_is_commissioner?: boolean
+          p_league_id: string
+          p_name: string
+          p_tricode: string
+        }
+        Returns: Json
+      }
       leak_trade_rumor: {
         Args: {
           p_league_id: string
@@ -6470,6 +7101,7 @@ export type Database = {
       }
       leave_league: { Args: { p_league_id: string }; Returns: Json }
       my_team_id: { Args: { p_league_id: string }; Returns: string }
+      next_slate_rollover: { Args: { p_at?: string }; Returns: string }
       nfl_archive_awards: { Args: { p_season: number }; Returns: Json }
       nfl_archive_bracket: { Args: { p_season: number }; Returns: Json }
       nfl_archive_seasons: {
@@ -6633,6 +7265,49 @@ export type Database = {
         Args: { p_league_id: string; p_team_id: string }
         Returns: Json
       }
+      reorder_rookie_draft_picks: {
+        Args: { p_league_id: string; p_season: string; p_team_ids: string[] }
+        Returns: undefined
+      }
+      replace_draft_picks: {
+        Args: {
+          p_draft_id?: string
+          p_future_picks?: Json
+          p_initial_picks?: Json
+          p_league_id: string
+          p_picks_per_round?: number
+        }
+        Returns: undefined
+      }
+      replace_roster_config: {
+        Args: {
+          p_league_id: string
+          p_position_limits?: Json
+          p_roster_size: number
+          p_rows: Json
+        }
+        Returns: undefined
+      }
+      replace_scoring_settings: {
+        Args: { p_league_id: string; p_rows: Json }
+        Returns: undefined
+      }
+      reverse_trade_transfers: {
+        Args: { p_proposal_id: string }
+        Returns: Json
+      }
+      roster_add_drop: {
+        Args: {
+          p_add_player_id?: string
+          p_defer_add?: boolean
+          p_drop_player_id?: string
+          p_group_id?: string
+          p_league_id: string
+          p_queue_drop?: boolean
+          p_team_id: string
+        }
+        Returns: Json
+      }
       search_players_fuzzy: {
         Args: { p_limit?: number; p_query: string; p_sport?: string }
         Returns: {
@@ -6648,6 +7323,18 @@ export type Database = {
         Args: { p_draft_id: string; p_enabled: boolean; p_team_id: string }
         Returns: undefined
       }
+      setup_league: {
+        Args: {
+          p_draft: Json
+          p_future_picks?: Json
+          p_initial_picks: Json
+          p_league_id: string
+          p_roster_config: Json
+          p_scoring: Json
+        }
+        Returns: string
+      }
+      sport_slate_date: { Args: { p_at?: string }; Returns: string }
       test_get_cron_secret: { Args: never; Returns: string }
       toggle_trade_block_interest: {
         Args: { p_league_id: string; p_player_id: string; p_team_id: string }
@@ -6794,9 +7481,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

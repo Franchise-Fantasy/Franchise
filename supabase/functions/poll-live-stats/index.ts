@@ -6,12 +6,15 @@ import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
 import { buildPointsContentState } from "../_shared/liveActivityContent.ts";
 import { createLogger } from "../_shared/log.ts";
+import { mapDstGameStats, mapNflGameStats } from "../_shared/nflStats.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
+import { nflStatLine } from "../../../utils/scoring/nflStatLine.ts";
+import { getSportModule } from "../../../utils/sports/registry.ts";
 import { getArchivedLeagueIds } from "../_shared/archivedLeagues.ts";
 
 const Body = z.object({
-  sport: z.enum(['nba', 'wnba']).optional(),
+  sport: z.enum(['nba', 'wnba', 'nfl']).optional(),
   gameIds: z.array(z.number().int()).optional(),
 });
 
@@ -152,7 +155,9 @@ function buildPlayerLines(
   roster: any[],
   liveByPlayer: Map<string, any>,
   weights: any[],
+  leagueSport: string,
 ): PlayerLine[] {
+  const statToGame = getSportModule(leagueSport).statToGame;
   const lines: PlayerLine[] = [];
   for (const rp of roster) {
     const live = liveByPlayer.get(rp.player_id);
@@ -168,7 +173,7 @@ function buildPlayerLines(
     let fpts = 0;
     for (const w of weights) {
       if (!w.is_enabled) continue;
-      const gameKey = STAT_TO_GAME[w.stat_name];
+      const gameKey = statToGame[w.stat_name];
       if (!gameKey) continue;
       const val = live[gameKey] ?? 0;
       fpts += val * w.point_value;
@@ -176,7 +181,9 @@ function buildPlayerLines(
 
     lines.push({
       name,
-      statLine: `${live.pts}p ${live.reb}r ${live.ast}a`,
+      statLine: leagueSport === 'nfl'
+        ? nflStatLine(live)
+        : `${live.pts}p ${live.reb}r ${live.ast}a`,
       fantasyPoints: Math.round(fpts * 10) / 10,
       gameStatus: live.game_status === 3
         ? 'Final'
@@ -304,13 +311,16 @@ async function dispatchPlayerTickerUpdates(
 
   const { data: leagueTypeRows } = await supabase
     .from('leagues')
-    .select('id, scoring_type')
+    .select('id, scoring_type, sport')
     .in('id', leagueIds);
 
   const catLeagueIds = new Set<string>(
     (leagueTypeRows ?? [])
       .filter((l) => l.scoring_type === 'h2h_categories')
       .map((l) => l.id),
+  );
+  const sportByLeague = new Map<string, string>(
+    (leagueTypeRows ?? []).map((l) => [l.id, l.sport ?? 'nba']),
   );
 
   const liveByPlayer = new Map<string, any>(
@@ -325,6 +335,7 @@ async function dispatchPlayerTickerUpdates(
       rosterByTeam.get(teamId) ?? [],
       liveByPlayer,
       scoringByLeague.get(leagueId) ?? [],
+      sportByLeague.get(leagueId) ?? 'nba',
     );
     const score = Math.round(lines.reduce((s, l) => s + l.fantasyPoints, 0) * 10) / 10;
     const activePlayers = lines.filter(l => l.gameStatus !== 'Final').length;
@@ -436,7 +447,7 @@ Deno.serve(async (req: Request) => {
   let overrideGameIds: number[] | null = null;
   try {
     const parsed = parseBody(Body, await req.json());
-    if (parsed.sport === 'wnba') sport = 'wnba';
+    if (parsed.sport === 'wnba' || parsed.sport === 'nfl') sport = parsed.sport;
     if (parsed.gameIds && parsed.gameIds.length > 0) {
       overrideGameIds = parsed.gameIds.filter((n) => Number.isFinite(n));
     }
@@ -581,7 +592,7 @@ Deno.serve(async (req: Request) => {
     // live_scoring_events row so the ticker doesn't need a separate join.
     const { data: playerRows, error: playerErr } = await supabase
       .from("players")
-      .select("id, external_id_bdl, name")
+      .select("id, external_id_bdl, name, pro_team")
       .eq("sport", sport)
       .in("external_id_bdl", [...allBdlIds]);
 
@@ -592,6 +603,11 @@ Deno.serve(async (req: Request) => {
     );
     const playerIdToName = new Map<string, string>(
       (playerRows ?? []).map((p: any) => [p.id, p.name || "Unknown"]),
+    );
+    // Current pro_team, so the refresh below only writes players who actually
+    // changed teams (normally zero — a trade or two across a whole season).
+    const playerIdToProTeam = new Map<string, string>(
+      (playerRows ?? []).map((p: any) => [p.id, p.pro_team ?? ""]),
     );
 
     const missingBdlIds = [...allBdlIds].filter(id => !bdlIdToPlayerId.has(id));
@@ -661,7 +677,7 @@ Deno.serve(async (req: Request) => {
 
     const allLiveRows: any[] = [];
     const allGameRows: any[] = [];
-    const allTeamUpdates: any[] = [];
+    const proTeamByPlayerId = new Map<string, string>();
     const allEventRows: any[] = [];
     // game_ids that crossed into Final during this poll. Populated when we
     // push to allGameRows; consumed after the upsert to trigger a matview
@@ -669,6 +685,156 @@ Deno.serve(async (req: Request) => {
     // the game is still in the BDL response window).
     const newlyFinalGameIds = new Set<string>();
 
+    if (sport === 'nfl') {
+      // ── NFL branch ────────────────────────────────────────────────────
+      // Skill players map via mapNflGameStats; no minutes/on-court concept
+      // (min:1 is the "played" sentinel the matview counts games by); no
+      // scoring-event derivation (the event tape's kinds are basketball
+      // plays — an NFL tape is a future feature). Basketball stat columns
+      // are omitted and take their DB defaults (0).
+      for (const stat of activeStats) {
+        const playerId = bdlIdToPlayerId.get(stat.player?.id);
+        if (!playerId) continue;
+        const game = gameMap.get(stat.game?.id);
+        if (!game) continue;
+
+        const gameStatus = mapGameStatus(game.status ?? "");
+        const gameId = String(game.id);
+        const actualGameDate = bdlGameSlateDate(game.date) ?? gameDate;
+        const isHome = stat.team?.id === game.home_team?.id;
+        const ownTricode = stat.team?.abbreviation ?? "";
+        const oppTricode = isHome
+          ? game.visitor_team?.abbreviation ?? ""
+          : game.home_team?.abbreviation ?? "";
+        const matchup = isHome ? `vs ${oppTricode}` : `@${oppTricode}`;
+        const homeScore = game.home_team_score ?? 0;
+        const awayScore = game.visitor_team_score ?? 0;
+        const nflCols = mapNflGameStats(stat);
+
+        allLiveRows.push({
+          player_id: playerId,
+          game_id: gameId,
+          game_date: actualGameDate,
+          sport,
+          game_status: gameStatus,
+          period: game.period ?? 0,
+          game_clock: toIsoDuration(game.time ?? ""),
+          matchup,
+          home_score: homeScore,
+          away_score: awayScore,
+          oncourt: false,
+          min: 1,
+          ...nflCols,
+          updated_at: new Date().toISOString(),
+        });
+        if (ownTricode) proTeamByPlayerId.set(playerId, ownTricode);
+
+        if (
+          gameStatus === 3 &&
+          !game.postseason &&
+          (!regularSeasonEnd || actualGameDate <= regularSeasonEnd)
+        ) {
+          allGameRows.push({
+            player_id: playerId,
+            game_id: gameId,
+            game_date: actualGameDate,
+            sport,
+            matchup,
+            min: 1,
+            ...nflCols,
+          });
+          const prior = prevGameStatusByGameId.get(gameId) ?? 0;
+          if (prior < 3) newlyFinalGameIds.add(gameId);
+        }
+      }
+
+      // Team defenses: one synthetic D/ST row per team per active game.
+      // Sacks/INTs/fumble recoveries come from the opponent's team_stats row
+      // (their giveaways); points allowed from the live game score, so the
+      // D/ST tier result ticks during games even if team_stats lags.
+      const { data: dstPlayers } = await supabase
+        .from("players")
+        .select("id, pro_team")
+        .eq("sport", "nfl")
+        .eq("position", "DST");
+      const dstIdByTricode = new Map<string, string>(
+        (dstPlayers ?? []).map((d: any) => [d.pro_team, d.id]),
+      );
+
+      let teamStatsRows: any[] = [];
+      try {
+        const ts = await bdlFetch(sport, "/team_stats", {
+          "game_ids[]": gameIdParams,
+          per_page: "100",
+        });
+        teamStatsRows = ts?.data ?? [];
+      } catch (e: any) {
+        log.warn("team_stats fetch failed — D/ST rows use scores only", { error: e?.message });
+      }
+      const teamStatsByGameTeam = new Map<string, any>(
+        teamStatsRows.map((r: any) => [`${r.game?.id}:${r.team?.id}`, r]),
+      );
+
+      for (const game of activeGames) {
+        const gameStatus = mapGameStatus(game.status ?? "");
+        if (gameStatus < 2) continue;
+        const gameId = String(game.id);
+        const actualGameDate = bdlGameSlateDate(game.date) ?? gameDate;
+        const homeScore = game.home_team_score ?? 0;
+        const awayScore = game.visitor_team_score ?? 0;
+
+        for (const side of ["home", "away"] as const) {
+          const own = side === "home" ? game.home_team : game.visitor_team;
+          const opp = side === "home" ? game.visitor_team : game.home_team;
+          const dstId = dstIdByTricode.get(own?.abbreviation);
+          if (!dstId) continue;
+
+          const dstCols = mapDstGameStats({
+            ownRow: teamStatsByGameTeam.get(`${game.id}:${own?.id}`),
+            oppRow: teamStatsByGameTeam.get(`${game.id}:${opp?.id}`),
+            opponentScore: side === "home" ? awayScore : homeScore,
+          });
+          const matchup = side === "home"
+            ? `vs ${opp?.abbreviation ?? ""}`
+            : `@${opp?.abbreviation ?? ""}`;
+
+          allLiveRows.push({
+            player_id: dstId,
+            game_id: gameId,
+            game_date: actualGameDate,
+            sport,
+            game_status: gameStatus,
+            period: game.period ?? 0,
+            game_clock: "",
+            matchup,
+            home_score: homeScore,
+            away_score: awayScore,
+            oncourt: false,
+            min: 1,
+            ...dstCols,
+            updated_at: new Date().toISOString(),
+          });
+
+          if (
+            gameStatus === 3 &&
+            !game.postseason &&
+            (!regularSeasonEnd || actualGameDate <= regularSeasonEnd)
+          ) {
+            allGameRows.push({
+              player_id: dstId,
+              game_id: gameId,
+              game_date: actualGameDate,
+              sport,
+              matchup,
+              min: 1,
+              ...dstCols,
+            });
+            const prior = prevGameStatusByGameId.get(gameId) ?? 0;
+            if (prior < 3) newlyFinalGameIds.add(gameId);
+          }
+        }
+      }
+    } else {
     for (const stat of activeStats) {
       const playerId = bdlIdToPlayerId.get(stat.player?.id);
       if (!playerId) continue;
@@ -762,7 +928,7 @@ Deno.serve(async (req: Request) => {
         for (const e of events) allEventRows.push({ ...eventBase, ...e });
       }
 
-      allTeamUpdates.push({ id: playerId, pro_team: ownTricode });
+      if (ownTricode) proTeamByPlayerId.set(playerId, ownTricode);
 
       if (
         gameStatus === 3 &&
@@ -791,6 +957,7 @@ Deno.serve(async (req: Request) => {
         if (prior < 3) newlyFinalGameIds.add(gameId);
       }
     }
+    } // end basketball branch
 
     let totalLiveRows = 0;
     let totalGameRows = 0;
@@ -799,6 +966,7 @@ Deno.serve(async (req: Request) => {
 
     if (allLiveRows.length > 0) {
       upsertPromises.push(
+        // sport-scope: payload rows carry sport; conflict key is player-scoped
         supabase
           .from("live_player_stats")
           .upsert(allLiveRows, { onConflict: "player_id,game_date" })
@@ -811,6 +979,7 @@ Deno.serve(async (req: Request) => {
 
     if (allGameRows.length > 0) {
       upsertPromises.push(
+        // sport-scope: payload rows carry sport; conflict key is player-scoped
         supabase
           .from("player_games")
           .upsert(allGameRows, { onConflict: "player_id,game_id", ignoreDuplicates: false })
@@ -860,12 +1029,27 @@ Deno.serve(async (req: Request) => {
 
     await Promise.all(upsertPromises);
 
-    if (allTeamUpdates.length > 0) {
+    // Refresh pro_team for players whose live-game team no longer matches what
+    // we have on file (i.e. they were traded). This MUST be an UPDATE, not an
+    // upsert: Postgres evaluates NOT NULL on the proposed tuple BEFORE it
+    // consults the ON CONFLICT arbiter, so a partial {id, pro_team} upsert
+    // throws on players.name even when the row already exists.
+    const changedByTricode = new Map<string, string[]>();
+    for (const [playerId, tricode] of proTeamByPlayerId) {
+      if (playerIdToProTeam.get(playerId) === tricode) continue;
+      const ids = changedByTricode.get(tricode);
+      if (ids) ids.push(playerId);
+      else changedByTricode.set(tricode, [playerId]);
+    }
+
+    for (const [tricode, ids] of changedByTricode) {
+      // sport-scope: ids come from the sport-scoped players lookup above
       const { error } = await supabase
         .from("players")
-        .upsert(allTeamUpdates, { onConflict: "id" });
+        .update({ pro_team: tricode })
+        .in("id", ids);
       if (error) {
-        log.error("players pro_team update error", error);
+        log.error("players pro_team update error", { tricode, count: ids.length, error });
       }
     }
 

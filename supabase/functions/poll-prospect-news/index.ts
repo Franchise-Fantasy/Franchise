@@ -101,6 +101,7 @@ Deno.serve(async (req: Request) => {
 
   try {
     // 1. Load all prospect names for matching
+    // sport-scope: is_prospect=true is the NBA-only Contentful prospect pool
     const { data: prospects, error: pErr } = await supabase
       .from("players")
       .select("id, name")

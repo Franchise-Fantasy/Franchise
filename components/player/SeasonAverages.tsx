@@ -15,6 +15,8 @@ import { averageGames } from "@/utils/scoring/windowAverages";
 
 interface SeasonAveragesProps {
   player: PlayerSeasonStats;
+  /** League sport — drives which box-score rows render (basketball default). */
+  sport?: string | null;
   /** Label for the current season, e.g. "2025-26". */
   currentSeasonLabel: string;
   /** Pro-team games played so far (the GP denominator for the current season). */
@@ -80,6 +82,54 @@ function rowsFrom(r: AvgRow): [[string, string], [string, string]][] {
   ];
 }
 
+// Per-game NFL average for a stat column: the matview carries avg_<col>
+// directly; historical rows only persist total_<col>, so fall back to
+// total / games_played there.
+function nflAvg(row: Record<string, unknown>, col: string): string {
+  const avg = Number(row[`avg_${col}`]);
+  if (Number.isFinite(avg)) return avg.toFixed(1);
+  const total = Number(row[`total_${col}`]);
+  const gp = Number(row.games_played);
+  if (Number.isFinite(total) && gp > 0) return (total / gp).toFixed(1);
+  return "—";
+}
+
+// NFL box rows are position-shaped: a QB box leads with passing, a kicker
+// with FG/XP, a D/ST with takeaways. `position` comes from the players row.
+function nflRowsFrom(
+  row: Record<string, unknown>,
+  position: string | null | undefined,
+): [[string, string], [string, string]][] {
+  const v = (col: string) => nflAvg(row, col);
+  if (position === "QB") {
+    return [
+      [["PaYD", v("pass_yd")], ["PaTD", v("pass_td")]],
+      [["INT", v("pass_int")], ["FUM", v("fum_lost")]],
+      [["RuYD", v("rush_yd")], ["RuTD", v("rush_td")]],
+    ];
+  }
+  if (position === "K") {
+    return [
+      [["FG", v("fg_made")], ["FGA", v("fg_att")]],
+      [["XP", v("xp_made")], ["FUM", v("fum_lost")]],
+    ];
+  }
+  if (position === "DST") {
+    return [
+      [["SCK", v("dst_sacks")], ["INT", v("dst_int")]],
+      [["FR", v("dst_fum_rec")], ["TD", v("dst_td")]],
+      [["PA", v("dst_pts_allowed")], ["PA PTS", v("dst_pa_pts")]],
+    ];
+  }
+  // RB / WR / TE (and anything else): rushing + receiving.
+  return [
+    [["RuYD", v("rush_yd")], ["RuTD", v("rush_td")]],
+    [["REC", v("rec")], ["TGT", v("targets")]],
+    [["ReYD", v("rec_yd")], ["ReTD", v("rec_td")]],
+    [["FUM", v("fum_lost")], ["RET TD", v("ret_td")]],
+  ];
+}
+
 function rowsFromProj(p: ProjectionRow): [[string, string], [string, string]][] {
   return [
     [["PTS", f1(p.proj_pts)], ["FG%", pct(p.proj_fgm, p.proj_fga)]],
@@ -121,6 +171,7 @@ function StatCell({
  */
 export function SeasonAverages({
   player,
+  sport,
   currentSeasonLabel,
   currentGamesDenominator,
   avgFpts,
@@ -132,6 +183,7 @@ export function SeasonAverages({
   seasonStarted,
 }: SeasonAveragesProps) {
   const c = useColors();
+  const isNfl = sport === "nfl";
 
   const lenses: Lens[] = useMemo(() => {
     const log = gameLog ?? [];
@@ -141,31 +193,41 @@ export function SeasonAverages({
     // projection into the "current season" slot rather than show an empty box.
     const projFpts =
       projection && !isCategories && scoringWeights
-        ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights)
+        ? projAvgRowToFpts(projection as unknown as Record<string, unknown>, scoringWeights, sport)
         : null;
     const seasonProjected = !seasonStarted && !!projection;
 
     // Recent windows — only when the log actually has that many games, so we
-    // don't show "L25" that's identical to a shorter window.
-    for (const n of RECENT_WINDOWS) {
-      if (log.length < n) continue;
-      const slice = log.slice(0, n);
-      const avg = averageGames(slice);
-      if (!avg) continue;
-      out.push({
-        key: `L${n}`,
-        chip: `L${n}`,
-        gpText: `${avg.games_played}`,
-        fpts:
-          !isCategories && scoringWeights
-            ? seasonAvgRowToFpts(avg as unknown as Record<string, unknown>, scoringWeights)
-            : null,
-        rows: rowsFrom(avg),
-        games: slice,
-      });
+    // don't show "L25" that's identical to a shorter window. Basketball-only:
+    // averageGames computes basketball columns, and Lx windows read oddly for
+    // a 17-game NFL season.
+    if (!isNfl) {
+      for (const n of RECENT_WINDOWS) {
+        if (log.length < n) continue;
+        const slice = log.slice(0, n);
+        const avg = averageGames(slice);
+        if (!avg) continue;
+        out.push({
+          key: `L${n}`,
+          chip: `L${n}`,
+          gpText: `${avg.games_played}`,
+          fpts:
+            !isCategories && scoringWeights
+              ? seasonAvgRowToFpts(avg as unknown as Record<string, unknown>, scoringWeights)
+              : null,
+          rows: rowsFrom(avg),
+          games: slice,
+        });
+      }
     }
 
-    // Current season — shows the projected line until the season tips off.
+    // Current season — shows the projected line until the season tips off
+    // (NFL has no projections v1, so it shows the zero-game box pre-season).
+    const seasonRows = seasonProjected
+      ? rowsFromProj(projection!)
+      : isNfl
+        ? nflRowsFrom(player as unknown as Record<string, unknown>, player.position)
+        : rowsFrom(player);
     out.push({
       key: "season",
       chip: currentSeasonLabel,
@@ -173,7 +235,7 @@ export function SeasonAverages({
         ? ""
         : `${player.games_played}${currentGamesDenominator ? `/${currentGamesDenominator}` : ""}`,
       fpts: seasonProjected ? projFpts : isCategories ? null : avgFpts,
-      rows: seasonProjected ? rowsFromProj(projection!) : rowsFrom(player),
+      rows: seasonRows,
       games: seasonProjected ? [] : log,
       projected: seasonProjected,
     });
@@ -186,9 +248,11 @@ export function SeasonAverages({
         gpText: `${row.games_played}`,
         fpts:
           !isCategories && scoringWeights
-            ? seasonAvgRowToFpts(row as unknown as Record<string, unknown>, scoringWeights)
+            ? seasonAvgRowToFpts(row as unknown as Record<string, unknown>, scoringWeights, sport)
             : null,
-        rows: rowsFrom(row),
+        rows: isNfl
+          ? nflRowsFrom(row as unknown as Record<string, unknown>, player.position)
+          : rowsFrom(row),
         games: [],
       });
     }
@@ -222,6 +286,8 @@ export function SeasonAverages({
     currentGamesDenominator,
     projection,
     seasonStarted,
+    sport,
+    isNfl,
   ]);
 
   const seasonIdx = Math.max(0, lenses.findIndex((l) => l.key === "season"));
@@ -315,8 +381,10 @@ export function SeasonAverages({
       </View>
 
       {/* Splits (Home/Away, B2B, Bounce-Back) are FPTS-based — hidden in
-          categories leagues, where there are no fantasy points to compare. */}
-      {!isCategories && (
+          categories leagues, where there are no fantasy points to compare.
+          Basketball-only: B2B/bounce-back are schedule-density concepts that
+          don't exist in a one-game-a-week NFL season. */}
+      {!isCategories && !isNfl && (
         <PlayerSplits games={active.games} scoringWeights={scoringWeights} seasonAvg={avgFpts} />
       )}
     </View>

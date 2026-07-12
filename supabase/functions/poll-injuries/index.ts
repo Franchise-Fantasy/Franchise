@@ -4,6 +4,7 @@ import { bdlFetch, bdlFetchAll, type Sport } from '../_shared/bdl.ts';
 import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
+import { describeInjuryTransition } from '../_shared/injuryStatus.ts';
 import { normalizeName } from '../_shared/normalize.ts';
 import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { parseBody, z } from '../_shared/validate.ts';
@@ -11,7 +12,7 @@ import { parseBody, z } from '../_shared/validate.ts';
 const INJURY_STATUSES = ['OUT', 'SUSP', 'DOUBT', 'QUES', 'PROB', 'active'] as const;
 
 const Body = z.object({
-  sport: z.enum(['nba', 'wnba']).optional(),
+  sport: z.enum(['nba', 'wnba', 'nfl']).optional(),
   injuries: z.array(z.object({
     player_name: z.string().min(1),
     status: z.enum(INJURY_STATUSES, {
@@ -44,11 +45,24 @@ const ALL_INJURY_STATUSES = new Set(['QUES', 'DOUBT', 'PROB', 'OUT', 'SUSP']);
 
 const jsonHeaders = { ...CORS_HEADERS, 'Content-Type': 'application/json' };
 
-/** Map BDL injury status strings to app status codes. */
+// Max players named in one push before it collapses to "+N more". A BDL run
+// after a long gap can clear a pile of players at once, and each transition line
+// carries a second "Next Game" line — uncapped, a single push could run to
+// hundreds of characters.
+const MAX_NOTIF_PLAYERS = 3;
+
+/** Map BDL injury status strings to app status codes.
+ *  NFL designations (Injured Reserve / PUP / NFI) map to OUT — a player on
+ *  those lists can't play until activated, at which point BDL drops them
+ *  from the report and the absence-reset returns them to 'active'. */
 const BDL_STATUS_MAP: Record<string, string> = {
   'out': 'OUT', 'out for season': 'OUT',
   'suspended': 'SUSP', 'doubtful': 'DOUBT',
   'day-to-day': 'QUES', 'questionable': 'QUES', 'probable': 'PROB',
+  'injured reserve': 'OUT', 'ir': 'OUT',
+  'physically unable to perform': 'OUT', 'pup': 'OUT',
+  'non football injury': 'OUT', 'nfi': 'OUT',
+  'suspension': 'SUSP',
 };
 
 /**
@@ -143,12 +157,20 @@ async function fetchInjuriesFromBdl(sport: Sport): Promise<{
   }
 }
 
+/** One player's status transition — `from` is the status the player held before
+ *  this run overwrote it, and is what lets the push say "upgraded from X to Y". */
+interface InjuryChange {
+  playerId: string;
+  from: string;
+  to: string;
+}
+
 async function applyInjuries(
   sport: Sport,
   injuries: Array<{ bdl_id?: number; player_name: string; status: string }>,
   teamsOnReport: string[],
   source: 'balldontlie' | 'manual',
-): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changedPlayerIds: string[]; teamsReported: number }> {
+): Promise<{ matchedPlayers: number; statusUpdates: number; playersReset: number; unmatchedNames: string[]; changes: InjuryChange[]; teamsReported: number }> {
   const { data: allPlayers, error: playerErr } = await supabase
     .from('players').select('id, name, status, pro_team, external_id_bdl').eq('sport', sport);
   if (playerErr) throw playerErr;
@@ -188,17 +210,21 @@ async function applyInjuries(
 
   const matchedPlayerIds = new Set<string>();
   const unmatchedNames: string[] = [];
-  const changedPlayerIds: string[] = [];
+  const changes: InjuryChange[] = [];
   let updateCount = 0;
 
   for (const inj of injuries) {
     const player = findPlayer(inj.bdl_id, inj.player_name);
     if (player) {
+      // Two rows for the same player (a dup in the payload, or two names that
+      // normalize to one match) would otherwise both compare against the stale
+      // snapshot status and each fire an update + a notification line.
+      if (matchedPlayerIds.has(player.id)) continue;
       matchedPlayerIds.add(player.id);
       if (player.status !== inj.status) {
         const { error } = await supabase.from('players').update({ status: inj.status }).eq('id', player.id);
         if (error) console.error(`Update error for ${inj.player_name}:`, error.message);
-        else { updateCount++; changedPlayerIds.push(player.id); }
+        else { updateCount++; changes.push({ playerId: player.id, from: player.status, to: inj.status }); }
       }
     } else {
       unmatchedNames.push(inj.player_name);
@@ -212,28 +238,35 @@ async function applyInjuries(
   // stays conservative: only reset game-day designations, and only for
   // teams that are both on the report AND actually playing today.
   let playersReset = 0;
-  let idsToReset: string[] = [];
+  // Keep each player's pre-reset status so the notification can say what they
+  // recovered FROM ("cleared to play (was Out)").
+  let resetEntries: Array<{ id: string; from: string }> = [];
 
   if (source === 'balldontlie') {
-    idsToReset = (allPlayers ?? [])
+    resetEntries = (allPlayers ?? [])
       .filter((p: any) => ALL_INJURY_STATUSES.has(p.status) && !matchedPlayerIds.has(p.id))
-      .map((p: any) => p.id);
+      .map((p: any) => ({ id: p.id, from: p.status }));
   } else if (reportedTeams.size > 0) {
-    idsToReset = (allPlayers ?? [])
+    resetEntries = (allPlayers ?? [])
       .filter((p: any) =>
         GAME_DAY_STATUSES.has(p.status) &&
         !matchedPlayerIds.has(p.id) &&
         reportedTeams.has(p.pro_team)
       )
-      .map((p: any) => p.id);
+      .map((p: any) => ({ id: p.id, from: p.status }));
   } else {
     console.log('Skipping reset: no teams identified on report');
   }
 
-  if (idsToReset.length > 0) {
+  if (resetEntries.length > 0) {
+    const idsToReset = resetEntries.map(e => e.id);
     const { error } = await supabase.from('players').update({ status: 'active' }).in('id', idsToReset);
     if (error) console.error('Reset error:', error.message);
-    else { updateCount += idsToReset.length; playersReset = idsToReset.length; changedPlayerIds.push(...idsToReset); }
+    else {
+      updateCount += idsToReset.length;
+      playersReset = idsToReset.length;
+      changes.push(...resetEntries.map(e => ({ playerId: e.id, from: e.from, to: 'active' })));
+    }
   }
 
   if (updateCount > 0) {
@@ -241,7 +274,7 @@ async function applyInjuries(
     if (error) console.error('Mat view refresh error:', error.message);
   }
 
-  return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset, unmatchedNames, changedPlayerIds, teamsReported: reportedTeams.size };
+  return { matchedPlayers: matchedPlayerIds.size, statusUpdates: updateCount, playersReset, unmatchedNames, changes, teamsReported: reportedTeams.size };
 }
 
 // game_schedule.game_date is ET-aligned, so "today" must be computed in ET.
@@ -317,8 +350,11 @@ async function getNextGameByTeam(sport: Sport, proTeams: string[]): Promise<Map<
   return nextGameMap;
 }
 
-async function sendInjuryNotifications(sport: Sport, changedPlayerIds: string[]) {
-  if (changedPlayerIds.length === 0) return;
+async function sendInjuryNotifications(sport: Sport, changes: InjuryChange[]) {
+  if (changes.length === 0) return;
+
+  const changedPlayerIds = changes.map(c => c.playerId);
+  const changeByPlayerId = new Map(changes.map(c => [c.playerId, c]));
 
   // Find which teams roster these players, including league name
   const { data: affectedRosters } = await supabase
@@ -327,9 +363,11 @@ async function sendInjuryNotifications(sport: Sport, changedPlayerIds: string[])
 
   if (!affectedRosters || affectedRosters.length === 0) return;
 
-  // Fetch player details + pro_team for next-game lookup
+  // Fetch player details + pro_team for next-game lookup. `status` is not read
+  // back — the transition we announce comes from the change record, so a
+  // concurrent poll re-writing the row can't skew it.
   const { data: allChangedPlayers } = await supabase
-    .from('players').select('id, name, status, pro_team').in('id', changedPlayerIds);
+    .from('players').select('id, name, pro_team').in('id', changedPlayerIds);
   const playerMap = new Map((allChangedPlayers ?? []).map((p: any) => [p.id, p]));
 
   // Look up next game for each affected pro team
@@ -356,18 +394,24 @@ async function sendInjuryNotifications(sport: Sport, changedPlayerIds: string[])
     const lines: string[] = [];
     for (const id of playerIds) {
       const p = playerMap.get(id);
-      if (!p) continue;
+      const change = changeByPlayerId.get(id);
+      if (!p || !change) continue;
       const nextGame = nextGameMap.get(p.pro_team);
-      let line = `${p.name}: ${p.status}`;
+      let line = describeInjuryTransition(p.name, change.from, change.to);
       if (nextGame === 'In Progress') line += `\nGame: In Progress`;
       else if (nextGame) line += `\nNext Game: ${nextGame}`;
       lines.push(line);
     }
     if (lines.length === 0) continue;
+
+    const shown = lines.slice(0, MAX_NOTIF_PLAYERS);
+    const overflow = lines.length - shown.length;
+    if (overflow > 0) shown.push(`+${overflow} more player${overflow === 1 ? '' : 's'}`);
+
     bulkNotifs.push({
       teamIds: [teamId],
       title: `Injury Update — ${leagueName}`,
-      body: lines.join('\n'),
+      body: shown.join('\n'),
       data: { screen: 'roster' },
     });
   }
@@ -397,7 +441,7 @@ Deno.serve(async (req: Request) => {
     if (contentType.includes('application/json')) {
       try {
         const body = await req.json();
-        if (body?.sport === 'wnba') sport = 'wnba';
+        if (body?.sport === 'wnba' || body?.sport === 'nfl') sport = body.sport;
         if (body?.injuries?.length > 0) {
           for (const inj of body.injuries) {
             if (!VALID_STATUSES.has(inj.status)) {
@@ -475,7 +519,7 @@ Deno.serve(async (req: Request) => {
 
     // Send injury notifications for changed players
     try {
-      await sendInjuryNotifications(sport, result.changedPlayerIds);
+      await sendInjuryNotifications(sport, result.changes);
     } catch (notifyErr) {
       console.warn('Injury notifications failed (non-fatal):', notifyErr);
     }

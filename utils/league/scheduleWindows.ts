@@ -65,19 +65,26 @@ export interface PlanScheduleOpts {
   playoffWeeks: number;
   /** Merge windows for the league's sport+season (optional ones pre-filtered). */
   mergeWindows: MergeWindow[];
+  /** Day-of-week fantasy weeks END on: 0=Sunday (default — NBA/WNBA Mon–Sun
+   *  weeks) or 1=Monday (NFL Tue–Mon weeks, so MNF isn't stranded in the next
+   *  matchup). Callers pass `getSportModule(sport).weekEndDow`. */
+  weekEndDow?: number;
 }
 
 /**
- * Number of days in Week 1 given the season-start day-of-week. Mirror of
- * `week1Length` in utils/leagueTime.ts — kept inline so this file has zero
- * imports and stays loadable from both Metro and Deno.
+ * Number of days in Week 1 given the season-start day-of-week and the day
+ * weeks end on. Mirror of `week1Length` in utils/leagueTime.ts — kept inline
+ * so this file has zero imports and stays loadable from both Metro and Deno.
  *
- *   Mon → 7, Tue → 6, Wed → 5, Thu → 11, Fri → 10, Sat → 9, Sun → 8
+ * The natural span runs from the start day through the next `weekEndDow`; a
+ * span of ≤4 days is extended a full week so the first matchup is never a
+ * stub. Sun-ending (NBA/WNBA): Mon→7, Tue→6, Wed→5, Thu→11, Fri→10, Sat→9,
+ * Sun→8. Mon-ending (NFL): Tue→7, Wed→6 (2026 opener), Thu→5, Fri→11, Sat→10,
+ * Sun→9, Mon→8.
  */
-function week1Length(startDow: number): number {
-  if (startDow === 0) return 8; // Sun
-  if (startDow <= 3) return 8 - startDow; // Mon=7, Tue=6, Wed=5
-  return 15 - startDow; // Thu=11, Fri=10, Sat=9
+function week1Length(startDow: number, weekEndDow: number): number {
+  const natural = ((weekEndDow - startDow + 7) % 7) + 1;
+  return natural <= 4 ? natural + 7 : natural;
 }
 
 /** Day-of-week (0=Sun) for a YYYY-MM-DD date, computed at noon UTC to dodge DST. */
@@ -119,12 +126,13 @@ export function schedulableEnd(seasonEnd: string, mergeWindows: MergeWindow[]): 
 
 /**
  * Walk the calendar from `seasonStart`, emitting one PlannedWeek per matchup.
- * Week 1 absorbs leading days via week1Length; weeks 2+ are Mon–Sun. When a
- * week overlaps a merge window, its end extends to the window's end (and re-
- * checks adjacency), collapsing the straddling weeks into one double week.
+ * Week 1 absorbs leading days via week1Length; weeks 2+ are full 7-day weeks
+ * ending on `weekEndDow` (Mon–Sun by default, Tue–Mon for NFL). When a week
+ * overlaps a merge window, its end extends to the window's end (and re-checks
+ * adjacency), collapsing the straddling weeks into one double week.
  */
 export function planScheduleWeeks(opts: PlanScheduleOpts): PlannedWeek[] {
-  const { seasonStart, regularSeasonWeeks, playoffWeeks } = opts;
+  const { seasonStart, regularSeasonWeeks, playoffWeeks, weekEndDow = 0 } = opts;
   // Past windows can't affect a season that starts after them — drop them so a
   // mid-season or post-break league behaves exactly like the no-windows case.
   const windows = opts.mergeWindows.filter((w) => w.end >= seasonStart);
@@ -137,7 +145,7 @@ export function planScheduleWeeks(opts: PlanScheduleOpts): PlannedWeek[] {
     const isFirst = weeks.length === 0;
     const wStart = cursor;
     const naturalEnd = isFirst
-      ? addDays(cursor, week1Length(dayOfWeek(cursor)) - 1)
+      ? addDays(cursor, week1Length(dayOfWeek(cursor), weekEndDow) - 1)
       : addDays(cursor, 6);
 
     // Absorb any merge window this week reaches into. Each extension strictly

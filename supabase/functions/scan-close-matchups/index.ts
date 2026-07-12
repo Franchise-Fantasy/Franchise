@@ -225,20 +225,25 @@ Deno.serve(async (req: Request) => {
     // Map each starter to their pro_team abbreviation so we can correlate with
     // game_schedule. (`live_player_stats` would miss pre-tip starters because
     // poll-live-stats only upserts rows once games tip.)
+    // Tricode keys are qualified by sport ("nba:PHX") — NBA and WNBA share
+    // several city codes, so bare tricodes can match the wrong sport's game
+    // when both have a slate today.
     const { data: playerRows } = await supabase
       .from("players")
-      .select("id, pro_team")
+      .select("id, pro_team, sport")
       .in("id", [...allStarterIds]);
     const proTeamByPlayer = new Map<string, string>();
     for (const p of playerRows ?? []) {
-      if (p.pro_team) proTeamByPlayer.set(p.id, p.pro_team);
+      if (p.pro_team) proTeamByPlayer.set(p.id, `${p.sport}:${p.pro_team}`);
     }
 
-    // Today's slate keyed by pro_team. status is lowercase "final"/"live"/
-    // "scheduled" (set by sync-game-schedule + poll-live-stats).
+    // Today's slate keyed by sport-qualified pro_team. status is lowercase
+    // "final"/"live"/"scheduled" (set by sync-game-schedule + poll-live-stats).
+    // sport-scope: intentionally spans sports (one fetch for all leagues in
+    // the run); disambiguated by the qualified keys.
     const { data: todayGames } = await supabase
       .from("game_schedule")
-      .select("game_id, home_team, away_team, status, game_time_utc")
+      .select("game_id, home_team, away_team, status, game_time_utc, sport")
       .eq("game_date", today);
     const gameByProTeam = new Map<string, GameInfo>();
     for (const g of todayGames ?? []) {
@@ -248,8 +253,8 @@ Deno.serve(async (req: Request) => {
         isLive: g.status === "live",
         tipMs: parseTipMs(g.game_time_utc),
       };
-      if (g.home_team) gameByProTeam.set(g.home_team, info);
-      if (g.away_team) gameByProTeam.set(g.away_team, info);
+      if (g.home_team) gameByProTeam.set(`${g.sport}:${g.home_team}`, info);
+      if (g.away_team) gameByProTeam.set(`${g.sport}:${g.away_team}`, info);
     }
 
     const now = Date.now();

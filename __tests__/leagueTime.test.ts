@@ -157,3 +157,34 @@ describe('week1EndDate', () => {
     expect(week1EndDate('2026-06-01')).toBe('2026-06-07'); // Mon → Sun (7 days)
   });
 });
+
+describe('week1Length — Monday-ending weeks (NFL, weekEndDow=1)', () => {
+  it('produces short 5-7 day Week 1 for Tue/Wed/Thu starts', () => {
+    expect(week1Length(2, 1)).toBe(7); // Tue → Tue-Mon
+    expect(week1Length(3, 1)).toBe(6); // Wed (2026 kickoff)
+    expect(week1Length(4, 1)).toBe(5); // Thu
+  });
+
+  it('produces long 8-11 day Week 1 for Fri/Sat/Sun/Mon starts', () => {
+    expect(week1Length(5, 1)).toBe(11); // Fri → Fri through second Mon
+    expect(week1Length(6, 1)).toBe(10); // Sat
+    expect(week1Length(0, 1)).toBe(9);  // Sun
+    expect(week1Length(1, 1)).toBe(8);  // Mon
+  });
+
+  it('defaults to the Sunday-ending table when weekEndDow is omitted', () => {
+    for (let dow = 0; dow <= 6; dow++) {
+      expect(week1Length(dow)).toBe(week1Length(dow, 0));
+    }
+  });
+});
+
+describe('week1EndDate — Monday-ending weeks (NFL)', () => {
+  it('ends the 2026 kickoff week (Wed Sep 9 start) on Monday Sep 14', () => {
+    expect(week1EndDate('2026-09-09', 1)).toBe('2026-09-14'); // Wed → Mon (6 days)
+  });
+
+  it('returns the second Monday for a Friday start', () => {
+    expect(week1EndDate('2026-09-11', 1)).toBe('2026-09-21'); // Fri → 2nd Mon (11 days)
+  });
+});

@@ -86,81 +86,42 @@ export default function CreateTeam() {
         return;
       }
 
-      const { data: teamData, error: teamError } = await supabase
-        .from('teams')
-        .insert({
-          name: teamName,
-          tricode: code,
-          league_id: leagueId,
-          user_id: user.id,
-          is_commissioner: isCommissioner === 'true',
-        })
-        .select()
-        .single();
+      // The team row, the league's seat count, the waiver-priority row, and the
+      // tentative join-order pick claim are one operation. As four writes, a
+      // failure after the team insert left the seat taken but uncounted — so the
+      // next joiner got the same waiver priority and the league never registered
+      // as full, meaning the real draft order was never drawn.
+      const { data: joined, error: joinError } = await supabase.rpc('join_league_team', {
+        p_league_id: leagueId,
+        p_name: teamName,
+        p_tricode: code,
+        p_is_commissioner: isCommissioner === 'true',
+      });
+      if (joinError) throw joinError;
 
-      if (teamError) throw teamError;
+      const { team_id: teamId, current_teams, max_teams, division_count } =
+        joined as unknown as {
+          team_id: string;
+          current_teams: number | null;
+          max_teams: number | null;
+          division_count: number | null;
+        };
 
-      const { error: incrementError } = await supabase
-        .rpc('increment_team_count', { league_id: leagueId });
-
-      if (incrementError) throw incrementError;
-
-      const { data: league, error: leagueError } = await supabase
-        .from('leagues')
-        .select('current_teams, teams, faab_budget, division_count, initial_draft_order')
-        .eq('id', leagueId)
-        .single();
-
-      if (leagueError) throw leagueError;
-
-      // Initialize waiver priority for this team
-      await supabase.from('waiver_priority').insert([{
-        league_id: leagueId,
-        team_id: teamData.id,
-        priority: league.current_teams ?? undefined,
-        faab_remaining: league.faab_budget ?? 100,
-      }]);
-
-      // Tentatively assign this team's draft picks based on join order.
-      // Without this, picks have current_team_id = NULL until the league
-      // fills (when checkAndAssignDraftSlots runs), so commissioners
-      // testing solo see "no picks" in roster/draft hub/etc. The full-
-      // league logic below still shuffles for Random order — `current_team_id`
-      // is overwritten by `assignDraftSlots` regardless of prior value.
-      //
-      // Skip for Manual leagues: there the commissioner explicitly chose
-      // to set the order themselves, and auto-assigning here would make
-      // `slotsAssigned` true → the "Set Draft Order" gate never fires →
-      // they'd accidentally use join-order as the draft order. Manual
-      // leagues keep current_team_id = NULL until the commissioner
-      // confirms an order in ManualDraftOrderModal.
-      const joinSlot = league.current_teams;
-      const isManualOrder = league.initial_draft_order === 'manual';
-      if (!isManualOrder && joinSlot != null && joinSlot >= 1) {
-        const { error: pickAssignErr } = await supabase
-          .from('draft_picks')
-          .update({ current_team_id: teamData.id, original_team_id: teamData.id })
-          .eq('league_id', leagueId as string)
-          .eq('slot_number', joinSlot)
-          .is('current_team_id', null);
-        if (pickAssignErr) {
-          logger.warn('Tentative pick assignment failed (non-fatal)', pickAssignErr);
-        }
-      }
-
-      switchLeague(leagueId, teamData.id);
+      switchLeague(leagueId, teamId);
       // Surface the new membership in the home league switcher immediately —
       // its list query is otherwise cached and won't include this league.
       queryClient.invalidateQueries({ queryKey: queryKeys.userLeagues(user.id) });
       router.replace('/(tabs)');
 
-      if (league && league.current_teams === league.teams) {
+      if (current_teams != null && current_teams === max_teams) {
         checkAndAssignDraftSlots(leagueId).catch((e) =>
           logger.error('checkAndAssignDraftSlots failed', e),
         );
 
-        // Auto-assign divisions when league is full
-        if (league.division_count === 2) {
+        // Auto-assign divisions when the league fills. The shuffle stays here
+        // (SQL has no seedable RNG we want to depend on); the split is applied
+        // in one statement so a failure can't leave half the league undivided.
+        if (division_count === 2) {
           const { data: allTeams } = await supabase
             .from('teams')
             .select('id')
@@ -170,13 +131,10 @@ export default function CreateTeam() {
           if (allTeams && allTeams.length > 0) {
             const shuffled = [...allTeams].sort(() => Math.random() - 0.5);
             const half = Math.ceil(shuffled.length / 2);
-            const updates = shuffled.map((t, i) => ({
-              id: t.id,
-              division: (i < half ? 1 : 2) as 1 | 2,
-            }));
-            for (const u of updates) {
-              await supabase.from('teams').update({ division: u.division }).eq('id', u.id);
-            }
+            await supabase.rpc('assign_team_divisions', {
+              p_league_id: leagueId,
+              p_division_1_team_ids: shuffled.slice(0, half).map((t) => t.id),
+            });
           }
         }
       }

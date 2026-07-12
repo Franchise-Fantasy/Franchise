@@ -131,22 +131,12 @@ Deno.serve(async (req: Request) => {
 
         for (const claim of claims ?? []) {
           try {
-            const result = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days);
+            const result = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days, isFaab);
             if (result.ok) {
               awarded = true;
-              if (isFaab) {
-                // Deduct the winning bid from the team's FAAB budget.
-                const { data: wp } = await supabase
-                  .from('waiver_priority').select('faab_remaining')
-                  .eq('league_id', waiver.league_id).eq('team_id', claim.team_id).single();
-                if (wp) {
-                  await supabase.from('waiver_priority')
-                    .update({ faab_remaining: Math.max(0, (wp.faab_remaining ?? 0) - claim.bid_amount) })
-                    .eq('league_id', waiver.league_id).eq('team_id', claim.team_id);
-                }
-              } else {
-                await bumpWaiverPriority(waiver.league_id, claim.team_id);
-              }
+              // The award, the cost (FAAB debit / waiver-priority rotation), and
+              // marking the losing claims all committed atomically inside
+              // award_waiver_claim. Only notifications remain out here.
 
               // Notify league about the awarded claim/bid
               try {
@@ -171,10 +161,8 @@ Deno.serve(async (req: Request) => {
                 );
               } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
 
-              await supabase.from('waiver_claims')
-                .update({ status: 'failed', processed_at: now.toISOString() })
-                .eq('league_id', waiver.league_id).eq('player_id', waiver.player_id)
-                .eq('status', 'pending').neq('id', claim.id);
+              // Losing claims for this player were marked 'failed' inside
+              // award_waiver_claim; the notification list is derived in-memory below.
 
               // Notify losers (bulk — single round trip rather than N sequential)
               const failedClaims = (claims ?? []).filter(c => c.id !== claim.id);
@@ -235,7 +223,7 @@ Deno.serve(async (req: Request) => {
 
 type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' | 'drop_player_unavailable' | 'position_limit' };
 
-async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDays: number): Promise<ClaimResult> {
+async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDays: number, isFaab: boolean): Promise<ClaimResult> {
   const now = new Date();
 
   const { data: existing } = await supabase
@@ -260,36 +248,26 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
 
   if (rosterFull && !claim.drop_player_id) return { ok: false, reason: 'roster_full' };
 
+  // Decide whether to actually execute the drop. The drop only happens when the
+  // roster is full AND the drop player is still on this team; if the roster isn't
+  // full the drop_player_id is ignored (add without dropping), and if the drop
+  // player is already gone while the roster is full the claim fails.
+  let executeDrop = false;
   if (claim.drop_player_id) {
-    // Check if the drop player is still on this team (could have been traded/dropped already)
     const { data: dropCheck } = await supabase.from('league_players').select('id')
       .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id).limit(1);
-
-    if (dropCheck && dropCheck.length > 0 && rosterFull) {
-      // Drop player exists and roster is full — execute the drop
-      await snapshotBeforeDrop(supabase, leagueId, claim.team_id, claim.drop_player_id);
-
-      const { error: delErr } = await supabase.from('league_players').delete()
-        .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id);
-      if (delErr) throw delErr;
-
-      if (waiverPeriodDays > 0) {
-        const { data: leagueRow } = await supabase
-          .from('leagues').select('sport').eq('id', leagueId).single();
-        const until = nextSlateRollover((leagueRow as any)?.sport ?? null);
-        until.setUTCDate(until.getUTCDate() + (waiverPeriodDays - 1));
-        await supabase.from('league_waivers').insert({
-          league_id: leagueId, player_id: claim.drop_player_id,
-          on_waivers_until: until.toISOString(), dropped_by_team_id: claim.team_id,
-        });
-      }
-    } else if (!dropCheck || dropCheck.length === 0) {
-      // Drop player is gone — if roster is still full, fail; otherwise skip the drop and continue
-      if (rosterFull) return { ok: false, reason: 'drop_player_unavailable' };
+    const dropPresent = !!dropCheck && dropCheck.length > 0;
+    if (dropPresent && rosterFull) {
+      executeDrop = true;
+    } else if (!dropPresent && rosterFull) {
+      return { ok: false, reason: 'drop_player_unavailable' };
     }
+    // dropPresent && !rosterFull → add without dropping (executeDrop stays false)
   }
 
-  // Re-count roster before inserting to prevent overflow from concurrent adds
+  // Re-count before the award to guard against overflow from concurrent adds. The
+  // drop (when executed) happens inside the RPC, so subtract it here to reflect
+  // the post-drop active count the original checked against.
   const [reAll, reIr, reTaxi] = await Promise.all([
     supabase.from('league_players').select('id', { count: 'exact', head: true })
       .eq('league_id', leagueId).eq('team_id', claim.team_id),
@@ -298,97 +276,79 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
     supabase.from('league_players').select('id', { count: 'exact', head: true })
       .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'TAXI'),
   ]);
-  const reActive = (reAll.count ?? 0) - (reIr.count ?? 0) - (reTaxi.count ?? 0);
+  let reActive = (reAll.count ?? 0) - (reIr.count ?? 0) - (reTaxi.count ?? 0);
+  if (executeDrop) reActive -= 1;
   if (reActive >= maxSize) return { ok: false, reason: 'roster_full' };
 
-  // Use cached player name instead of fetching again
   const pName = playerName(claim.player_id);
-  // Still need position for the insert - fetch only if not already cached via claims
   const { data: playerData } = await supabase
     .from('players').select('position').eq('id', claim.player_id).single();
 
-  // Position limit check
+  // Position limit check. The drop (when executed) now happens inside the RPC, so
+  // the roster we read here still contains the dropped player — exclude them, or a
+  // legitimate same-position drop-and-add would be falsely rejected. This mirrors
+  // the original ordering, where the drop landed before this check ran.
   if (positionLimits && Object.keys(positionLimits).length > 0 && playerData?.position) {
     const { data: rosterForLimits } = await supabase
       .from('league_players')
-      .select('position, roster_slot')
+      .select('position, roster_slot, player_id')
       .eq('league_id', leagueId)
       .eq('team_id', claim.team_id);
-    const violation = checkPositionLimits(positionLimits, rosterForLimits ?? [], playerData.position);
+    const effectiveRoster = (rosterForLimits ?? []).filter(
+      (r: { player_id: string }) => !executeDrop || r.player_id !== claim.drop_player_id,
+    );
+    const violation = checkPositionLimits(positionLimits, effectiveRoster, playerData.position);
     if (violation) return { ok: false, reason: 'position_limit' };
   }
 
-  const { error: addErr } = await supabase.from('league_players').insert({
-    league_id: leagueId, player_id: claim.player_id, team_id: claim.team_id,
-    acquired_via: 'waiver', acquired_at: now.toISOString(),
-    position: playerData?.position ?? 'UTIL',
-    roster_slot: 'BE',
-  });
-  if (addErr) {
-    // Unique constraint means another claim grabbed this player first
-    if (addErr.code === '23505') return { ok: false, reason: 'already_owned' };
-    throw addErr;
+  // Snapshot the dropped player's lineup BEFORE the atomic award (idempotent; if
+  // the RPC later rolls back, the player simply stays rostered and the snapshot
+  // is harmless). Compute when the dropped player clears waivers.
+  let dropWaiverUntil: string | null = null;
+  if (executeDrop) {
+    await snapshotBeforeDrop(supabase, leagueId, claim.team_id, claim.drop_player_id);
+    if (waiverPeriodDays > 0) {
+      const { data: leagueRow } = await supabase
+        .from('leagues').select('sport').eq('id', leagueId).single();
+      const until = nextSlateRollover((leagueRow as any)?.sport ?? null);
+      until.setUTCDate(until.getUTCDate() + (waiverPeriodDays - 1));
+      dropWaiverUntil = until.toISOString();
+    }
   }
-
-  // Create daily_lineups entry so slot history is consistent from day one
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-  await supabase.from('daily_lineups').upsert({
-    league_id: leagueId, team_id: claim.team_id, player_id: claim.player_id,
-    lineup_date: todayStr, roster_slot: 'BE',
-  }, { onConflict: 'team_id,player_id,lineup_date' });
 
   let notes = `Claimed ${pName} off waivers`;
   if (claim.bid_amount > 0) notes += ` ($${claim.bid_amount})`;
+  if (claim.drop_player_id) notes += ` (dropped ${playerName(claim.drop_player_id)})`;
 
-  if (claim.drop_player_id) {
-    notes += ` (dropped ${playerName(claim.drop_player_id)})`;
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  // Commit the drop, award, daily_lineups, transaction + items, claim-status
+  // flip, the cost (FAAB debit / priority rotation), and mark-losers as ONE
+  // transaction — closing the award↔cost atomicity gap that could award a player
+  // for free / leave a standard winner with top priority.
+  const { data: rpcResult, error: rpcErr } = await supabase.rpc('award_waiver_claim', {
+    p_claim_id: claim.id,
+    p_league_id: leagueId,
+    p_player_id: claim.player_id,
+    p_team_id: claim.team_id,
+    p_position: playerData?.position ?? 'UTIL',
+    p_bid_amount: claim.bid_amount ?? 0,
+    p_is_faab: isFaab,
+    p_drop_player_id: claim.drop_player_id ?? null,
+    p_execute_drop: executeDrop,
+    p_drop_waiver_until: dropWaiverUntil,
+    p_notes: notes,
+    p_now: now.toISOString(),
+    p_today: todayStr,
+  });
+  if (rpcErr) {
+    // Unique constraint means another claim/add grabbed this player first.
+    if ((rpcErr as { code?: string }).code === '23505') return { ok: false, reason: 'already_owned' };
+    throw rpcErr;
   }
-
-  const { data: txn } = await supabase
-    .from('league_transactions').insert({
-      league_id: leagueId, type: 'waiver', notes, team_id: claim.team_id,
-      // Winning FAAB bid (null for standard waivers / $0 free-agent adds) so the
-      // activity feed can show it as structured data, not just buried in notes.
-      bid_amount: claim.bid_amount > 0 ? claim.bid_amount : null,
-    })
-    .select('id').single();
-
-  if (txn) {
-    const items: any[] = [
-      { transaction_id: txn.id, player_id: claim.player_id, team_to_id: claim.team_id },
-    ];
-    if (claim.drop_player_id) {
-      items.push({ transaction_id: txn.id, player_id: claim.drop_player_id, team_from_id: claim.team_id });
-    }
-    await supabase.from('league_transaction_items').insert(items);
+  if (rpcResult && (rpcResult as { ok?: boolean }).ok === false) {
+    return { ok: false, reason: 'already_owned' };
   }
-
-  await supabase.from('waiver_claims')
-    .update({ status: 'successful', processed_at: now.toISOString() })
-    .eq('id', claim.id);
 
   return { ok: true };
-}
-
-async function bumpWaiverPriority(leagueId: string, winningTeamId: string) {
-  const { data: allPriorities } = await supabase
-    .from('waiver_priority').select('team_id, priority')
-    .eq('league_id', leagueId).order('priority', { ascending: true });
-
-  if (!allPriorities || allPriorities.length === 0) return;
-
-  const winnerPriority = allPriorities.find(p => p.team_id === winningTeamId)?.priority;
-  if (winnerPriority == null) return;
-
-  // Batch all priority updates with Promise.all instead of sequential awaits
-  const updates = allPriorities
-    .filter(p => p.team_id === winningTeamId || p.priority > winnerPriority)
-    .map(p => {
-      const newPriority = p.team_id === winningTeamId ? allPriorities.length : p.priority - 1;
-      return supabase.from('waiver_priority')
-        .update({ priority: newPriority })
-        .eq('league_id', leagueId).eq('team_id', p.team_id);
-    });
-
-  await Promise.all(updates);
 }

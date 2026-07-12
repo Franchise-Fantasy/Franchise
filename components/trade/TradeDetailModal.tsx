@@ -17,6 +17,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { queryKeys } from '@/constants/queryKeys';
 import { useCanLeak } from '@/hooks/chat/useLeakRumor';
 import { useGetTradeConversation } from '@/hooks/chat/useTradeChat';
+import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useTradeDetailActions } from '@/hooks/useTradeDetailActions';
@@ -53,6 +54,7 @@ function computeFairness(
   proposal: TradeProposalRow,
   playerStats: PlayerSeasonStats[] | undefined,
   scoringWeights: any[] | undefined,
+  sport?: string | null,
 ): { teamName: string; netFpts: number }[] {
   if (!scoringWeights) return [];
 
@@ -62,7 +64,7 @@ function computeFairness(
   const playerFptsMap: Record<string, number> = {};
   if (playerStats) {
     for (const ps of playerStats) {
-      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps, scoringWeights);
+      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps, scoringWeights, sport);
     }
   }
 
@@ -191,6 +193,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   });
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+  const sport = useActiveLeagueSport(leagueId);
 
   // How many players must this team drop to accommodate the incoming players?
   const { data: dropsNeeded = 0 } = useQuery<number>({
@@ -289,7 +292,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   if (playerStats && scoringWeights && !isCategories) {
     for (const ps of playerStats) {
       if (!ps.player_id) continue;
-      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps as PlayerSeasonStats, scoringWeights);
+      playerFptsMap[ps.player_id] = calculateAvgFantasyPoints(ps as PlayerSeasonStats, scoringWeights, sport);
       playerHeadshotMap[ps.player_id] = ps.external_id_nba ?? null;
     }
   }
@@ -303,7 +306,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     }
   }
 
-  const fairness = computeFairness(proposal, playerStats as PlayerSeasonStats[] | undefined, scoringWeights);
+  const fairness = computeFairness(proposal, playerStats as PlayerSeasonStats[] | undefined, scoringWeights, sport);
 
   // Review countdown
   let reviewCountdown = '';

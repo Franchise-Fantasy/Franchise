@@ -55,12 +55,12 @@ import {
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
 import { isOnline } from "@/utils/network";
-import { checkAddDropPreflight } from "@/utils/roster/addDropPreflight";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
+import { rosterAddDrop } from "@/utils/roster/rosterTransaction";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
 import { s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
@@ -587,7 +587,7 @@ export function PlayerDetailModal({
     : false;
 
   const avgFpts = scoringWeights
-    ? calculateAvgFantasyPoints(player, scoringWeights)
+    ? calculateAvgFantasyPoints(player, scoringWeights, sport)
     : null;
 
   const invalidateRosterQueries = () => {
@@ -817,379 +817,88 @@ export function PlayerDetailModal({
 
     setIsProcessing(true);
     try {
-      // For add-and-drop, validate weekly + position limits before ANY mutation
-      // so a rejected add never strands the dropped player. Runs before the
-      // queued-drop branch so locked-day add/drops are gated too. The server
-      // RPC enforces the same rules as a backstop.
-      if (playerToDrop && player) {
-        const pre = await checkAddDropPreflight({
-          leagueId,
-          teamId,
-          incomingPosition: player.position,
-          dropPlayerId: dropping.player_id,
-        });
-        if (!pre.ok) {
-          invalidateRosterQueries();
-          Alert.alert(pre.title, pre.message);
-          setIsProcessing(false);
-          return;
-        }
-      }
-
-      // For add-and-drop on a locked day, queue the drop for tomorrow so the
-      // dropped player stays visible in today's lineup (any slot - starter,
-      // bench, IR, taxi). process-pending-transactions executes the drop
-      // tomorrow.
-      if (playerToDrop && player && parentGameTimeMap && playerLockType) {
-        const droppingGameStarted =
-          playerLockType === "daily"
+      // The dropped player's game may already be underway. Queue the drop for
+      // the next rollover so they still score today, and defer the add with it
+      // so the team never sits over its roster size for a day. A PURE drop
+      // always applies immediately — that's how a GM clears an over-cap or IR
+      // lock, so it can't wait for tomorrow.
+      const queueDrop =
+        isAddDrop && !!parentGameTimeMap && !!playerLockType
+          ? playerLockType === "daily"
             ? hasAnyGameStarted(parentGameTimeMap)
-            : isGameStarted(dropping.pro_team, parentGameTimeMap);
+            : isGameStarted(dropping.pro_team, parentGameTimeMap)
+          : false;
 
-        if (droppingGameStarted) {
-          // Queue the drop for the next slate rollover (5am ET). Stored as
-          // a timestamptz so the cron fires at the exact rollover moment
-          // regardless of any GM's TZ - see utils/leagueTime.ts.
-          const executeAfter = nextSlateRollover(sport).toISOString();
+      // The incoming player's own lock. Only consulted when the drop isn't
+      // queued — a queued drop defers the add regardless.
+      const addGameTimes = parentGameTimeMap ?? gameTimeMap;
+      const deferAdd =
+        isAddDrop && !queueDrop && playerLockType === "daily"
+          ? hasAnyGameStarted(addGameTimes)
+          : isAddDrop && !queueDrop && playerLockType === "individual"
+            ? isGameStarted(player!.pro_team ?? "", addGameTimes)
+            : false;
 
-          // Shared group_id links the (deferred) add row written now with the
-          // drop row the cron writes at rollover, so the feed can render them
-          // as one card. Stashed in metadata so the cron can read it back.
-          const groupId = Crypto.randomUUID();
+      // One transaction: lineup markers, the roster delete, the waiver
+      // placement, the roster-size/position guard, the add, and both ledger
+      // entries. If the add is rejected — roster full, position cap, or someone
+      // else claimed the player first — the drop rolls back with it and the
+      // dropped player stays on the roster. This used to be nine separate
+      // commits, and a rejected add left the dropped player gone for good.
+      const result = await rosterAddDrop({
+        leagueId,
+        teamId,
+        addPlayerId: isAddDrop ? player!.player_id : undefined,
+        dropPlayerId: dropping.player_id,
+        deferAdd,
+        queueDrop,
+        groupId: isAddDrop ? Crypto.randomUUID() : undefined,
+      });
 
-          const { data: queuedDrop, error } = await supabase
-            .from("pending_transactions")
-            .insert({
-              league_id: leagueId,
-              team_id: teamId,
-              player_id: dropping.player_id,
-              target_player_id: dropping.player_id,
-              action_type: "drop",
-              execute_after: executeAfter,
-              status: "pending",
-              metadata: { name: dropping.name, group_id: groupId },
-            })
-            .select("id")
-            .single();
-          if (error) throw error;
+      // One push for the whole move, so an add+drop reads as a single event.
+      (async () => {
+        const { data: team } = await supabase
+          .from("teams")
+          .select("name")
+          .eq("id", teamId)
+          .single();
+        const who = team?.name ?? "A team";
+        sendNotification({
+          league_id: leagueId,
+          category: "roster_moves",
+          title: "Roster Move",
+          body: !isAddDrop
+            ? `${who} dropped ${dropping.name}`
+            : result.queued_drop
+              ? `${who} added ${player!.name} (dropping ${dropping.name} tomorrow)`
+              : `${who} added ${player!.name} (dropped ${dropping.name})`,
+          data: { screen: "activity" },
+        });
+      })();
 
-          // Defer the add to tomorrow as well, so the add/drop applies
-          // atomically - otherwise the added player shows up today while the
-          // dropped player lingers until the cron, putting the team over its
-          // size limit and confusing the user. Roll back the queued drop on
-          // failure so a rejected add doesn't strand the player.
-          try {
-            await addFreeAgent({
-              leagueId,
-              teamId: teamId!,
-              player: {
-                player_id: player.player_id,
-                name: player.name,
-                position: player.position,
-                pro_team: player.pro_team ?? "",
-              },
-              playerLockType,
-              gameTimeMap: parentGameTimeMap,
-              forceDefer: true,
-              groupId,
-              skipNotify: true,
-            });
-          } catch (addErr) {
-            await supabase
-              .from("pending_transactions")
-              .delete()
-              .eq("id", queuedDrop.id);
-            throw addErr;
-          }
-
-          // Write daily_lineups markers so the dropped player vanishes from
-          // tomorrow's roster view immediately, instead of lingering until
-          // the cron runs. Dates are slate-anchored (5am ET) so every GM
-          // sees the same drop date regardless of their physical TZ.
-          try {
-            const todaySlate = getSportToday(sport);
-            const tomorrowSlate = getSportTomorrow(sport);
-            const { data: weekRow } = await supabase
-              .from("league_schedule")
-              .select("start_date")
-              .eq("league_id", leagueId)
-              .lte("start_date", todaySlate)
-              .gte("end_date", todaySlate)
-              .single();
-
-            const { data: droppingLp } = await supabase
-              .from("league_players")
-              .select("roster_slot")
-              .eq("league_id", leagueId)
-              .eq("team_id", teamId)
-              .eq("player_id", dropping.player_id)
-              .single();
-            const droppingSlot = droppingLp?.roster_slot ?? "BE";
-
-            if (weekRow) {
-              await supabase.from("daily_lineups").upsert(
-                {
-                  league_id: leagueId,
-                  team_id: teamId,
-                  player_id: dropping.player_id,
-                  lineup_date: weekRow.start_date,
-                  roster_slot: droppingSlot,
-                },
-                {
-                  onConflict: "team_id,player_id,lineup_date",
-                  ignoreDuplicates: true,
-                },
-              );
-            }
-
-            await supabase.from("daily_lineups").upsert(
-              {
-                league_id: leagueId,
-                team_id: teamId,
-                player_id: dropping.player_id,
-                lineup_date: tomorrowSlate,
-                roster_slot: ROSTER_SLOT.DROPPED,
-              },
-              { onConflict: "team_id,player_id,lineup_date" },
-            );
-
-            await supabase
-              .from("daily_lineups")
-              .delete()
-              .eq("league_id", leagueId)
-              .eq("team_id", teamId)
-              .eq("player_id", dropping.player_id)
-              .gt("lineup_date", tomorrowSlate);
-          } catch (lineupErr) {
-            // Non-fatal: the queued drop is still in flight via cron. Log
-            // but don't unwind, since the add already succeeded.
-            console.warn(
-              "Failed to write queued-drop daily_lineups markers - roster will reconcile when cron runs:",
-              lineupErr,
-            );
-          }
-
-          // One combined push for the whole add+drop. addFreeAgent stayed
-          // quiet (skipNotify) and the cron skips the drop push when a
-          // group_id is present, so the league hears about this move once.
-          (async () => {
-            const { data: team } = await supabase
-              .from("teams")
-              .select("name")
-              .eq("id", teamId)
-              .single();
-            sendNotification({
-              league_id: leagueId,
-              category: "roster_moves",
-              title: "Roster Move",
-              body: `${team?.name ?? "A team"} added ${player.name} (dropping ${dropping.name} tomorrow)`,
-              data: { screen: "activity" },
-            });
-          })();
-
+      if (isAddDrop) {
+        capture("player_add_drop", { added: player!.name, dropped: dropping.name });
+        if (result.queued_drop) {
           Alert.alert(
             "Add/Drop",
-            `${player.name} will appear on your roster tomorrow. ${dropping.name} will be dropped tomorrow (currently in lineup).`,
+            `${player!.name} will appear on your roster tomorrow. ${dropping.name} will be dropped tomorrow (currently in lineup).`,
           );
-          setIsProcessing(false);
-          invalidateRosterQueries();
-          onClose();
-          return;
+        } else if (result.deferred) {
+          Alert.alert(
+            "Player Added",
+            `${player!.name} will appear on your roster tomorrow.`,
+          );
         }
-      }
-      // Snapshot the player's current slot before deleting so they still
-      // appear on prior days of the week. A 'DROPPED' sentinel on today
-      // ensures they disappear from today onward.
-      const today = getSportToday(sport);
-      const { data: lpRow } = await supabase
-        .from("league_players")
-        .select("roster_slot")
-        .eq("league_id", leagueId)
-        .eq("team_id", teamId)
-        .eq("player_id", dropping.player_id)
-        .single();
-      const slot = lpRow?.roster_slot ?? "BE";
-
-      const { data: week } = await supabase
-        .from("league_schedule")
-        .select("start_date")
-        .eq("league_id", leagueId)
-        .lte("start_date", today)
-        .gte("end_date", today)
-        .single();
-
-      if (week) {
-        await supabase.from("daily_lineups").upsert(
-          {
-            league_id: leagueId,
-            team_id: teamId,
-            player_id: dropping.player_id,
-            lineup_date: week.start_date,
-            roster_slot: slot,
-          },
-          {
-            onConflict: "team_id,player_id,lineup_date",
-            ignoreDuplicates: true,
-          },
-        );
-        await supabase.from("daily_lineups").upsert(
-          {
-            league_id: leagueId,
-            team_id: teamId,
-            player_id: dropping.player_id,
-            lineup_date: today,
-            roster_slot: ROSTER_SLOT.DROPPED,
-          },
-          { onConflict: "team_id,player_id,lineup_date" },
-        );
-        // Remove any future lineup entries so the dropped player doesn't appear on future dates
-        await supabase
-          .from("daily_lineups")
-          .delete()
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("player_id", dropping.player_id)
-          .gt("lineup_date", today);
-      }
-
-      const { error: delError } = await supabase
-        .from("league_players")
-        .delete()
-        .eq("league_id", leagueId)
-        .eq("team_id", teamId)
-        .eq("player_id", dropping.player_id);
-      if (delError) throw delError;
-
-      // Put dropped player on waivers if league has waivers enabled.
-      // Expiry = next slate rollover (5am ET) + (waiverDays - 1) days, so
-      // a 2-day waiver clears at the rollover boundary two days from now
-      // - consistent for every GM regardless of TZ.
-      const wt = rosterInfo?.waiverType ?? "none";
-      const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
-      if (wt !== "none" && wpDays > 0) {
-        const until = nextSlateRollover(sport);
-        until.setUTCDate(until.getUTCDate() + (wpDays - 1));
-        await supabase.from("league_waivers").insert({
-          league_id: leagueId,
-          player_id: dropping.player_id,
-          on_waivers_until: until.toISOString(),
-          dropped_by_team_id: teamId,
-        });
-      }
-
-      // If dropping from the picker (add-and-drop), add the new player
-      if (playerToDrop && player) {
-        // Shared group_id ties the add and drop rows together so the feed
-        // shows one card; skipNotify lets us fire a single combined push below.
-        const groupId = Crypto.randomUUID();
-
-        const { deferred } = await addFreeAgent({
-          leagueId,
-          teamId: teamId!,
-          player: {
-            player_id: player.player_id,
-            name: player.name,
-            position: player.position,
-            pro_team: player.pro_team ?? "",
-          },
-          playerLockType: playerLockType ?? null,
-          gameTimeMap: parentGameTimeMap ?? gameTimeMap,
-          groupId,
-          skipNotify: true,
-          });
-
-        // Log the drop side of the transaction
-        const { data: dropTxn, error: dropTxnError } = await supabase
-          .from("league_transactions")
-          .insert({
-            league_id: leagueId,
-            type: "waiver",
-            notes: `Dropped ${dropping.name}`,
-            team_id: teamId,
-            group_id: groupId,
-          })
-          .select("id")
-          .single();
-        if (dropTxnError) throw dropTxnError;
-
-        await supabase.from("league_transaction_items").insert({
-          transaction_id: dropTxn.id,
-          player_id: dropping.player_id,
-          team_from_id: teamId,
-        });
-
-        // Fire-and-forget notification
-        (async () => {
-          const { data: team } = await supabase
-            .from("teams")
-            .select("name")
-            .eq("id", teamId)
-            .single();
-          sendNotification({
-            league_id: leagueId,
-            category: "roster_moves",
-            title: "Roster Move",
-            body: `${team?.name ?? "A team"} added ${player.name} (dropped ${dropping.name})`,
-            data: { screen: "activity" },
-          });
-        })();
-
-        if (deferred) {
-          Alert.alert("Player Added", `${player.name} will appear on your roster tomorrow.`);
-        }
-
-        capture('player_add_drop', { added: player.name, dropped: dropping.name });
-
-        invalidateRosterQueries();
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.leagueWaivers(leagueId),
-        });
-        setShowDropPicker(false);
-        onClose();
       } else {
-        // Pure drop (no add)
-        const { data: txn, error: txnError } = await supabase
-          .from("league_transactions")
-          .insert({
-            league_id: leagueId,
-            type: "waiver",
-            notes: `Dropped ${dropping.name}`,
-            team_id: teamId,
-          })
-          .select("id")
-          .single();
-        if (txnError) throw txnError;
-
-        await supabase.from("league_transaction_items").insert({
-          transaction_id: txn.id,
-          player_id: dropping.player_id,
-          team_from_id: teamId,
-        });
-
-        // Fire-and-forget notification to league
-        (async () => {
-          const { data: team } = await supabase
-            .from("teams")
-            .select("name")
-            .eq("id", teamId)
-            .single();
-          sendNotification({
-            league_id: leagueId,
-            category: "roster_moves",
-            title: "Roster Move",
-            body: `${team?.name ?? "A team"} dropped ${dropping.name}`,
-            data: { screen: "activity" },
-          });
-        })();
-
-        capture('player_dropped', { player_name: dropping.name });
-
-        invalidateRosterQueries();
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.leagueWaivers(leagueId),
-        });
-        onClose();
+        capture("player_dropped", { player_name: dropping.name });
       }
+
+      invalidateRosterQueries();
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.leagueWaivers(leagueId),
+      });
+      setShowDropPicker(false);
+      onClose();
     } catch (err: any) {
       Alert.alert("Error", err.message ?? "Failed to drop player");
     } finally {
@@ -1918,8 +1627,10 @@ export function PlayerDetailModal({
   // Insights need at least 5 played games (matches calculatePlayerInsights /
   // calculateCategoryInsights). Gate the eyebrow so it never orphans above an
   // empty card; the wrapper View still renders so the sticky index stays put.
+  // Suppressed for NFL — the insight engine (B2B, schedule density, basketball
+  // stat trends) has no NFL analogue in v1.
   const hasInsights =
-    (gameLog ?? []).filter((g) => g.min > 0).length >= 5;
+    sport !== "nfl" && (gameLog ?? []).filter((g) => g.min > 0).length >= 5;
 
   return (
     <BottomSheet
@@ -2044,6 +1755,7 @@ export function PlayerDetailModal({
             </View>
             <SeasonAverages
               player={player}
+              sport={sport}
               currentSeasonLabel={currentSeason}
               currentGamesDenominator={teamGamesPlayed}
               avgFpts={avgFpts}
@@ -2082,6 +1794,7 @@ export function PlayerDetailModal({
           <PlayerGameLogHeader
             scoringWeights={scoringWeights}
             isCategories={isCategories}
+            sport={sport}
             headerScrollRef={gameLogHeaderScrollRef}
             backgroundColor={c.background}
             colors={gameLogColors}
@@ -2092,9 +1805,10 @@ export function PlayerDetailModal({
             gameLog={gameLogWithDnp}
             isLoading={isLoadingGameLog}
             scoringWeights={scoringWeights}
+            sport={sport}
             upcomingGames={upcomingGames}
             liveStats={liveStats}
-            liveToGameLog={liveToGameLog}
+            liveToGameLog={(stats) => liveToGameLog(stats, sport)}
             formatGameInfo={formatGameInfo}
             playerName={player.name}
             expanded={gameLogExpanded}

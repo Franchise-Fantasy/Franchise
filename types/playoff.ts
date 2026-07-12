@@ -103,4 +103,6 @@ export interface PlayoffSeedPick {
   picking_seed: number;
   picked_opponent_id: string | null;
   picked_at: string | null;
+  /** When the pick was created (slate rollover). Drives the auto-default window. */
+  created_at: string | null;
 }

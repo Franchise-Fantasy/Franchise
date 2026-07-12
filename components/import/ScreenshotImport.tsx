@@ -52,6 +52,8 @@ import { TradedPicksScanner } from '@/components/import/TradedPicksScanner';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { StepIndicator } from '@/components/ui/StepIndicator';
 import { ThemedView } from '@/components/ui/ThemedView';
+import { WizardShell } from '@/components/web/WizardShell';
+import { WizardSummary } from '@/components/web/WizardSummary';
 import { Colors } from '@/constants/Colors';
 import {
   LEAGUE_TYPE_TO_DB,
@@ -62,6 +64,7 @@ import {
   type LeagueWizardState,
 } from '@/constants/LeagueDefaults';
 import { useToast } from '@/context/ToastProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { SportThemeProvider } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
@@ -89,12 +92,18 @@ function reverseStandingsNamesFromHistory(seasons: HistorySeasonData[]): string[
     .map((t) => t.team_name);
 }
 
+// The desktop rail treats picking an import source as the first step — matching
+// the Sleeper flow — so the rail index runs one ahead of `step`.
+const RAIL_LABELS = ['Source', ...STEP_LABELS];
+
 // --- Component ---
 
-export function ScreenshotImport() {
+/** `onBackToSource` returns to import-league's source chooser (desktop rail step 0). */
+export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => void }) {
   const router = useRouter();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const { isDesktop } = useBreakpoint();
   const { showToast } = useToast();
 
   const [state, dispatch] = useReducer(reducer, initialState);
@@ -608,40 +617,43 @@ export function ScreenshotImport() {
     state.draftPhase !== 'in_season',
   );
 
-  return (
-    // Override the active-league sport so the wizard's chrome (Next/Import
-    // buttons via BrandButton, StepIndicator dots) follows the *picked* sport
-    // rather than whatever league the user came from — mirrors create-league.
-    <SportThemeProvider sport={state.wizardState.sport}>
-    <ThemedView style={styles.container}>
-      <View style={styles.headerRow}>
+  // Nav (Back/Next). The Review step owns its own Back + Import via StepReview.
+  // Defined once so mobile and desktop share it.
+  const navNode =
+    step < STEP_LABELS.length - 1 ? (
+      <View style={styles.navRow}>
+        {step > 0 ? (
+          <BrandButton
+            label="Back"
+            onPress={() => {
+              setStep((s) => s - 1);
+              scrollToTop();
+            }}
+            variant="secondary"
+            size="default"
+          />
+        ) : (
+          <View />
+        )}
         <BrandButton
-          label="Cancel"
-          onPress={handleCancel}
-          variant="ghost"
+          label={nextLabel}
+          onPress={() => {
+            setFinishLater(false);
+            setStep((s) => s + 1);
+            scrollToTop();
+          }}
+          variant="primary"
           size="default"
-          accessibilityLabel="Cancel import"
+          disabled={!canAdvance}
+          accessibilityLabel={`${nextLabel}, step ${step + 2} of ${STEP_LABELS.length}`}
         />
       </View>
+    ) : null;
 
-      <StepIndicator currentStep={step} steps={STEP_LABELS} />
-
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-      >
-        <View style={styles.scrollWrap}>
-          <ScrollView
-            ref={scrollRef}
-            style={styles.flex}
-            contentContainerStyle={styles.contentInner}
-            keyboardShouldPersistTaps="handled"
-            showsVerticalScrollIndicator={false}
-            onScroll={handleScroll}
-            scrollEventThrottle={16}
-            onLayout={handleLayout}
-            onContentSizeChange={handleContentSizeChange}
-          >
+  // Step content is identical on phone + desktop — only the surrounding chrome
+  // differs. Defined once so the two branches can't drift.
+  const stepNode = (
+    <>
             {step === 0 && (
               <StepBasics
                 state={state.wizardState}
@@ -773,6 +785,72 @@ export function ScreenshotImport() {
                 }
               />
             )}
+    </>
+  );
+
+  // Desktop web: vertical step rail + framed content column + live summary,
+  // reusing the same step components. Rail step 0 is the source choice.
+  if (isDesktop) {
+    return (
+      <SportThemeProvider sport={state.wizardState.sport}>
+        <WizardShell
+          title="Import League"
+          subtitle="Pull your league in from screenshots, step by step."
+          steps={RAIL_LABELS}
+          currentStep={step + 1}
+          onCancel={handleCancel}
+          onStepPress={(i) => {
+            // Rail index 0 is the source choice; the rest are offset by one.
+            if (i === 0) onBackToSource?.();
+            else if (i - 1 < step) {
+              setStep(i - 1);
+              scrollToTop();
+            }
+          }}
+          aside={<WizardSummary state={state.wizardState} />}
+          footer={navNode}
+        >
+          {stepNode}
+        </WizardShell>
+      </SportThemeProvider>
+    );
+  }
+
+  return (
+    // Override the active-league sport so the wizard's chrome (Next/Import
+    // buttons via BrandButton, StepIndicator dots) follows the *picked* sport
+    // rather than whatever league the user came from — mirrors create-league.
+    <SportThemeProvider sport={state.wizardState.sport}>
+    <ThemedView style={styles.container}>
+      <View style={styles.headerRow}>
+        <BrandButton
+          label="Cancel"
+          onPress={handleCancel}
+          variant="ghost"
+          size="default"
+          accessibilityLabel="Cancel import"
+        />
+      </View>
+
+      <StepIndicator currentStep={step} steps={STEP_LABELS} />
+
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <View style={styles.scrollWrap}>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.flex}
+            contentContainerStyle={styles.contentInner}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            onScroll={handleScroll}
+            scrollEventThrottle={16}
+            onLayout={handleLayout}
+            onContentSizeChange={handleContentSizeChange}
+          >
+            {stepNode}
           </ScrollView>
 
           {hasMoreContent && !isAtBottom && (
@@ -789,37 +867,7 @@ export function ScreenshotImport() {
         </View>
       </KeyboardAvoidingView>
 
-      {/* Nav — Review step owns its own Back + Import buttons via
-          StepReview, so chrome nav only renders on steps 0-4. */}
-      {step < STEP_LABELS.length - 1 && (
-        <View style={styles.navRow}>
-          {step > 0 ? (
-            <BrandButton
-              label="Back"
-              onPress={() => {
-                setStep((s) => s - 1);
-                scrollToTop();
-              }}
-              variant="secondary"
-              size="default"
-            />
-          ) : (
-            <View />
-          )}
-          <BrandButton
-            label={nextLabel}
-            onPress={() => {
-              setFinishLater(false);
-              setStep((s) => s + 1);
-              scrollToTop();
-            }}
-            variant="primary"
-            size="default"
-            disabled={!canAdvance}
-            accessibilityLabel={`${nextLabel}, step ${step + 2} of ${STEP_LABELS.length}`}
-          />
-        </View>
-      )}
+      {navNode}
     </ThemedView>
     </SportThemeProvider>
   );

@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Platform, StyleSheet, Switch, View } from 'react-native';
 
+import { SheetRow, useFormSheet } from '@/components/ui/formSheet';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ms, s } from '@/utils/scale';
 
@@ -27,6 +28,29 @@ export function ToggleRow({
   indented = false,
   last = false,
 }: ToggleRowProps) {
+  const inSheet = useFormSheet();
+
+  // Desktop charter sheet: the label moves to the row's gutter and the switch
+  // sits in the value column. The leading icon is list-chrome from the phone's
+  // settings rows — a labelled gutter already says what the row is.
+  if (inSheet) {
+    return (
+      <SheetRow label={label} helper={description} last={last}>
+        <View style={{ opacity: disabled ? 0.4 : 1 }}>
+          <Switch
+            value={value}
+            onValueChange={onToggle}
+            trackColor={{ false: c.border, true: c.accent }}
+            ios_backgroundColor={c.border}
+            disabled={disabled}
+            accessibilityLabel={label}
+            accessibilityState={{ disabled, checked: value }}
+          />
+        </View>
+      </SheetRow>
+    );
+  }
+
   return (
     <View
       style={[

@@ -18,7 +18,7 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import type { Database } from '../../../types/database.types.ts';
+import type { Database, Json } from '../../../types/database.types.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
@@ -92,12 +92,43 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    // ── Recovery: flush stats for matchups claimed but not yet flushed ──
-    // If a prior run crashed between is_finalized=true and stats_flushed=true,
-    // re-apply scores/W-L from the existing matchup row so the data stays
-    // self-healing. PF/PA is owned by update-standings and is recomputed from
-    // scratch below for any touched league, so we pass 0 here to avoid
-    // double-counting.
+    // ── Recovery for legacy orphans (is_finalized=true, stats_flushed=false) ──
+    // finalize_matchup_atomic now claims + scores + counts W/L in ONE transaction,
+    // so this state can no longer be produced. It survives only to heal rows left
+    // behind by the old multi-step path (or a hand edit).
+    //
+    // FIRST: un-finalize any orphan that was never actually SCORED. home_score and
+    // away_score are NOT NULL DEFAULT 0, so an unscored row is indistinguishable
+    // from a real 0-0 tie by score alone — the old recovery therefore flushed it as
+    // a 0-0 TIE and the true result was lost forever. home_player_scores is nullable
+    // and is only ever written by the scoring pass, so it is the reliable "was this
+    // scored?" discriminator. Resetting is_finalized lets the normal path below
+    // re-score the matchup correctly on this very run.
+    const { data: unscored, error: unscoredErr } = await supabase
+      .from('league_matchups')
+      .update({ is_finalized: false })
+      .eq('is_finalized', true)
+      .eq('stats_flushed', false)
+      .is('home_player_scores', null)
+      .not('away_team_id', 'is', null)
+      .select('id');
+    if (unscoredErr) throw unscoredErr;
+    if (unscored && unscored.length > 0) {
+      log.warn('Recovery: un-finalized claimed-but-unscored matchups for re-scoring', {
+        count: unscored.length,
+      });
+    }
+
+    // Byes were claimed but never scored (no opponent) — just mark them flushed.
+    await supabase
+      .from('league_matchups')
+      .update({ stats_flushed: true })
+      .eq('is_finalized', true)
+      .eq('stats_flushed', false)
+      .is('away_team_id', null);
+
+    // What's left is genuinely scored but never counted — apply its W/L. PF/PA is
+    // recomputed absolutely below, so pass 0 here to avoid double-counting.
     const { data: orphaned } = await supabase
       .from('league_matchups')
       .select('id, league_id, home_team_id, away_team_id, home_score, away_score, winner_team_id, playoff_round, home_category_wins, away_category_wins, schedule_id')
@@ -180,17 +211,33 @@ Deno.serve(async (req: Request) => {
     const scheduleIds = activeWeeks.map((w) => w.id);
     const scheduleMap = new Map(activeWeeks.map((w) => [w.id, w]));
 
-    // Atomically claim unfinalized matchups via UPDATE ... RETURNING. If two
-    // invocations race, only one wins each row.
-    const { data: unfinalizedMatchups, error: matchErr } = await supabase
+    // READ (no claim). The claim now happens per-matchup inside
+    // finalize_matchup_atomic, AFTER the score is computed — claiming up front is
+    // what allowed a crash to leave a matchup finalized-but-unscored, which the old
+    // recovery then flushed as a permanent 0-0 tie.
+    const { data: candidateMatchups, error: matchErr } = await supabase
       .from('league_matchups')
-      .update({ is_finalized: true })
+      .select('id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round')
       .in('schedule_id', scheduleIds)
-      .eq('is_finalized', false)
-      .select('id, league_id, schedule_id, week_number, home_team_id, away_team_id, playoff_round');
+      .eq('is_finalized', false);
     if (matchErr) throw matchErr;
-    if (!unfinalizedMatchups || unfinalizedMatchups.length === 0) {
+    if (!candidateMatchups || candidateMatchups.length === 0) {
       return jsonResponse({ ok: true, finalized: 0, message: 'All matchups already finalized' });
+    }
+
+    // Byes have no opponent, score, or W/L — nothing to make atomic, so finalize
+    // them in one bulk statement and drop them from the scoring set.
+    const byeIds = candidateMatchups.filter((m) => m.away_team_id === null).map((m) => m.id);
+    if (byeIds.length > 0) {
+      await supabase
+        .from('league_matchups')
+        .update({ is_finalized: true, stats_flushed: true })
+        .in('id', byeIds);
+    }
+
+    const unfinalizedMatchups = candidateMatchups.filter((m) => m.away_team_id !== null);
+    if (unfinalizedMatchups.length === 0) {
+      return jsonResponse({ ok: true, finalized: byeIds.length, message: 'Only byes to finalize' });
     }
 
     // Bench any over-capacity active lineup rows for the weeks being finalized
@@ -215,13 +262,15 @@ Deno.serve(async (req: Request) => {
     const leagueIds = [...new Set(unfinalizedMatchups.map((m) => m.league_id))];
     const scoringByLeague = new Map<string, ScoringWeight[]>();
     const scoringTypeByLeague = new Map<string, string>();
+    const sportByLeague = new Map<string, string>();
     await Promise.all(leagueIds.map(async (lid) => {
       const [{ data: scoring }, { data: leagueRow }] = await Promise.all([
         supabase.from('league_scoring_settings').select('stat_name, point_value, is_enabled, inverse').eq('league_id', lid),
-        supabase.from('leagues').select('scoring_type').eq('id', lid).single(),
+        supabase.from('leagues').select('scoring_type, sport').eq('id', lid).single(),
       ]);
       scoringByLeague.set(lid, (scoring ?? []) as ScoringWeight[]);
       scoringTypeByLeague.set(lid, leagueRow?.scoring_type ?? 'points');
+      sportByLeague.set(lid, leagueRow?.sport ?? 'nba');
     }));
 
     // ── BULK-LOAD all team data up front (PR 10's N+1 fix). ──
@@ -244,8 +293,8 @@ Deno.serve(async (req: Request) => {
     const bestDayCandidates = new Map<string, { value: number; teamId: string; date: string; season: string }>();
 
     interface MatchupResult {
-      statUpdates: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }>;
-      weekScores: Array<{ league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string }>;
+      /** False when another run claimed this matchup first — apply nothing. */
+      claimed: boolean;
       notification: {
         leagueId: string; homeTeamId: string; awayTeamId: string;
         homeScore: number; awayScore: number; winnerId: string | null;
@@ -260,13 +309,14 @@ Deno.serve(async (req: Request) => {
 
     const settled = await Promise.allSettled(
       unfinalizedMatchups.map(async (matchup): Promise<MatchupResult> => {
-        const empty: MatchupResult = { statUpdates: [], weekScores: [], notification: null, affectedTeamIds: [], playoffResult: null, bestDay: null };
+        const empty: MatchupResult = { claimed: false, notification: null, affectedTeamIds: [], playoffResult: null, bestDay: null };
         const week = scheduleMap.get(matchup.schedule_id);
         if (!week || matchup.away_team_id === null) return empty;
 
         const isPlayoff = week.is_playoff || matchup.playoff_round != null;
         const weights = scoringByLeague.get(matchup.league_id) ?? [];
         const scoringType = scoringTypeByLeague.get(matchup.league_id) ?? 'points';
+        const sport = sportByLeague.get(matchup.league_id) ?? 'nba';
 
         const homeData = teamDataMap.get(teamDataKey(matchup.home_team_id, week.start_date, week.end_date));
         const awayData = teamDataMap.get(teamDataKey(matchup.away_team_id, week.start_date, week.end_date));
@@ -286,8 +336,8 @@ Deno.serve(async (req: Request) => {
         let awayPlayerScores: PlayerScoreEntry[] = [];
 
         if (scoringType === 'h2h_categories') {
-          const homeResult = computeTeamCategoryStats(homeData);
-          const awayResult = computeTeamCategoryStats(awayData);
+          const homeResult = computeTeamCategoryStats(homeData, sport);
+          const awayResult = computeTeamCategoryStats(awayData, sport);
           homePlayerScores = homeResult.playerScores;
           awayPlayerScores = awayResult.playerScores;
           const comparison = compareCategoryStats(homeResult.teamStats, awayResult.teamStats, weights);
@@ -298,8 +348,8 @@ Deno.serve(async (req: Request) => {
           if (comparison.homeWins > comparison.awayWins) winnerId = matchup.home_team_id;
           else if (comparison.awayWins > comparison.homeWins) winnerId = matchup.away_team_id;
         } else {
-          const homeResult = computeTeamScore(homeData, weights);
-          const awayResult = computeTeamScore(awayData, weights);
+          const homeResult = computeTeamScore(homeData, weights, sport);
+          const awayResult = computeTeamScore(awayData, weights, sport);
           homeScore = homeResult.total;
           awayScore = awayResult.total;
           homePlayerScores = homeResult.playerScores;
@@ -308,55 +358,44 @@ Deno.serve(async (req: Request) => {
           else if (awayScore > homeScore) winnerId = matchup.away_team_id;
         }
 
-        await supabase
-          .from('league_matchups')
-          .update({
-            home_score: homeScore,
-            away_score: awayScore,
-            home_category_wins: homeCatWins,
-            away_category_wins: awayCatWins,
-            category_ties: catTies,
-            category_results: catResults as unknown as Database['public']['Tables']['league_matchups']['Update']['category_results'],
-            home_player_scores: homePlayerScores as unknown as Database['public']['Tables']['league_matchups']['Update']['home_player_scores'],
-            away_player_scores: awayPlayerScores as unknown as Database['public']['Tables']['league_matchups']['Update']['away_player_scores'],
-            winner_team_id: winnerId,
-          })
-          .eq('id', matchup.id);
+        // CLAIM + persist in ONE transaction, now that the score is known: the
+        // matchup row, playoff bracket winner, week_scores, and the additive W/L
+        // all commit together. If this run already lost the row to a concurrent
+        // invocation, claimed=false and we apply nothing.
+        const { data: claimRes, error: claimErr } = await supabase.rpc('finalize_matchup_atomic', {
+          p_matchup_id: matchup.id,
+          p_league_id: matchup.league_id,
+          p_schedule_id: matchup.schedule_id,
+          p_home_team_id: matchup.home_team_id,
+          p_away_team_id: matchup.away_team_id,
+          p_home_score: homeScore,
+          p_away_score: awayScore,
+          // gen-types marks RPC args non-nullable even when the SQL accepts NULL.
+          // These genuinely are null in normal play: winner on a tie, and every
+          // category field in a points league.
+          p_winner_team_id: winnerId as unknown as string,
+          p_home_category_wins: homeCatWins as unknown as number,
+          p_away_category_wins: awayCatWins as unknown as number,
+          p_category_ties: catTies as unknown as number,
+          p_category_results: catResults as unknown as Json,
+          p_home_player_scores: homePlayerScores as unknown as Json,
+          p_away_player_scores: awayPlayerScores as unknown as Json,
+          p_is_playoff: isPlayoff,
+        });
+        if (claimErr) throw claimErr;
+        if (!(claimRes as unknown as { claimed?: boolean } | null)?.claimed) {
+          log.info('Matchup already finalized by a concurrent run; skipping', { matchup_id: matchup.id });
+          return empty;
+        }
 
         let playoffResult: MatchupResult['playoffResult'] = null;
         if (isPlayoff && matchup.playoff_round != null) {
-          await supabase
-            .from('playoff_bracket')
-            .update({ winner_id: winnerId })
-            .eq('matchup_id', matchup.id);
           playoffResult = { leagueId: matchup.league_id, matchup_id: matchup.id, playoff_round: matchup.playoff_round, winner_id: winnerId };
         }
 
-        const nowIso = new Date().toISOString();
-        const weekScores = [
-          { league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.home_team_id, score: homeScore, updated_at: nowIso },
-          { league_id: matchup.league_id, schedule_id: matchup.schedule_id, team_id: matchup.away_team_id, score: awayScore, updated_at: nowIso },
-        ];
-
-        const statUpdates: MatchupResult['statUpdates'] = [];
+        // Streaks are recomputed (absolutely) from these teams' matchups below.
         const affectedTeamIds: MatchupResult['affectedTeamIds'] = [];
         if (!isPlayoff) {
-          if (winnerId === matchup.home_team_id) {
-            statUpdates.push(
-              { p_team_id: matchup.home_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: 0, p_pa: 0 },
-              { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: 0, p_pa: 0 },
-            );
-          } else if (winnerId === matchup.away_team_id) {
-            statUpdates.push(
-              { p_team_id: matchup.away_team_id, p_wins: 1, p_losses: 0, p_ties: 0, p_pf: 0, p_pa: 0 },
-              { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 1, p_ties: 0, p_pf: 0, p_pa: 0 },
-            );
-          } else {
-            statUpdates.push(
-              { p_team_id: matchup.home_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
-              { p_team_id: matchup.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
-            );
-          }
           affectedTeamIds.push(
             { teamId: matchup.home_team_id, leagueId: matchup.league_id },
             { teamId: matchup.away_team_id, leagueId: matchup.league_id },
@@ -375,8 +414,7 @@ Deno.serve(async (req: Request) => {
         }
 
         return {
-          statUpdates,
-          weekScores,
+          claimed: true,
           notification: {
             leagueId: matchup.league_id,
             homeTeamId: matchup.home_team_id,
@@ -392,21 +430,21 @@ Deno.serve(async (req: Request) => {
       }),
     );
 
-    // ── Merge results, then flush stat updates + week_scores in parallel ──
-    const pendingStatUpdates: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }> = [];
-    const pendingWeekScores: Array<{ league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string }> = [];
+    // ── Merge results. Scores + W/L already committed inside the RPC; what remains
+    // here is derived/absolute work (streaks, PF/PA) and notifications. ──
     const matchupResults: Array<NonNullable<MatchupResult['notification']>> = [];
-    let finalizedCount = 0;
+    let finalizedCount = byeIds.length;
 
     for (const r of settled) {
       if (r.status === 'rejected') {
+        // The RPC is all-or-nothing, so a rejected matchup claimed nothing and
+        // stays is_finalized=false — the next run re-scores it.
         log.error('Failed to finalize a matchup', r.reason);
         continue;
       }
       const result = r.value;
+      if (!result.claimed) continue;
       finalizedCount++;
-      pendingStatUpdates.push(...result.statUpdates);
-      pendingWeekScores.push(...result.weekScores);
       if (result.notification) matchupResults.push(result.notification);
       for (const { teamId, leagueId: lid } of result.affectedTeamIds) {
         affectedTeams.add(teamId);
@@ -424,13 +462,6 @@ Deno.serve(async (req: Request) => {
         }
       }
     }
-
-    await Promise.all([
-      ...pendingStatUpdates.map((params) => supabase.rpc('increment_team_stats', params)),
-      pendingWeekScores.length > 0
-        ? supabase.from('week_scores').upsert(pendingWeekScores, { onConflict: 'league_id,schedule_id,team_id' })
-        : Promise.resolve(),
-    ]);
 
     if (affectedTeams.size > 0) {
       await Promise.all([...affectedTeams].map(async (teamId) => {
@@ -476,11 +507,8 @@ Deno.serve(async (req: Request) => {
       }));
     }
 
-    // Mark stats_flushed so a crash-recovery re-run skips W/L double counting.
-    const matchupIds = unfinalizedMatchups.map((m) => m.id);
-    if (matchupIds.length > 0) {
-      await supabase.from('league_matchups').update({ stats_flushed: true }).in('id', matchupIds);
-    }
+    // (stats_flushed is set inside finalize_matchup_atomic, in the same transaction
+    // as the claim and the W/L increment — there is no longer a window between them.)
 
     // ── Upsert highest-scoring-day record per league, only on new high. ──
     if (bestDayCandidates.size > 0) {

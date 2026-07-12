@@ -89,7 +89,11 @@ interface CatAnalyticsProps {
   myPlayers: PlayerSeasonStats[];
   weights: ScoringWeight[] | undefined;
   scoringType: string | undefined;
+  /** The team being charted — any team in the league, via the analytics TeamRail. */
   teamId: string;
+  /** The signed-in user's team. Only PlayerDetailModal reads it, so its add/drop
+   *  actions stay pointed at the user's own roster while another team is charted. */
+  myTeamId: string;
   leagueId: string;
   // Non-dynasty (keeper/redraft) leagues drop the age-based sections — age
   // framing only matters for multi-year rosters. They see Radar + a teaser.
@@ -102,6 +106,7 @@ export function CatAnalytics({
   weights,
   scoringType,
   teamId,
+  myTeamId,
   leagueId,
   isDynasty,
 }: CatAnalyticsProps) {
@@ -300,7 +305,7 @@ export function CatAnalytics({
       <PlayerDetailModal
         player={modalPlayer}
         leagueId={leagueId}
-        teamId={teamId}
+        teamId={myTeamId}
         onClose={() => setModalPlayer(null)}
       />
     </ScrollView>

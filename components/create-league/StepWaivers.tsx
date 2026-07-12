@@ -57,10 +57,9 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
   const priorityResetRelevant =
     state.waiverType === 'Standard' ||
     (state.waiverType === 'FAAB' && state.faabTiebreak === 'Waiver Priority');
-  return (
-    <View style={styles.container}>
-      <FormSection title="Waiver Wire">
-        <FieldGroup label="Waiver Type" helperText={WAIVER_TYPE_DESCRIPTIONS[state.waiverType]}>
+  const waiverWire = (
+    <FormSection key="waiver-wire" title="Waiver Wire">
+      <FieldGroup label="Waiver Type" helperText={WAIVER_TYPE_DESCRIPTIONS[state.waiverType]}>
           <SegmentedControl
             options={WAIVER_TYPE_OPTIONS}
             selectedIndex={WAIVER_TYPE_OPTIONS.indexOf(state.waiverType)}
@@ -112,48 +111,56 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
             />
           </FieldGroup>
         </AnimatedSection>
-      </FormSection>
+    </FormSection>
+  );
 
-      <FormSection title="Acquisition Rules">
-        <ToggleRow
-          icon="repeat-outline"
-          label="Limit Weekly Adds"
-          description={
-            weeklyLimitEnabled
-              ? `Each team can add up to ${state.weeklyAcquisitionLimit} player${state.weeklyAcquisitionLimit === 1 ? '' : 's'} per week.`
-              : 'Teams can add as many players as they want each week.'
-          }
-          value={weeklyLimitEnabled}
-          onToggle={(v) => onChange('weeklyAcquisitionLimit', v ? DEFAULT_WEEKLY_ADD_LIMIT : null)}
-          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+  const acquisition = (
+    <FormSection key="acquisition" title="Acquisition Rules">
+      <ToggleRow
+        icon="repeat-outline"
+        label="Limit Weekly Adds"
+        description={
+          weeklyLimitEnabled
+            ? `Each team can add up to ${state.weeklyAcquisitionLimit} player${state.weeklyAcquisitionLimit === 1 ? '' : 's'} per week.`
+            : 'Teams can add as many players as they want each week.'
+        }
+        value={weeklyLimitEnabled}
+        onToggle={(v) => onChange('weeklyAcquisitionLimit', v ? DEFAULT_WEEKLY_ADD_LIMIT : null)}
+        c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+      />
+
+      <AnimatedSection visible={weeklyLimitEnabled}>
+        <NumberStepper
+          label="Adds Per Week"
+          value={state.weeklyAcquisitionLimit ?? DEFAULT_WEEKLY_ADD_LIMIT}
+          onValueChange={(v) => onChange('weeklyAcquisitionLimit', v)}
+          min={1}
+          max={20}
+          last
         />
+      </AnimatedSection>
 
-        <AnimatedSection visible={weeklyLimitEnabled}>
-          <NumberStepper
-            label="Adds Per Week"
-            value={state.weeklyAcquisitionLimit ?? DEFAULT_WEEKLY_ADD_LIMIT}
-            onValueChange={(v) => onChange('weeklyAcquisitionLimit', v)}
-            min={1}
-            max={20}
-            last
-          />
-        </AnimatedSection>
+      <FieldGroup
+        label="Player Lock"
+        helperText={
+          state.playerLockType === 'Daily'
+            ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
+            : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'
+        }
+      >
+        <SegmentedControl
+          options={PLAYER_LOCK_OPTIONS}
+          selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(state.playerLockType)}
+          onSelect={(i) => onChange('playerLockType', PLAYER_LOCK_OPTIONS[i])}
+        />
+      </FieldGroup>
+    </FormSection>
+  );
 
-        <FieldGroup
-          label="Player Lock"
-          helperText={
-            state.playerLockType === 'Daily'
-              ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
-              : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'
-          }
-        >
-          <SegmentedControl
-            options={PLAYER_LOCK_OPTIONS}
-            selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(state.playerLockType)}
-            onSelect={(i) => onChange('playerLockType', PLAYER_LOCK_OPTIONS[i])}
-          />
-        </FieldGroup>
-      </FormSection>
+  return (
+    <View style={styles.container}>
+      {waiverWire}
+      {acquisition}
     </View>
   );
 }

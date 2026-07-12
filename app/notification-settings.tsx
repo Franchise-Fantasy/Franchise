@@ -245,7 +245,7 @@ export default function NotificationSettingsScreen() {
             <ToggleRow
               icon="newspaper-outline"
               label="Player News"
-              description="News articles about players on your roster"
+              description="Beat-reporter updates on players you roster"
               value={prefs.player_news}
               onToggle={toggle('player_news')}
               c={c}

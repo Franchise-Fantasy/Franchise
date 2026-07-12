@@ -1,17 +1,22 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
   Platform,
+  Pressable,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
+  type NativeSyntheticEvent,
+  type TextInputKeyPressEventData,
 } from 'react-native';
 
 import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
+import { SheetRow, useFormSheet } from './formSheet';
 import { ThemedText } from './ThemedText';
 
 interface NumberStepperProps {
@@ -34,13 +39,16 @@ interface NumberStepperProps {
 }
 
 /**
- * Scoreboard-style numeric stepper. Varsity-caps label on the left,
- * outlined −/+ buttons flanking a monospaced value readout on the
- * right. Matches the brand's "JetBrains Mono for stats" directive and
- * the OutlinePill / HomeHero icon-pill idiom for tappable chips.
+ * Numeric field with two very different personalities:
  *
- * Tap the value to type directly — still scales down / up with
- * keyboard input, clamped to min/max.
+ * **Native / phone** — a scoreboard stepper: varsity label left, outlined −/+
+ * buttons flanking a monospaced readout right. Tap the value to type. Unchanged.
+ *
+ * **Desktop web (inside a charter sheet)** — a typed field. The −/+ stepper only
+ * exists because a phone has no keyboard; on a desktop the fastest way to set
+ * "12 teams" is to type 12. So the value IS the input: click and type, ↑/↓ nudge
+ * it, and small chevrons cover the mouse-only case. The valid range sits beside
+ * it in mono so you know the bounds without discovering them by being blocked.
  */
 export function NumberStepper({
   label,
@@ -57,11 +65,15 @@ export function NumberStepper({
   const a11yBase = accessibilityLabel ?? label;
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
+  const inSheet = useFormSheet();
   const [editing, setEditing] = useState(false);
+  const [focused, setFocused] = useState(false);
   const [draft, setDraft] = useState('');
 
   const atMin = value <= min;
   const atMax = value >= max;
+
+  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n * 100) / 100));
 
   const decrement = () => {
     const next = Math.round((value - step) * 100) / 100;
@@ -89,10 +101,93 @@ export function NumberStepper({
     setEditing(false);
     const parsed = parseFloat(draft);
     if (isNaN(parsed)) return;
-    const clamped = Math.min(max, Math.max(min, Math.round(parsed * 100) / 100));
-    onValueChange(clamped);
+    onValueChange(clamp(parsed));
   };
 
+  // ─── Desktop charter sheet: typed field ───────────────────────────
+  if (inSheet) {
+    // Keep the visible draft in step with arrow-key/chevron nudges so the field
+    // doesn't show a stale string while focused.
+    const bump = (direction: 1 | -1) => {
+      const next = clamp(value + direction * step);
+      if (next === value) return;
+      onValueChange(next);
+      setDraft(
+        step < 1 ? (next % 1 === 0 ? next.toFixed(1) : String(parseFloat(next.toFixed(2)))) : String(next),
+      );
+    };
+
+    const onKeyPress = (e: NativeSyntheticEvent<TextInputKeyPressEventData>) => {
+      const key = e.nativeEvent.key;
+      if (key === 'ArrowUp') bump(1);
+      else if (key === 'ArrowDown') bump(-1);
+    };
+
+    return (
+      <SheetRow label={label} helper={helperText} last={last}>
+        <View style={sheet.row}>
+          <View
+            style={[
+              sheet.box,
+              { backgroundColor: c.input, borderColor: focused ? c.accent : c.border },
+            ]}
+          >
+            <TextInput
+              value={editing ? draft : `${displayValue}${suffix ?? ''}`}
+              onChangeText={setDraft}
+              onFocus={() => {
+                setFocused(true);
+                startEditing();
+              }}
+              onBlur={() => {
+                setFocused(false);
+                commitEdit();
+              }}
+              onSubmitEditing={commitEdit}
+              onKeyPress={onKeyPress}
+              inputMode="numeric"
+              selectTextOnFocus
+              style={[sheet.input, { color: c.text }]}
+              accessibilityLabel={`${a11yBase}, ${displayValue}${suffix ?? ''}`}
+            />
+            <View style={[sheet.spinner, { borderLeftColor: c.border }]}>
+              <Pressable
+                onPress={() => bump(1)}
+                disabled={atMax}
+                style={({ hovered }: { hovered?: boolean }) => [
+                  sheet.spinBtn,
+                  hovered && !atMax ? { backgroundColor: c.cardAlt } : null,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Increase ${a11yBase}`}
+                accessibilityState={{ disabled: atMax }}
+              >
+                <Ionicons name="chevron-up" size={11} color={atMax ? c.border : c.secondaryText} />
+              </Pressable>
+              <Pressable
+                onPress={() => bump(-1)}
+                disabled={atMin}
+                style={({ hovered }: { hovered?: boolean }) => [
+                  sheet.spinBtn,
+                  hovered && !atMin ? { backgroundColor: c.cardAlt } : null,
+                ]}
+                accessibilityRole="button"
+                accessibilityLabel={`Decrease ${a11yBase}`}
+                accessibilityState={{ disabled: atMin }}
+              >
+                <Ionicons name="chevron-down" size={11} color={atMin ? c.border : c.secondaryText} />
+              </Pressable>
+            </View>
+          </View>
+          <ThemedText style={[sheet.range, { color: c.secondaryText }]}>
+            {min}–{max}
+          </ThemedText>
+        </View>
+      </SheetRow>
+    );
+  }
+
+  // ─── Native / phone: scoreboard stepper ───────────────────────────
   return (
     <View
       style={[
@@ -181,6 +276,30 @@ export function NumberStepper({
     </View>
   );
 }
+
+// Desktop charter-sheet field.
+const sheet = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  box: {
+    flexDirection: 'row',
+    alignItems: 'stretch',
+    width: 116,
+    height: 36,
+    borderWidth: 1.5,
+    borderRadius: 8,
+    overflow: 'hidden',
+  },
+  input: {
+    flex: 1,
+    paddingHorizontal: 11,
+    fontFamily: Fonts.mono,
+    fontSize: 14,
+    letterSpacing: 0.5,
+  },
+  spinner: { width: 24, borderLeftWidth: StyleSheet.hairlineWidth },
+  spinBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  range: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 0.4 },
+});
 
 const styles = StyleSheet.create({
   // Outer wrapper owns the hairline divider so the helperText sits

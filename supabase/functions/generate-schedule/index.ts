@@ -6,6 +6,7 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { sportSlateDate } from '../../../utils/leagueTime.ts';
 import { planScheduleWeeks, type MergeWindow } from '../../../utils/league/scheduleWindows.ts';
+import { getSportModule } from '../../../utils/sports/registry.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
@@ -223,6 +224,9 @@ Deno.serve(async (req: Request) => {
       regularSeasonWeeks: league.regular_season_weeks,
       playoffWeeks: league.playoff_weeks,
       mergeWindows,
+      // NBA/WNBA weeks end Sunday; NFL weeks end Monday (Tue–Mon so MNF
+      // lands in the same matchup as its week's Sunday slate).
+      weekEndDow: getSportModule(league.sport ?? 'nba').weekEndDow,
     });
 
     const scheduleRows = plannedWeeks.map((pw) => ({
@@ -235,22 +239,11 @@ Deno.serve(async (req: Request) => {
       season: league.season,
     }));
 
-    const { data: insertedWeeks, error: weeksErr } = await supabase
-      .from("league_schedule")
-      .insert(scheduleRows)
-      .select("id, week_number");
-
-    if (weeksErr || !insertedWeeks) {
-      if (weeksErr) throw weeksErr;
-      throw new Error('Failed to insert schedule weeks');
-    }
-
-    const weekMap = new Map<number, string>(insertedWeeks.map((w: { week_number: number; id: string }) => [w.week_number, w.id]));
-
+    // Matchups carry week_number (not a schedule_id) — the RPC resolves each to
+    // the week row it inserts in the same transaction.
     const matchupRows = [];
     for (let w = 0; w < league.regular_season_weeks; w++) {
       const round = cycleRounds[w % cycleLength];
-      const scheduleId = weekMap.get(w + 1)!;
 
       for (const [home, away] of round) {
         if (home === null && away === null) continue;
@@ -259,8 +252,6 @@ Deno.serve(async (req: Request) => {
         const awayId = home === null ? null : away;
 
         matchupRows.push({
-          league_id,
-          schedule_id: scheduleId,
           week_number: w + 1,
           home_team_id: homeId,
           away_team_id: awayId,
@@ -268,14 +259,27 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    if (matchupRows.length > 0) {
-      const { error: matchupsErr } = await supabase.from("league_matchups").insert(matchupRows);
-      if (matchupsErr) throw matchupsErr;
+    // Claim + insert weeks + insert matchups atomically. The RPC flips
+    // schedule_generated false->true as an optimistic claim and aborts if a
+    // concurrent/retried call already did — so a partial failure or a double-tap
+    // can never leave the league with two full sets of weeks + matchups.
+    const { data: result, error: genErr } = await supabase.rpc('generate_schedule_atomic', {
+      p_league_id: league_id,
+      p_weeks: scheduleRows,
+      p_matchups: matchupRows,
+    });
+    if (genErr) {
+      if ((genErr as { code?: string }).code === '23505') {
+        return errorResponse('Schedule already generated', 409);
+      }
+      throw genErr;
     }
 
-    await supabase.from("leagues").update({ schedule_generated: true, offseason_step: null }).eq("id", league_id);
-
-    return jsonResponse({ success: true, total_weeks: plannedWeeks.length, regular_season_matchups: matchupRows.length });
+    return jsonResponse({
+      success: true,
+      total_weeks: (result as { week_count: number } | null)?.week_count ?? plannedWeeks.length,
+      regular_season_matchups: (result as { matchup_count: number } | null)?.matchup_count ?? matchupRows.length,
+    });
   } catch (err) {
     return handleError(err, 'generate-schedule');
   }

@@ -10,9 +10,11 @@ import {
 } from 'react-native';
 
 import { Colors } from '@/constants/Colors';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
+import { SheetRow, useFormSheet } from './formSheet';
 import { ThemedText } from './ThemedText';
 
 type Props = Omit<TextInputProps, 'style'> & {
@@ -56,11 +58,66 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [focused, setFocused] = useState(false);
+  const inSheet = useFormSheet();
+  const { isDesktop } = useBreakpoint();
 
   const hasError = !!errorText;
   const borderColor = hasError ? c.danger : focused ? c.accent : c.border;
   const helper = errorText ?? helperText;
   const helperColor = hasError ? c.danger : c.secondaryText;
+
+  const field = (
+    <View style={inSheet ? styles.sheetField : undefined}>
+      <TextInput
+        ref={ref}
+        {...inputProps}
+        placeholderTextColor={placeholderTextColor ?? c.secondaryText}
+        onFocus={(e) => {
+          setFocused(true);
+          onFocus?.(e);
+        }}
+        onBlur={(e) => {
+          setFocused(false);
+          onBlur?.(e);
+        }}
+        style={[
+          styles.input,
+          // Desktop typing target: the phone's 16px exists to stop iOS
+          // zoom-on-focus, which is meaningless with a keyboard.
+          isDesktop && styles.inputDesktop,
+          {
+            color: c.text,
+            backgroundColor: c.input,
+            borderColor,
+            // Bump border to 1.5 on focus/error so the state shift is
+            // visible without the input jumping size (we reserve the
+            // space with the same 1.5 when unfocused, too).
+            borderWidth: 1.5,
+          },
+          // Reserve room for the accessory so text doesn't run under it.
+          rightAccessory ? styles.inputWithAccessory : null,
+          inputStyle,
+        ]}
+      />
+      {rightAccessory && (
+        <View style={styles.accessory} pointerEvents="box-none">
+          {rightAccessory}
+        </View>
+      )}
+    </View>
+  );
+
+  // Inside the desktop charter sheet the label moves to the row's gutter.
+  if (inSheet && label) {
+    return (
+      <SheetRow label={label}>
+        {field}
+        {helper ? (
+          <ThemedText style={[styles.helper, { color: helperColor }]}>{helper}</ThemedText>
+        ) : null}
+      </SheetRow>
+    );
+  }
 
   return (
     <View style={[styles.wrap, containerStyle]}>
@@ -72,41 +129,7 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
           {label}
         </ThemedText>
       )}
-      <View>
-        <TextInput
-          ref={ref}
-          {...inputProps}
-          placeholderTextColor={placeholderTextColor ?? c.secondaryText}
-          onFocus={(e) => {
-            setFocused(true);
-            onFocus?.(e);
-          }}
-          onBlur={(e) => {
-            setFocused(false);
-            onBlur?.(e);
-          }}
-          style={[
-            styles.input,
-            {
-              color: c.text,
-              backgroundColor: c.input,
-              borderColor,
-              // Bump border to 1.5 on focus/error so the state shift is
-              // visible without the input jumping size (we reserve the
-              // space with the same 1.5 when unfocused, too).
-              borderWidth: 1.5,
-            },
-            // Reserve room for the accessory so text doesn't run under it.
-            rightAccessory ? styles.inputWithAccessory : null,
-            inputStyle,
-          ]}
-        />
-        {rightAccessory && (
-          <View style={styles.accessory} pointerEvents="box-none">
-            {rightAccessory}
-          </View>
-        )}
-      </View>
+      {field}
       {helper && (
         <ThemedText style={[styles.helper, { color: helperColor }]}>
           {helper}
@@ -120,8 +143,18 @@ const styles = StyleSheet.create({
   wrap: {
     alignSelf: 'stretch',
   },
+  // In a sheet row the control column is already the right width; stretch to it.
+  sheetField: {
+    alignSelf: 'stretch',
+  },
   label: {
     marginBottom: s(6),
+  },
+  inputDesktop: {
+    fontSize: 14,
+    paddingVertical: 9,
+    paddingHorizontal: 11,
+    borderRadius: 8,
   },
   input: {
     borderRadius: 10,

@@ -122,6 +122,45 @@ describe('schedulableEnd — terminal break walls off the season', () => {
   });
 });
 
+describe('planScheduleWeeks — NFL Monday-ending weeks (weekEndDow=1)', () => {
+  it('plans the real 2026 season: Wed Sep 9 kickoff → 6-day Week 1, then Tue–Mon', () => {
+    const weeks = planScheduleWeeks({
+      seasonStart: '2026-09-09', // Wednesday (2026 kickoff per BDL)
+      regularSeasonWeeks: 3,
+      playoffWeeks: 1,
+      mergeWindows: [],
+      weekEndDow: 1,
+    });
+    expect(weeks).toEqual([
+      { weekNumber: 1, startDate: '2026-09-09', endDate: '2026-09-14', isPlayoff: false, isDoubleWeek: false, mergeLabel: undefined },
+      { weekNumber: 2, startDate: '2026-09-15', endDate: '2026-09-21', isPlayoff: false, isDoubleWeek: false, mergeLabel: undefined },
+      { weekNumber: 3, startDate: '2026-09-22', endDate: '2026-09-28', isPlayoff: false, isDoubleWeek: false, mergeLabel: undefined },
+      { weekNumber: 4, startDate: '2026-09-29', endDate: '2026-10-05', isPlayoff: true, isDoubleWeek: false, mergeLabel: undefined },
+    ]);
+  });
+
+  it('gives a Friday start an 11-day Week 1 ending the second Monday', () => {
+    const [week1] = planScheduleWeeks({
+      seasonStart: '2026-09-11', // Friday
+      regularSeasonWeeks: 1,
+      playoffWeeks: 0,
+      mergeWindows: [],
+      weekEndDow: 1,
+    });
+    expect(week1.startDate).toBe('2026-09-11');
+    expect(week1.endDate).toBe('2026-09-21'); // 11 days, second Monday
+  });
+
+  it('weekEndDow: 0 is byte-identical to omitting it (NBA/WNBA regression)', () => {
+    // Seven consecutive start days — every day-of-week — must plan identically.
+    for (let offset = 0; offset < 7; offset++) {
+      const seasonStart = `2026-01-${String(5 + offset).padStart(2, '0')}`;
+      const opts = { seasonStart, regularSeasonWeeks: 4, playoffWeeks: 2, mergeWindows: [] };
+      expect(planScheduleWeeks({ ...opts, weekEndDow: 0 })).toEqual(planScheduleWeeks(opts));
+    }
+  });
+});
+
 describe('planScheduleWeeks — contract details', () => {
   it('marks regular vs playoff weeks by index', () => {
     const weeks = planScheduleWeeks({

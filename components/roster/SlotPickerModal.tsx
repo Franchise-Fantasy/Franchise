@@ -167,8 +167,8 @@ export function SlotPickerModal({
   // Season fpts-per-game average / box score for a player, fed to SeasonMetaLine.
   const seasonAvgFor = useCallback(
     (p: RosterPlayer) =>
-      scoringWeights ? buildSeasonAverages(p, scoringWeights, isCategories) : null,
-    [scoringWeights, isCategories],
+      scoringWeights ? buildSeasonAverages(p, scoringWeights, isCategories, undefined, sport) : null,
+    [scoringWeights, isCategories, sport],
   );
 
   // Group destinations by section (memoized so grouped map doesn't rebuild every render)

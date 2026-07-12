@@ -1,16 +1,26 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { createClient, type SupabaseClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { notifyTeams } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import {
+  nextRoundOpponentPool,
+  resolvePendingSeedPicks,
+  round1OpponentPool,
+  type SeedEntry,
+} from '../../../utils/playoff/seedPickAutoResolve.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
   round: z.number().int().positive('round must be a positive integer').optional(),
   from_seed_picks: z.boolean().optional(),
+  // When set (by the resolve-stale-seed-picks cron), any pick a manager never
+  // made is auto-filled with the lowest available seed before pairing, so a
+  // never-chosen opponent can't stall the whole bracket indefinitely.
+  auto_resolve_picks: z.boolean().optional(),
 });
 
 // ── Bracket utilities ──
@@ -29,7 +39,6 @@ function calcRounds(playoffTeams: number): number {
   return Math.log2(nextPowerOf2(playoffTeams));
 }
 
-interface SeedEntry { teamId: string; seed: number; }
 interface BracketPairing { teamA: SeedEntry; teamB: SeedEntry | null; }
 
 function generateBracketPositions(n: number): number[] {
@@ -113,6 +122,32 @@ function buildNextRoundPairings(
   return matchups;
 }
 
+/**
+ * Persist the auto-default assignments produced by `resolvePendingSeedPicks`
+ * (lowest available seed to each un-made pick) and mutate `picks` in place so
+ * the downstream pairing loop sees the filled opponents. Called when the pick
+ * window has elapsed and the bracket must proceed regardless of who chose.
+ */
+async function autoAssignPendingPicks(
+  supabase: SupabaseClient,
+  picks: Array<{ id: string; picking_seed: number; picked_opponent_id: string | null }>,
+  opponentPool: SeedEntry[],
+): Promise<void> {
+  const assignments = resolvePendingSeedPicks(picks, opponentPool);
+  if (assignments.length === 0) return;
+
+  const byId = new Map(picks.map((p) => [p.id, p]));
+  const nowIso = new Date().toISOString();
+  for (const { pickId, opponentId } of assignments) {
+    const pick = byId.get(pickId);
+    if (pick) pick.picked_opponent_id = opponentId;
+    await supabase
+      .from('playoff_seed_picks')
+      .update({ picked_opponent_id: opponentId, picked_at: nowIso })
+      .eq('id', pickId);
+  }
+}
+
 // ── Main handler ──
 
 Deno.serve(async (req: Request) => {
@@ -124,7 +159,7 @@ Deno.serve(async (req: Request) => {
       Deno.env.get('SB_SECRET_KEY')!
     );
 
-    const { league_id, round: requestedRound, from_seed_picks } = parseBody(Body, await req.json());
+    const { league_id, round: requestedRound, from_seed_picks, auto_resolve_picks } = parseBody(Body, await req.json());
 
     // Allow internal service-role calls (from finalize-week, submit-seed-pick, self-recursive)
     // but require JWT + commissioner check for external calls
@@ -380,7 +415,7 @@ Deno.serve(async (req: Request) => {
       if (format === 'higher_seed_picks' && from_seed_picks) {
         const { data: picks } = await supabase
           .from('playoff_seed_picks')
-          .select('picking_team_id, picking_seed, picked_opponent_id')
+          .select('id, picking_team_id, picking_seed, picked_opponent_id')
           .eq('league_id', league_id)
           .eq('season', league.season)
           .eq('round', 1)
@@ -389,6 +424,11 @@ Deno.serve(async (req: Request) => {
         if (!picks) return errorResponse('No seed picks found', 400);
 
         const seedMap = new Map(seeds.map(s => [s.teamId, s]));
+
+        if (auto_resolve_picks) {
+          await autoAssignPendingPicks(supabase, picks, round1OpponentPool(seeds, calcByes(playoffTeams)));
+        }
+
         for (const pick of picks) {
           if (!pick.picked_opponent_id) return errorResponse('Not all picks completed', 400);
           const picker = seedMap.get(pick.picking_team_id)!;
@@ -465,7 +505,7 @@ Deno.serve(async (req: Request) => {
       if (format === 'higher_seed_picks' && from_seed_picks) {
         const { data: picks } = await supabase
           .from('playoff_seed_picks')
-          .select('picking_team_id, picking_seed, picked_opponent_id')
+          .select('id, picking_team_id, picking_seed, picked_opponent_id')
           .eq('league_id', league_id)
           .eq('season', league.season)
           .eq('round', round)
@@ -483,6 +523,18 @@ Deno.serve(async (req: Request) => {
         for (const b of allBracket.data ?? []) {
           if (b.team_a_id && b.team_a_seed) seedLookup.set(b.team_a_id, b.team_a_seed);
           if (b.team_b_id && b.team_b_seed) seedLookup.set(b.team_b_id, b.team_b_seed);
+        }
+
+        if (auto_resolve_picks) {
+          // Pool = the previous round's winners (their seeds carried forward);
+          // nextRoundOpponentPool takes the bottom half — the pickers are the top.
+          const winners = (prevBracket ?? [])
+            .filter((b) => !b.is_bye && b.winner_id)
+            .map((b) => ({
+              teamId: b.winner_id as string,
+              seed: (b.winner_id === b.team_a_id ? b.team_a_seed : b.team_b_seed) as number,
+            }));
+          await autoAssignPendingPicks(supabase, picks, nextRoundOpponentPool(winners));
         }
 
         for (const pick of picks) {
@@ -508,110 +560,24 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // ── Insert bracket entries + matchup rows ──
+    // ── Insert bracket entries + matchup rows (atomically via RPC) ──
 
     const scheduleWeek = playoffWeeks[round - 1];
     if (!scheduleWeek) return errorResponse(`No schedule week for round ${round}`, 400);
 
-    const bracketRows = [];
-    const matchupInserts = [];
+    // bracket_position is 1-indexed by pairing order; byes carry no team_b.
+    const pairingPayload = pairings.map((p, i) => ({
+      bracket_position: i + 1,
+      team_a_id: p.teamA.teamId,
+      team_a_seed: p.teamA.seed,
+      team_b_id: p.teamB?.teamId ?? null,
+      team_b_seed: p.teamB?.seed ?? null,
+      is_bye: p.teamB === null,
+    }));
 
-    for (let i = 0; i < pairings.length; i++) {
-      const { teamA, teamB } = pairings[i];
-      const isBye = teamB === null;
-      const bracketPos = i + 1;
-
-      if (isBye) {
-        bracketRows.push({
-          league_id,
-          season: league.season,
-          round,
-          bracket_position: bracketPos,
-          matchup_id: null,
-          team_a_id: teamA.teamId,
-          team_a_seed: teamA.seed,
-          team_b_id: null,
-          team_b_seed: null,
-          winner_id: teamA.teamId,
-          is_bye: true,
-          is_third_place: false,
-        });
-      } else {
-        matchupInserts.push({
-          league_id,
-          schedule_id: scheduleWeek.id,
-          week_number: scheduleWeek.week_number,
-          home_team_id: teamA.teamId,
-          away_team_id: teamB.teamId,
-          playoff_round: round,
-          bracketPos,
-          teamA,
-          teamB,
-        });
-      }
-    }
-
-    if (matchupInserts.length > 0) {
-      const matchupRows = matchupInserts.map(m => ({
-        league_id: m.league_id,
-        schedule_id: m.schedule_id,
-        week_number: m.week_number,
-        home_team_id: m.home_team_id,
-        away_team_id: m.away_team_id,
-        playoff_round: m.playoff_round,
-      }));
-
-      const { data: insertedMatchups, error: mErr } = await supabase
-        .from('league_matchups')
-        .insert(matchupRows)
-        .select('id, home_team_id, away_team_id');
-
-      if (mErr) throw mErr;
-
-      for (const ins of matchupInserts) {
-        const matchup = insertedMatchups?.find(
-          (m: any) => m.home_team_id === ins.teamA.teamId && m.away_team_id === ins.teamB.teamId
-        );
-        bracketRows.push({
-          league_id,
-          season: league.season,
-          round,
-          bracket_position: ins.bracketPos,
-          matchup_id: matchup?.id ?? null,
-          team_a_id: ins.teamA.teamId,
-          team_a_seed: ins.teamA.seed,
-          team_b_id: ins.teamB.teamId,
-          team_b_seed: ins.teamB.seed,
-          winner_id: null,
-          is_bye: false,
-          is_third_place: false,
-        });
-      }
-    }
-
-    if (bracketRows.length > 0) {
-      const { error: bErr } = await supabase.from('playoff_bracket').insert(bracketRows);
-      if (bErr) throw bErr;
-    }
-
-    // Notify teams about their playoff matchups
-    try {
-      const ln = league.name ?? 'Your League';
-      for (const ins of matchupInserts) {
-        await notifyTeams(supabase, [ins.teamA.teamId, ins.teamB.teamId], 'playoffs',
-          round >= totalRounds ? `${ln} — Championship Matchup!` : `${ln} — Playoff Round ${round}`,
-          round >= totalRounds ? 'The championship matchup is set. Time to compete!'
-            : 'Your next playoff matchup has been set. Check the bracket.',
-          { screen: 'playoff-bracket' }
-        );
-      }
-    } catch (notifyErr) {
-      console.warn('Playoff matchup notification failed (non-fatal):', notifyErr);
-    }
-
-    // ── 3rd place game: create from semifinal losers when generating finals ──
+    // 3rd place game: semifinal losers, created alongside the final.
+    let thirdPlacePayload: Record<string, unknown> | null = null;
     if (round === totalRounds && round > 1) {
-      // prevBracket was fetched above (round > 1 path) — find semifinal losers
       const losers = (prevBracket ?? [])
         .filter(b => !b.is_bye && b.winner_id && b.team_a_id && b.team_b_id)
         .map(b => {
@@ -626,48 +592,54 @@ Deno.serve(async (req: Request) => {
         const [loserA, loserB] = losers[0].seed < losers[1].seed
           ? [losers[0], losers[1]]
           : [losers[1], losers[0]];
+        thirdPlacePayload = {
+          bracket_position: pairings.length + 1,
+          team_a_id: loserA.teamId,
+          team_a_seed: loserA.seed,
+          team_b_id: loserB.teamId,
+          team_b_seed: loserB.seed,
+        };
+      }
+    }
 
-        const { data: thirdPlaceMatchups, error: tpErr } = await supabase
-          .from('league_matchups')
-          .insert({
-            league_id,
-            schedule_id: scheduleWeek.id,
-            week_number: scheduleWeek.week_number,
-            home_team_id: loserA.teamId,
-            away_team_id: loserB.teamId,
-            playoff_round: round,
-          })
-          .select('id');
+    const { data: writeResult, error: writeErr } = await supabase.rpc('create_playoff_round_atomic', {
+      p_league_id: league_id,
+      p_season: league.season,
+      p_round: round,
+      p_schedule_id: scheduleWeek.id,
+      p_week_number: scheduleWeek.week_number,
+      p_pairings: pairingPayload,
+      p_third_place: thirdPlacePayload,
+    });
+    if (writeErr) throw writeErr;
 
-        if (!tpErr && thirdPlaceMatchups?.[0]) {
-          await supabase.from('playoff_bracket').insert({
-            league_id,
-            season: league.season,
-            round,
-            bracket_position: pairings.length + 1,
-            matchup_id: thirdPlaceMatchups[0].id,
-            team_a_id: loserA.teamId,
-            team_a_seed: loserA.seed,
-            team_b_id: loserB.teamId,
-            team_b_seed: loserB.seed,
-            winner_id: null,
-            is_bye: false,
-            is_third_place: true,
-          });
+    const created = writeResult as {
+      bracket_count: number;
+      matchup_count: number;
+      matchups: Array<{ team_a_id: string; team_b_id: string; is_third_place: boolean }>;
+    };
 
-          // Notify 3rd place game teams
-          try {
-            const ln = league.name ?? 'Your League';
-            await notifyTeams(supabase, [loserA.teamId, loserB.teamId], 'playoffs',
-              `${ln} — 3rd Place Game`,
-              'You\'ve been matched up for the 3rd place game. Good luck!',
-              { screen: 'playoff-bracket' }
-            );
-          } catch (notifyErr) {
-            console.warn('3rd place notification failed (non-fatal):', notifyErr);
-          }
+    // Notify teams about their matchups (non-fatal). Byes are excluded server-side.
+    try {
+      const ln = league.name ?? 'Your League';
+      for (const m of created.matchups ?? []) {
+        if (m.is_third_place) {
+          await notifyTeams(supabase, [m.team_a_id, m.team_b_id], 'playoffs',
+            `${ln} — 3rd Place Game`,
+            'You\'ve been matched up for the 3rd place game. Good luck!',
+            { screen: 'playoff-bracket' }
+          );
+        } else {
+          await notifyTeams(supabase, [m.team_a_id, m.team_b_id], 'playoffs',
+            round >= totalRounds ? `${ln} — Championship Matchup!` : `${ln} — Playoff Round ${round}`,
+            round >= totalRounds ? 'The championship matchup is set. Time to compete!'
+              : 'Your next playoff matchup has been set. Check the bracket.',
+            { screen: 'playoff-bracket' }
+          );
         }
       }
+    } catch (notifyErr) {
+      console.warn('Playoff matchup notification failed (non-fatal):', notifyErr);
     }
 
     // Check if all entries this round are byes — if so, auto-generate next round
@@ -688,8 +660,8 @@ Deno.serve(async (req: Request) => {
     return jsonResponse({
       success: true,
       round,
-      bracket_entries: bracketRows.length,
-      matchups_created: matchupInserts.length,
+      bracket_entries: created.bracket_count,
+      matchups_created: created.matchup_count,
       byes: pairings.filter(p => p.teamB === null).length,
     });
   } catch (err) {

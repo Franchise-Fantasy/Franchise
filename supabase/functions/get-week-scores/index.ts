@@ -18,6 +18,7 @@ import {
 import { resolveSlot as sharedResolveSlot, isActiveSlot } from "../_shared/resolveSlot.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday, addSlateDays } from "../../../utils/leagueTime.ts";
+import { getSportModule } from "../../../utils/sports/registry.ts";
 
 const Body = z.object({
   league_id: z.string().uuid().optional(),
@@ -30,12 +31,10 @@ const supabase = createClient(
 );
 
 // ── Scoring helpers ─────────────────────────────────────────────────────────
-
-const STAT_TO_GAME: Record<string, string> = {
-  PTS: "pts", REB: "reb", AST: "ast", STL: "stl", BLK: "blk",
-  TO: "tov", "3PM": "3pm", "3PA": "3pa", FGM: "fgm", FGA: "fga",
-  FTM: "ftm", FTA: "fta", PF: "pf", DD: "double_double", TD: "triple_double",
-};
+// Stat-name → game-column maps come from the shared sports registry so this
+// function scores whatever sport the league is (the RPC bundle carries
+// `sport`). Helpers below take the resolved map as a param — computed once
+// per computeWeekScores call.
 
 interface ScoringWeight {
   stat_name: string;
@@ -51,25 +50,11 @@ const PERCENTAGE_STATS: Record<string, { numerator: string; denominator: string 
   'FT%': { numerator: 'ftm', denominator: 'fta' },
 };
 
-function aggregateGameStats(
-  gameLogs: Record<string, any>[],
-): Record<string, number> {
-  const totals: Record<string, number> = {};
-  for (const game of gameLogs) {
-    for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
-      const raw = game[gameKey];
-      if (raw == null) continue;
-      const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
-      totals[gameKey] = (totals[gameKey] ?? 0) + val;
-    }
-  }
-  return totals;
-}
-
 function compareCategoryStats(
   homeStats: Record<string, number>,
   awayStats: Record<string, number>,
   categories: ScoringWeight[],
+  statToGame: Record<string, string>,
 ): { results: CategoryResult[]; homeWins: number; awayWins: number; ties: number } {
   const results: CategoryResult[] = [];
   let homeWins = 0;
@@ -90,7 +75,7 @@ function compareCategoryStats(
       homeVal = hDen > 0 ? Math.round((hNum / hDen) * 1000) / 1000 : 0;
       awayVal = aDen > 0 ? Math.round((aNum / aDen) * 1000) / 1000 : 0;
     } else {
-      const gameKey = STAT_TO_GAME[cat.stat_name];
+      const gameKey = statToGame[cat.stat_name];
       if (!gameKey) continue;
       homeVal = homeStats[gameKey] ?? 0;
       awayVal = awayStats[gameKey] ?? 0;
@@ -117,10 +102,11 @@ function compareCategoryStats(
 function calcFpts(
   game: Record<string, number | boolean>,
   weights: ScoringWeight[],
+  statToGame: Record<string, string>,
 ): number {
   let total = 0;
   for (const w of weights) {
-    const field = STAT_TO_GAME[w.stat_name];
+    const field = statToGame[w.stat_name];
     if (!field || game[field] == null) continue;
     const val = typeof game[field] === "boolean"
       ? (game[field] ? 1 : 0)
@@ -132,7 +118,18 @@ function calcFpts(
 
 function liveToGameLog(
   live: Record<string, number>,
+  sport: string,
 ): Record<string, number | boolean> {
+  if (sport === "nfl") {
+    // NFL live rows already carry the exact scoring columns (incl. the
+    // derived dst_pa_pts tier) — pass them through, nulls stay absent.
+    const out: Record<string, number | boolean> = {};
+    for (const col of Object.values(getSportModule("nfl").statToGame)) {
+      const v = live[col];
+      if (v != null) out[col] = v;
+    }
+    return out;
+  }
   const cats = [live.pts, live.reb, live.ast, live.stl, live.blk].filter(
     (v) => v >= 10,
   ).length;
@@ -183,7 +180,9 @@ async function computeWeekScores(
   if (rpcError) throw rpcError;
   if (bundle?.error) throw new Error(bundle.error);
 
-  const today = getSportToday(null);
+  const sport: string = bundle.sport ?? 'nba';
+  const statToGame = getSportModule(sport).statToGame;
+  const today = getSportToday(sport);
 
   const week = bundle.week;
   const weights: ScoringWeight[] = bundle.scoring ?? [];
@@ -218,7 +217,7 @@ async function computeWeekScores(
     teamPlayerMap.get(lp.team_id)!.add(lp.player_id);
     defaultSlotMap.set(lp.player_id, lp.roster_slot ?? "BE");
     if (lp.acquired_at) {
-      acquiredDateMap.set(lp.player_id, getSportToday(null, new Date(lp.acquired_at)));
+      acquiredDateMap.set(lp.player_id, getSportToday(sport, new Date(lp.acquired_at)));
     }
   }
 
@@ -289,7 +288,7 @@ async function computeWeekScores(
       if (!playerSet.has(game.player_id)) continue;
       const slot = resolveSlot(tid, game.player_id, game.game_date);
       if (!isActiveSlot(slot)) continue;
-      const fp = calcFpts(game as Record<string, number | boolean>, weights);
+      const fp = calcFpts(game as Record<string, number | boolean>, weights, statToGame);
       teamScores[tid] = (teamScores[tid] ?? 0) + fp;
       if (game.game_date === today) completedToday.add(game.player_id);
       break;
@@ -303,8 +302,8 @@ async function computeWeekScores(
       if (!playerSet.has(live.player_id)) continue;
       const slot = resolveSlot(tid, live.player_id, live.game_date);
       if (!isActiveSlot(slot)) continue;
-      const gameLog = liveToGameLog(live as Record<string, number>);
-      const fp = calcFpts(gameLog, weights);
+      const gameLog = liveToGameLog(live as Record<string, number>, sport);
+      const fp = calcFpts(gameLog, weights, statToGame);
       teamScores[tid] = (teamScores[tid] ?? 0) + fp;
       break;
     }
@@ -328,7 +327,7 @@ async function computeWeekScores(
         const slot = resolveSlot(tid, game.player_id, game.game_date);
         if (!isActiveSlot(slot)) continue;
         const stats = teamStats.get(tid)!;
-        for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+        for (const [, gameKey] of Object.entries(statToGame)) {
           const raw = game[gameKey];
           if (raw == null) continue;
           const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
@@ -344,9 +343,9 @@ async function computeWeekScores(
         if (!playerSet.has(live.player_id)) continue;
         const slot = resolveSlot(tid, live.player_id, live.game_date);
         if (!isActiveSlot(slot)) continue;
-        const gameLog = liveToGameLog(live as Record<string, number>);
+        const gameLog = liveToGameLog(live as Record<string, number>, sport);
         const stats = teamStats.get(tid)!;
-        for (const [, gameKey] of Object.entries(STAT_TO_GAME)) {
+        for (const [, gameKey] of Object.entries(statToGame)) {
           const raw = gameLog[gameKey];
           if (raw == null) continue;
           const val = typeof raw === 'boolean' ? (raw ? 1 : 0) : Number(raw);
@@ -361,7 +360,7 @@ async function computeWeekScores(
       if (!m.away_team_id) continue;
       const homeStats = teamStats.get(m.home_team_id) ?? {};
       const awayStats = teamStats.get(m.away_team_id) ?? {};
-      const result = compareCategoryStats(homeStats, awayStats, weights);
+      const result = compareCategoryStats(homeStats, awayStats, weights, statToGame);
       categoryUpdates.push({
         matchupId: m.id,
         homeWins: result.homeWins,
@@ -447,6 +446,8 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
     const hour = parseInt(etParts.find((p) => p.type === 'hour')!.value, 10);
     const datesToCheck = hour < 3 ? [today, addSlateDays(today, -1)] : [today];
 
+    // sport-scope: global "any games happening at all" short-circuit for the
+    // whole cron run — cross-sport on purpose.
     const { data } = await supabase
       .from('game_schedule')
       .select('game_id', { head: false, count: 'exact' })
@@ -747,21 +748,31 @@ async function dispatchMatchupActivities(
 
   // ── Next-tipoff data: today + tomorrow's game_schedule rows for any pro
   // team a rostered player plays for. pro_team mapping is per-player.
+  // Tricodes are qualified by sport ("nba:PHX") — NBA and WNBA share several
+  // city codes, so a bare-tricode lookup can match the wrong sport's game
+  // when both have a slate on the same day.
   const playerToProTeam = new Map<string, string>();
   if (allRosterPlayerIdsArr.length > 0) {
     const { data } = await supabase
       .from('players')
-      .select('id, pro_team')
+      .select('id, pro_team, sport')
       .in('id', allRosterPlayerIdsArr);
     for (const p of data ?? []) {
-      if (p.pro_team) playerToProTeam.set(p.id, p.pro_team);
+      if (p.pro_team) playerToProTeam.set(p.id, `${p.sport}:${p.pro_team}`);
     }
   }
   const tomorrow = addSlateDays(today, 1);
-  const { data: upcomingGames } = await supabase
+  // sport-scope: intentionally spans sports (one fetch for all leagues in the
+  // run); rows are disambiguated by the sport-qualified tricode keys below.
+  const { data: upcomingGamesRaw } = await supabase
     .from('game_schedule')
-    .select('home_team, away_team, game_time_utc')
+    .select('home_team, away_team, game_time_utc, sport')
     .in('game_date', [today, tomorrow]);
+  const upcomingGames = (upcomingGamesRaw ?? []).map((g) => ({
+    home_team: g.home_team ? `${g.sport}:${g.home_team}` : g.home_team,
+    away_team: g.away_team ? `${g.sport}:${g.away_team}` : g.away_team,
+    game_time_utc: g.game_time_utc,
+  }));
 
   for (const weekResult of weekResults) {
     const weekTokens = tokens.filter(t => t.schedule_id === weekResult.schedule_id);

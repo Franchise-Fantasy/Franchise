@@ -38,7 +38,7 @@ export function usePrevSeasonFpts(
       for (const row of data ?? []) {
         const pid = (row as { player_id?: string }).player_id;
         if (!pid) continue;
-        const fpts = seasonAvgRowToFpts(row as Record<string, unknown>, scoringWeights);
+        const fpts = seasonAvgRowToFpts(row as Record<string, unknown>, scoringWeights, sport);
         if (fpts > 0) map.set(pid, fpts);
       }
       return map;

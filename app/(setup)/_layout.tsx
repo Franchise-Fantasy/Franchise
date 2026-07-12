@@ -36,6 +36,11 @@ export default function SetupTabLayout() {
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: c.border,
           },
+          // Web uses the desktop shell for chrome — hide the mobile bar during
+          // setup so the create/join/import flow reads as a clean desktop page.
+          web: {
+            display: 'none',
+          },
           default: {
             borderTopWidth: StyleSheet.hairlineWidth,
             borderTopColor: c.border,

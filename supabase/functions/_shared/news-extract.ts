@@ -120,10 +120,10 @@ export async function insertNewsArticle(
  * Personalized per-user "New Update" notifications, batched into one bulk
  * round-trip. Returns the number of notifications dispatched.
  *
- * Used by both pollers. Callers decide which players to pass: poll-news passes
- * everyone with a new article; poll-news-google passes only those whose article
- * is recently published (so re-surfaced old stories don't ping). `playerById`
- * only needs `.name`; callers pass their richer map directly (ReadonlyMap so a
+ * Called ONLY by poll-news (RotoWire). poll-news-google inserts into the same
+ * feed but deliberately never pushes — its ~40-outlet volume was drowning users
+ * — so player-news pushes are curated-source-only. `playerById` only needs
+ * `.name`; callers pass their richer map directly (ReadonlyMap so a
  * `{ name, ...extra }` value map is still assignable).
  */
 export async function notifyRosteredPlayerNews(
