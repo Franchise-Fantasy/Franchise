@@ -1163,16 +1163,17 @@ export function PlayerDetailModal({
         .eq("player_id", playerToDrop.player_id);
       if (delError) throw delError;
 
-      // Place on waivers - slate-anchored expiry, matches handleDropPlayer.
-      const wt = rosterInfo?.waiverType ?? "none";
-      const wpDays = rosterInfo?.waiverPeriodDays ?? 2;
-      if (wt !== "none" && wpDays > 0) {
-        const until = nextSlateRollover(sport);
-        until.setUTCDate(until.getUTCDate() + (wpDays - 1));
+      // Place on waivers. `waiver_until` is the single source for when a
+      // dropped player clears (basketball: rollover + period; NFL: the weekly
+      // Wednesday run) and returns null in a no-waiver league.
+      const { data: until } = await supabase.rpc("waiver_until", {
+        p_league_id: leagueId,
+      });
+      if (until) {
         await supabase.from("league_waivers").insert({
           league_id: leagueId,
           player_id: playerToDrop.player_id,
-          on_waivers_until: until.toISOString(),
+          on_waivers_until: until,
           dropped_by_team_id: teamId,
         });
       }

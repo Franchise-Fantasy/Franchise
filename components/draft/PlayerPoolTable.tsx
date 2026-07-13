@@ -175,17 +175,21 @@ export function PlayerPoolTable({
         .map((col) => `${col} ${statValue(item, col, fpts)}`)
         .join(", ");
 
+      const rowLabel =
+        (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
+        `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
+        (projected ? ", projected" : "") +
+        `, ${statsLabel}`;
+
       return (
+        // Deliberately NOT accessibilityRole="button". react-native-web maps that
+        // role onto a real <button> element, and this row already contains the
+        // Draft and queue buttons — a <button> inside a <button> is invalid HTML
+        // and React logs it on every row. The row stays a plain clickable
+        // container for the mouse; the screen-reader affordance lives on the
+        // player-name button below, which carries the full row label.
         <Pressable
           onPress={() => onSelectPlayer(item)}
-          accessibilityRole="button"
-          accessibilityLabel={
-            (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
-            `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
-            (projected ? ", projected" : "") +
-            `, ${statsLabel}`
-          }
-          accessibilityHint="View player details"
           style={({ hovered }: { hovered?: boolean }) => [
             styles.row,
             { borderBottomColor: c.border },
@@ -212,12 +216,22 @@ export function PlayerPoolTable({
                     #{boardRank}
                   </ThemedText>
                 )}
-                <PlayerName
-                  name={item.name}
-                  type="defaultSemiBold"
-                  style={styles.playerName}
-                  containerStyle={styles.playerNameBox}
-                />
+                {/* The row's accessible entry point — carries the whole line so
+                    a screen reader hears rank, position, team and stat line in
+                    one node instead of walking nine cells. */}
+                <Pressable
+                  onPress={() => onSelectPlayer(item)}
+                  accessibilityRole="button"
+                  accessibilityLabel={rowLabel}
+                  accessibilityHint="View player details"
+                  style={styles.playerNameBox}
+                >
+                  <PlayerName
+                    name={item.name}
+                    type="defaultSemiBold"
+                    style={styles.playerName}
+                  />
+                </Pressable>
                 {badge && (
                   <View style={[styles.badge, { backgroundColor: badge.color }]} accessible={false}>
                     <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
@@ -254,9 +268,9 @@ export function PlayerPoolTable({
                   style={[
                     styles.stat,
                     { width: colWidth(col) },
-                    // SpaceMono ships a single weight and `font-synthesis: none`
-                    // is on for web, so FPTS earns its emphasis from color, not
-                    // a bold face that would never render.
+                    // The numerals face ships a single weight and
+                    // `font-synthesis: none` is on for web, so FPTS earns its
+                    // emphasis from color, not a bold face that would never render.
                     col === "FPTS"
                       ? { color: c.accent }
                       : { color: sortBy === SORT_FOR[col] ? c.text : c.secondaryText },

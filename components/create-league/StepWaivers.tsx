@@ -52,6 +52,11 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const weeklyLimitEnabled = state.weeklyAcquisitionLimit != null;
+  // NFL runs ONE weekly waiver clear (Wednesday morning) instead of a rolling
+  // per-player timer — football is played once a week and the whole league
+  // reacts to the same Sunday. `waiver_until` in the DB owns the rule; the
+  // day-count stepper is meaningless here, so it's replaced by the explainer.
+  const isNfl = state.sport === 'nfl';
   // Priority order only matters where the resolver reads it: Standard leagues,
   // and FAAB leagues that break equal-bid ties by waiver priority.
   const priorityResetRelevant =
@@ -68,13 +73,22 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
         </FieldGroup>
 
         <AnimatedSection visible={state.waiverType !== 'None'}>
-          <NumberStepper
-            label="Waiver Period (days)"
-            value={state.waiverPeriodDays}
-            onValueChange={(v) => onChange('waiverPeriodDays', v)}
-            min={1}
-            max={5}
-          />
+          {isNfl ? (
+            <FieldGroup
+              label="Waiver Run"
+              helperText="Everyone dropped during the week sits on waivers until one weekly run: Wednesday at 5:00 AM ET. That gives the league the Monday and Tuesday after the games to get claims in, and settles the wire before Thursday night kickoff."
+            >
+              {null}
+            </FieldGroup>
+          ) : (
+            <NumberStepper
+              label="Waiver Period (days)"
+              value={state.waiverPeriodDays}
+              onValueChange={(v) => onChange('waiverPeriodDays', v)}
+              min={1}
+              max={5}
+            />
+          )}
         </AnimatedSection>
 
         <AnimatedSection visible={state.waiverType === 'FAAB'}>

@@ -149,7 +149,9 @@ export function StepScoring({
           {state.scoring.map((cat, index) => (
             <NumberStepper
               key={cat.stat_name}
-              label={`${cat.stat_name} - ${cat.label}`}
+              // Friendly label only — the raw stat key ("PASS_YD") is an
+              // implementation detail. Matches EditScoringModal's statLabel().
+              label={cat.label}
               value={cat.point_value}
               onValueChange={(v) => onScoringChange(index, v)}
               min={-100}
@@ -160,13 +162,38 @@ export function StepScoring({
           ))}
 
           {state.sport === 'nfl' && (
-            <ThemedText style={[styles.description, { color: c.secondaryText }]}>
-              D/ST Points Allowed scores a tier result, not each point allowed:{' '}
-              {DST_PA_TIERS.map(
-                (t) => `${t.label} → ${t.pts > 0 ? '+' : ''}${t.pts}`,
-              ).join(' · ')}
-              . The DST_PA value above multiplies that tier result.
-            </ThemedText>
+            <View style={styles.tierNote}>
+              <ThemedText style={[styles.description, { color: c.secondaryText }]}>
+                <ThemedText style={[styles.tierNoteLead, { color: c.text }]}>
+                  How Points Allowed Tier works:{' '}
+                </ThemedText>
+                a defense earns points based on how few points it gives up in the
+                game — not per point allowed. Keep the value at 1 to use these
+                standard tiers, 0 to turn the bonus off, or raise it to amplify them.
+              </ThemedText>
+              <View style={styles.tierGrid}>
+                {DST_PA_TIERS.map((t) => (
+                  <View
+                    key={t.label}
+                    style={[styles.tierChip, { borderColor: c.border }]}
+                    accessible
+                    accessibilityLabel={`Allowing ${t.label} points scores ${t.pts} fantasy points`}
+                  >
+                    <ThemedText style={[styles.tierChipRange, { color: c.secondaryText }]}>
+                      {t.label}
+                    </ThemedText>
+                    <ThemedText
+                      style={[
+                        styles.tierChipPts,
+                        { color: t.pts > 0 ? c.success : t.pts < 0 ? c.danger : c.secondaryText },
+                      ]}
+                    >
+                      {t.pts > 0 ? `+${t.pts}` : t.pts}
+                    </ThemedText>
+                  </View>
+                ))}
+              </View>
+            </View>
           )}
 
           <View style={styles.resetWrap}>
@@ -222,5 +249,38 @@ const styles = StyleSheet.create({
   // spacing above, and the ghost button brings its own touch target.
   resetWrap: {
     alignItems: 'center',
+  },
+  tierNote: {
+    gap: s(8),
+  },
+  tierNoteLead: {
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    fontWeight: '700',
+  },
+  // Range → points chips, so the bracket reads as a table rather than a
+  // run-on sentence of arrows.
+  tierGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: s(6),
+  },
+  tierChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: s(4),
+    paddingHorizontal: s(8),
+  },
+  tierChipRange: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(11),
+  },
+  tierChipPts: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(11),
+    fontWeight: '700',
   },
 });

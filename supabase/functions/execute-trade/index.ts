@@ -108,7 +108,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, waiver_type, waiver_period_days, sport, teams, current_teams, rookie_draft_rounds, max_future_seasons')
+      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, sport, teams, current_teams, rookie_draft_rounds, max_future_seasons')
       .eq('id', proposal.league_id)
       .single();
     const sport = (league as any)?.sport ?? null;
@@ -349,8 +349,6 @@ Deno.serve(async (req) => {
 
     // Roster capacity check — ensure no team exceeds roster_size after the trade
     const rosterSize = league?.roster_size ?? 13;
-    const waiverType = league?.waiver_type ?? 'none';
-    const waiverDays = league?.waiver_period_days ?? 2;
     const dropsPayload: Array<{ team_id: string; player_id: string; waiver_until: string | null }> = [];
     const dropsByTeam = new Map<string, string[]>();
     // Queued drops that turned out to be unnecessary at execution time —
@@ -502,15 +500,12 @@ Deno.serve(async (req) => {
       // Build the drops payload for the atomic RPC from the validated drops.
       // Lineup/waiver side-effects happen inside execute_trade_transfers, so
       // they commit or roll back together with the player transfers.
-      let waiverUntil: string | null = null;
-      if (waiverType !== 'none' && waiverDays > 0) {
-        // Waiver expiry = next slate rollover + (waiverDays - 1) days.
-        // A 2-day waiver clears at the slate-rollover boundary two days
-        // from now — consistent for every GM regardless of TZ.
-        const until = nextSlateRollover(sport);
-        until.setUTCDate(until.getUTCDate() + (waiverDays - 1));
-        waiverUntil = until.toISOString();
-      }
+      // `waiver_until` owns the cadence for every writer of league_waivers
+      // (basketball: rollover + period; NFL: the weekly Wednesday clear) and
+      // returns NULL when the league has no waiver wire.
+      const { data: waiverUntilRpc } = await supabaseAdmin
+        .rpc('waiver_until', { p_league_id: proposal.league_id });
+      const waiverUntil: string | null = (waiverUntilRpc as string | null) ?? null;
       for (const [tid, pids] of dropsByTeam) {
         for (const pid of pids) {
           dropsPayload.push({ team_id: tid, player_id: pid, waiver_until: waiverUntil });

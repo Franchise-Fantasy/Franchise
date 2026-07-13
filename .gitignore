@@ -25,10 +25,14 @@ credentials.json
 AuthKey_*
 .vercel
 
-# scripts/ may contain hardcoded secrets in seed/admin scripts.
-# Only check-realtime-channels.mjs and reset-project.js are tracked,
-# since they're wired into npm scripts (`check:realtime-channels`,
-# `reset-project`) that other devs / CI need.
+# scripts/ may contain hardcoded secrets in seed/admin scripts, so the
+# directory is excluded and safe files are re-added one by one. The scanners
+# are tracked because npm scripts / CI need them; scripts/fonts/ is tracked
+# because it documents how a vendored font asset was derived.
+# NOTE: a nested file can't be un-ignored on its own — git never descends into
+# an excluded directory — so scripts/fonts/ has to be negated before the file.
 scripts/*
 !scripts/check-realtime-channels.mjs
 !scripts/reset-project.js
+!scripts/fonts/
+!scripts/fonts/patch-bloomy-tabular.py

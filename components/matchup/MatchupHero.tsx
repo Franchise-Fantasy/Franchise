@@ -1060,12 +1060,14 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   countNum: {
-    fontFamily: Fonts.display,
+    // Bloomy (numerals) rather than the display face: this is a countdown, so
+    // the digits change every tick and need uniform widths to hold still.
+    fontFamily: Fonts.mono,
     color: Brand.ecru,
     fontSize: ms(52),
-    // The slab face needs generous line height or its caps clip at the top;
-    // the empty descent slack that leaves below the number is reclaimed by the
-    // sub-line's negative margin rather than by squeezing this box.
+    // Generous line height so the numerals don't clip at the top; the empty
+    // descent slack that leaves below the number is reclaimed by the sub-line's
+    // negative margin rather than by squeezing this box.
     lineHeight: ms(58),
     letterSpacing: -0.5,
     marginTop: s(1),
@@ -1366,11 +1368,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   bigScore: {
-    // Oswald 700 — true bold (no synthetic) but condensed and readable
-    // as a scoreboard digit. AlfaSlabOne (display) was too slab-heavy;
-    // SpaceMono at any weight reads as synthetic bold. `tabular-nums`
-    // keeps digits at fixed widths so live score updates don't reflow.
-    fontFamily: Fonts.varsityBold,
+    // Bloomy — the numerals face, and the only one with uniform digit widths
+    // (it's metrics-patched; see Fonts.mono). That matters here more than
+    // anywhere: this score ticks live, and the varsity/display faces have
+    // ~50% digit-width spread, so the whole hero would reflow on every update.
+    fontFamily: Fonts.mono,
     fontSize: ms(40),
     lineHeight: ms(44),
     letterSpacing: -0.4,

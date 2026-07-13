@@ -112,8 +112,12 @@ export function buildLeagueStrengthComparison(
   const leagueAvgFpts =
     Math.round((profiles.reduce((s, p) => s + p.avgFpts, 0) / profiles.length) * 10) / 10;
 
-  // Rank by avg FPTS/G per player (1 = strongest)
-  const sorted = [...profiles].sort((a, b) => b.avgFpts - a.avgFpts);
+  // Rank by avg FPTS/G per player (1 = strongest). avgFpts is rounded to 1dp
+  // before ranking, so teams tie often — teamId breaks the tie so the rank can't
+  // ride on the input row order (see the matching comment in rosterAge.ts).
+  const sorted = [...profiles].sort(
+    (a, b) => b.avgFpts - a.avgFpts || a.teamId.localeCompare(b.teamId),
+  );
   const myRank = sorted.findIndex((p) => p.teamId === myTeamId) + 1;
 
   return {

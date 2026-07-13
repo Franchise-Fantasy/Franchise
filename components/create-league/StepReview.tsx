@@ -153,12 +153,22 @@ export function StepReview({
       <Section title="Waiver Settings" action={editAction('waivers', 'Waiver Settings')}>
         <Row label="Waiver Type" value={state.waiverType} c={c} />
         {state.waiverType !== 'None' && (
-          <Row label="Waiver Period" value={`${state.waiverPeriodDays} days`} c={c} />
+          // NFL clears the whole wire once a week instead of running a
+          // per-player day counter (see StepWaivers / the waiver_until RPC).
+          <Row
+            label={state.sport === 'nfl' ? 'Waiver Run' : 'Waiver Period'}
+            value={state.sport === 'nfl' ? 'Weekly · Wed 5:00 AM ET' : `${state.waiverPeriodDays} days`}
+            c={c}
+          />
         )}
         {state.waiverType === 'FAAB' && (
           <Row label="FAAB Budget" value={`$${state.faabBudget}`} c={c} />
         )}
-        <Row label="Player Lock" value={state.playerLockType} c={c} />
+        <Row
+          label="Player Lock"
+          value={state.sport === 'nfl' ? 'At kickoff (weekly)' : state.playerLockType}
+          c={c}
+        />
       </Section>
 
       <Section title="Season" action={editAction('season', 'Season')}>

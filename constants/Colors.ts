@@ -304,15 +304,28 @@ export const cardShadowMedium = {
   elevation: 5,
 } as const;
 
-// Brand typography tokens — set after fonts load in app/_layout.tsx.
-// Consumers: ThemedText "display" and "varsity" types, plus any custom styled
-// Text components that want the brand voice.
+// Brand typography tokens — the licensed Franchise type system, loaded in
+// app/_layout.tsx. Consumers: ThemedText's types, plus any custom styled Text
+// component that wants the brand voice.
+//
+// Each weight is registered as its OWN single-weight family (see
+// components/web/globalWebStyles.ts): native ignores `fontWeight` on a custom
+// fontFamily, so the family name — not the weight — picks the face.
+//
+// `mono` is the numerals/ticker voice (scoreboards, stat columns, live scores).
+// It is no longer a monospace face; the name is kept because ~112 call sites and
+// ThemedText's "mono" type refer to it, and the ROLE is unchanged. Bloomy ships
+// no `tnum` feature, so assets/fonts/Bloomy-Regular.ttf is metrics-patched to
+// uniform digit widths — see scripts/fonts/patch-bloomy-tabular.py. Any numeric
+// readout belongs on this token; the other three faces have proportional digits
+// (Stoner 53%, Desporm 50% spread) and will visibly reflow as values tick.
 export const Fonts = {
-  display: "AlfaSlabOne_400Regular", // headlines, hero, big moments
-  varsitySemibold: "Oswald_500Medium", // secondary varsity labels
-  varsityBold: "Oswald_700Bold", // primary varsity labels, tracked
-  body: "Inter_400Regular",
-  bodyMedium: "Inter_500Medium",
-  bodyBold: "Inter_700Bold",
-  mono: "SpaceMono", // pre-existing, already loaded
+  display: "Desporm", // headlines, hero, big moments
+  varsitySemibold: "StonerSport", // secondary varsity labels
+  varsityBold: "StonerSport", // primary varsity labels, tracked
+  body: "JustSans_400Regular",
+  bodyMedium: "JustSans_500Medium",
+  bodySemibold: "JustSans_600SemiBold",
+  bodyBold: "JustSans_700Bold",
+  mono: "Bloomy", // numerals, stat tickers, scoreboards (tabular-patched)
 } as const;

@@ -8,7 +8,6 @@ import { createLogger } from '../_shared/log.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
-import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -47,19 +46,6 @@ Deno.serve(async (req: Request) => {
     try {
       let notifBody = '';
 
-      // Fetch league waiver settings for drop actions
-      let leagueWaiverType = 'none';
-      let leagueWaiverDays = 0;
-      if (txn.action_type === 'drop') {
-        const { data: leagueSettings } = await supabase
-          .from('leagues')
-          .select('waiver_type, waiver_period_days')
-          .eq('id', txn.league_id)
-          .single();
-        leagueWaiverType = leagueSettings?.waiver_type ?? 'none';
-        leagueWaiverDays = leagueSettings?.waiver_period_days ?? 2;
-      }
-
       if (txn.action_type === "drop") {
         // Snapshot roster slot before dropping so mid-week scoring is preserved
         await snapshotBeforeDrop(supabase, txn.league_id, txn.team_id, txn.player_id);
@@ -69,21 +55,17 @@ Deno.serve(async (req: Request) => {
           .eq("league_id", txn.league_id).eq("team_id", txn.team_id).eq("player_id", txn.player_id);
         if (delError) throw delError;
 
-        // Place dropped player on waivers so they don't become an instant
-        // free agent. Expiry = next slate rollover + (waiverDays - 1) days,
-        // so a 2-day waiver clears at the slate-rollover boundary two days
-        // out — consistent for every GM regardless of TZ.
-        if (leagueWaiverType !== 'none' && leagueWaiverDays > 0) {
-          const { data: leagueSport } = await supabase
-            .from('leagues').select('sport').eq('id', txn.league_id).single();
-          const sport = leagueSport?.sport ?? null;
-          const until = nextSlateRollover(sport);
-          until.setUTCDate(until.getUTCDate() + (leagueWaiverDays - 1));
-
+        // Place the dropped player on waivers so they don't become an instant
+        // free agent. `waiver_until` owns the cadence for every writer of
+        // league_waivers (basketball: rollover + period; NFL: the weekly
+        // Wednesday clear) and returns NULL for a no-waiver league.
+        const { data: until } = await supabase
+          .rpc('waiver_until', { p_league_id: txn.league_id });
+        if (until) {
           await supabase.from('league_waivers').insert({
             league_id: txn.league_id,
             player_id: txn.player_id,
-            on_waivers_until: until.toISOString(),
+            on_waivers_until: until,
             dropped_by_team_id: txn.team_id,
           });
         }

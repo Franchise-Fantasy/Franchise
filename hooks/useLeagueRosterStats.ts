@@ -28,7 +28,18 @@ export function useLeagueRosterStats(leagueId: string) {
         (slotsRes.data ?? []).map((r) => [r.player_id, r.roster_slot]),
       );
       const rows = (statsRes.data ?? []) as unknown as LeaguePlayerWithTeam[];
-      return rows.map((p) => ({ ...p, roster_slot: slotByPlayer.get(p.player_id) ?? null }));
+      return rows
+        .map((p) => ({ ...p, roster_slot: slotByPlayer.get(p.player_id) ?? null }))
+        // get_league_roster_stats has no ORDER BY, so Postgres may hand back a
+        // different row order per call (the player_season_stats matview gets
+        // rewritten on every refresh). Anything downstream that groups by team
+        // then breaks a tie inherits that order — sort here so the whole
+        // analytics path is deterministic from one fetch to the next.
+        .sort(
+          (a, b) =>
+            a.team_id.localeCompare(b.team_id) ||
+            a.player_id.localeCompare(b.player_id),
+        );
     },
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 10,

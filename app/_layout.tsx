@@ -1,13 +1,3 @@
-import { AlfaSlabOne_400Regular } from "@expo-google-fonts/alfa-slab-one";
-import {
-  Inter_400Regular,
-  Inter_500Medium,
-  Inter_700Bold,
-} from "@expo-google-fonts/inter";
-import {
-  Oswald_500Medium,
-  Oswald_700Bold,
-} from "@expo-google-fonts/oswald";
 import NetInfo from "@react-native-community/netinfo";
 import {
   focusManager,
@@ -728,15 +718,26 @@ function NotificationAndLinkHandler() {
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
-  const [loaded] = useFonts({
-    SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
-    AlfaSlabOne_400Regular,
-    Oswald_500Medium,
-    Oswald_700Bold,
-    Inter_400Regular,
-    Inter_500Medium,
-    Inter_700Bold,
+  // Keys here ARE the fontFamily names the app renders with — they must match
+  // the values in `Fonts` (constants/Colors.ts). One family per weight: native
+  // ignores `fontWeight` on a custom family, so the name picks the face.
+  //
+  // JUST Sans ships 200/300/800 too; those files are in assets/fonts but are
+  // left unloaded until a design actually calls for them (each one is ~68KB of
+  // startup cost).
+  const [loaded, fontError] = useFonts({
+    Desporm: require("../assets/fonts/Desporm-Regular.ttf"),
+    StonerSport: require("../assets/fonts/StonerSport-Regular.ttf"),
+    Bloomy: require("../assets/fonts/Bloomy-Regular.ttf"),
+    JustSans_400Regular: require("../assets/fonts/JUSTSans-Regular.ttf"),
+    JustSans_500Medium: require("../assets/fonts/JUSTSans-Medium.ttf"),
+    JustSans_600SemiBold: require("../assets/fonts/JUSTSans-SemiBold.ttf"),
+    JustSans_700Bold: require("../assets/fonts/JUSTSans-Bold.ttf"),
   });
+
+  useEffect(() => {
+    if (fontError) logger.error('[fonts] brand faces failed to load', fontError);
+  }, [fontError]);
 
 
   // Forced-upgrade gate: query the public app_config table for the minimum
@@ -767,7 +768,11 @@ export default function RootLayout() {
     })();
   }, []);
 
-  if (!loaded) {
+  // Render nothing until the brand faces are in, so text doesn't visibly reflow
+  // from the system font — but never wait FOREVER. If a face fails to load (a
+  // corrupt asset, an OTA that shipped without one), degrade to the system font
+  // and boot anyway: an unbranded app is bad, a permanently blank one is worse.
+  if (!loaded && !fontError) {
     return null;
   }
 

@@ -5,7 +5,6 @@ import { createLogger } from '../_shared/log.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague, notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
-import { nextSlateRollover } from '../../../utils/leagueTime.ts';
 
 const log = createLogger('process-waivers');
 
@@ -76,7 +75,7 @@ Deno.serve(async (req: Request) => {
       // not have its waivers processed. Filtered out → `if (!league) continue`
       // below clears the expired row to free agency without notifying.
       const { data: leaguesData } = await supabase
-        .from('leagues').select('id, name, waiver_type, waiver_period_days, faab_tiebreak')
+        .from('leagues').select('id, name, waiver_type, faab_tiebreak')
         .in('id', leagueIds)
         .is('archived_at', null);
       const leagueMap = new Map((leaguesData ?? []).map(l => [l.id, l]));
@@ -131,7 +130,7 @@ Deno.serve(async (req: Request) => {
 
         for (const claim of claims ?? []) {
           try {
-            const result = await checkAndProcessClaim(claim, waiver.league_id, league.waiver_period_days, isFaab);
+            const result = await checkAndProcessClaim(claim, waiver.league_id, isFaab);
             if (result.ok) {
               awarded = true;
               // The award, the cost (FAAB debit / waiver-priority rotation), and
@@ -223,7 +222,7 @@ Deno.serve(async (req: Request) => {
 
 type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' | 'drop_player_unavailable' | 'position_limit' };
 
-async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDays: number, isFaab: boolean): Promise<ClaimResult> {
+async function checkAndProcessClaim(claim: any, leagueId: string, isFaab: boolean): Promise<ClaimResult> {
   const now = new Date();
 
   const { data: existing } = await supabase
@@ -307,13 +306,12 @@ async function checkAndProcessClaim(claim: any, leagueId: string, waiverPeriodDa
   let dropWaiverUntil: string | null = null;
   if (executeDrop) {
     await snapshotBeforeDrop(supabase, leagueId, claim.team_id, claim.drop_player_id);
-    if (waiverPeriodDays > 0) {
-      const { data: leagueRow } = await supabase
-        .from('leagues').select('sport').eq('id', leagueId).single();
-      const until = nextSlateRollover((leagueRow as any)?.sport ?? null);
-      until.setUTCDate(until.getUTCDate() + (waiverPeriodDays - 1));
-      dropWaiverUntil = until.toISOString();
-    }
+    // `waiver_until` owns the cadence for every writer of league_waivers
+    // (basketball: rollover + period; NFL: the weekly Wednesday clear). For an
+    // NFL league that means the player this claim drops joins NEXT week's run
+    // rather than clearing mid-week — which is the whole point of one run.
+    const { data: until } = await supabase.rpc('waiver_until', { p_league_id: leagueId });
+    dropWaiverUntil = (until as string | null) ?? null;
   }
 
   let notes = `Claimed ${pName} off waivers`;

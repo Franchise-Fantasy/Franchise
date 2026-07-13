@@ -1006,9 +1006,10 @@ const styles = StyleSheet.create({
   apRecord: { width: s(58), textAlign: 'center', fontSize: ms(11), marginLeft: s(4) },
   apExpW: { width: s(34), textAlign: 'right', fontSize: ms(11), marginLeft: s(4) },
   apLuck: { width: s(38), textAlign: 'right', fontSize: ms(11), marginLeft: s(4) },
-  // Bold mono emphasis for stat columns. SpaceMono doesn't have a true
-  // bold variant, so we bump weight — Hermes falls back to the closest
-  // available weight, which still reads tighter/heavier than regular.
+  // Emphasis for stat columns. The numerals face ships a single weight, so the
+  // `fontWeight` below is inert on native (and web sets `font-synthesis: none`
+  // to stop the browser faking it). Emphasis here comes from color at the call
+  // site; the weight is left in as a no-op hint rather than a working style.
   monoBold: {
     fontFamily: Fonts.mono,
     fontWeight: '700',

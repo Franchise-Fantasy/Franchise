@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Alert, FlatList, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LeagueChatPanel } from '@/components/chat/LeagueChatPanel';
@@ -80,6 +80,46 @@ function ToggleTab({
         ]}
       />
     </TouchableOpacity>
+  );
+}
+
+/**
+ * Tab in a desktop rail's eyebrow header. Sized to its label with the gold
+ * underline hugging the header's bottom rule, so a two-tab rail doesn't stretch
+ * each tab across half the column the way the phone's bottom bar does.
+ */
+function RailTab({
+  label,
+  active,
+  onPress,
+  colors,
+}: {
+  label: string;
+  active: boolean;
+  onPress: () => void;
+  colors: typeof Colors.light;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      accessibilityRole="tab"
+      accessibilityLabel={label}
+      accessibilityState={{ selected: active }}
+      style={({ hovered }: { hovered?: boolean }) => [
+        styles.railTab,
+        hovered && !active ? { backgroundColor: colors.cardAlt } : null,
+      ]}
+    >
+      <ThemedText
+        type="varsitySmall"
+        style={[styles.railTabText, { color: active ? colors.text : colors.secondaryText }]}
+      >
+        {label}
+      </ThemedText>
+      <View
+        style={[styles.railTabUnderline, { backgroundColor: active ? colors.gold : 'transparent' }]}
+      />
+    </Pressable>
   );
 }
 
@@ -726,21 +766,26 @@ export default function DraftRoomScreen() {
               />
             </View>
             <View style={[styles.deskRight, { borderLeftColor: colors.border, backgroundColor: colors.background }]}>
+              {/* Same 41px eyebrow bar as the chat rail beside it — left-aligned
+                  varsity caps, gold underline on the active tab. The phone's
+                  full-width centered tab bar read as bottom-nav chrome stranded
+                  at the top of a column. */}
               <View style={[styles.deskRightTabs, { borderBottomColor: colors.border }]}>
-                <ToggleTab
+                <View style={[styles.railRule, { backgroundColor: colors.gold }]} />
+                <RailTab
                   label="Queue"
                   active={rightMode === 'queue'}
                   onPress={() => setViewMode('queue')}
                   colors={colors}
                 />
-                <ToggleTab
+                <RailTab
                   label="My Team"
                   active={rightMode === 'roster'}
                   onPress={() => setViewMode('roster')}
                   colors={colors}
                 />
                 {showTradeButton && (
-                  <ToggleTab
+                  <RailTab
                     label={myPendingCount > 0 ? `Trades (${myPendingCount})` : 'Trades'}
                     active={rightMode === 'trades'}
                     onPress={() => setViewMode('trades')}
@@ -1120,12 +1165,14 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   deskRight: {
-    width: 380,
+    width: 344,
     borderLeftWidth: StyleSheet.hairlineWidth,
   },
   // ─── Desktop chat rail (web ≥1440 only) ──────────────────────
+  // Wider than the queue rail: message bubbles cap at a share of their column,
+  // so at 340 they were being squeezed into stubby blocks.
   deskChat: {
-    width: 340,
+    width: 380,
     borderLeftWidth: StyleSheet.hairlineWidth,
   },
   deskChatHeader: {
@@ -1144,12 +1191,34 @@ const styles = StyleSheet.create({
     fontSize: 10,
     letterSpacing: 1.4,
   },
+  // Mirrors deskChatHeader — same 41px bar, same gold rule, left-aligned.
   deskRightTabs: {
     flexDirection: 'row',
-    paddingHorizontal: s(8),
-    paddingTop: s(6),
-    paddingBottom: s(2),
+    alignItems: 'center',
+    height: 41,
+    paddingLeft: 14,
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  railRule: {
+    height: 2,
+    width: 14,
+    marginRight: 8,
+  },
+  railTab: {
+    height: 41,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+  },
+  railTabText: {
+    fontSize: 10,
+    letterSpacing: 1.4,
+  },
+  railTabUnderline: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    height: 2,
   },
   deskRightBody: {
     flex: 1,

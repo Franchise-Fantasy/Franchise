@@ -7396,6 +7396,10 @@ export type Database = {
         Args: { p_league_id: string; p_team_id: string; p_user_id: string }
         Returns: undefined
       }
+      waiver_until: {
+        Args: { p_at?: string; p_league_id: string }
+        Returns: string
+      }
     }
     Enums: {
       [_ in never]: never

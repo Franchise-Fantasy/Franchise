@@ -18,6 +18,12 @@
  *   - close:
  *       h2h_points: |home - away| <= 30 fpts OR within 15% of the leader
  *       h2h_categories: |homeWins - awayWins| <= 1 AND (decided) >= 3
+ *
+ * Score sources differ by scoring type, and getting this wrong is the whole
+ * ballgame: `league_matchups.home_score`/`away_score` are written ONLY by
+ * finalize-week, so mid-week they are 0.00 for every live matchup. The live
+ * running points total lives in `week_scores` (upserted by get-week-scores).
+ * Category wins DO live on league_matchups (get-week-scores updates them live).
  *   - down to the wire: >= 1 non-final starter game today, and EVERY non-final
  *     starter game is live now or tips within DECIDING_HORIZON_MS
  *
@@ -53,9 +59,10 @@ interface CloseCandidate {
   matchup_id: string;
   schedule_id: string;
   league_id: string;
+  league_name: string;
   home_team_id: string;
   away_team_id: string;
-  home_label: number;        // points: home_score; cats: home_cat_wins
+  home_label: number;        // points: live week score; cats: home_cat_wins
   away_label: number;
   ties: number;
   isCategories: boolean;
@@ -129,14 +136,17 @@ Deno.serve(async (req: Request) => {
     // alerts to members of a deleted league.
     const archivedLeagueIds = await getArchivedLeagueIds(supabase);
 
-    // Per-league scoring type
+    // Per-league scoring type + name (the name goes in the push title so a
+    // multi-league user knows which matchup is down to the wire)
     const { data: leagueRows } = await supabase
       .from("leagues")
-      .select("id, scoring_type")
+      .select("id, name, scoring_type")
       .in("id", leagueIds);
     const scoringTypeByLeague = new Map<string, string>();
+    const nameByLeague = new Map<string, string>();
     for (const l of leagueRows ?? []) {
       scoringTypeByLeague.set(l.id, l.scoring_type ?? "h2h_points");
+      nameByLeague.set(l.id, l.name ?? "Your League");
     }
 
     // All matchups for these ending weeks; pull scores + cat wins inline
@@ -152,13 +162,29 @@ Deno.serve(async (req: Request) => {
     const leagueByScheduleId = new Map<string, string>();
     for (const w of endingWeeks) leagueByScheduleId.set(w.id, w.league_id);
 
+    // Live running point totals for the ending weeks. league_matchups.home_score
+    // is still 0.00 until finalize-week writes it, so points leagues MUST read
+    // here — otherwise every unfinalized matchup looks like a 0-0 tie and
+    // "close" degenerates to "always true".
+    const { data: weekScoreRows, error: weekScoreErr } = await supabase
+      .from("week_scores")
+      .select("schedule_id, team_id, score")
+      .in("schedule_id", scheduleIds);
+    if (weekScoreErr) throw weekScoreErr;
+    const liveScores = new Map<string, number>();
+    for (const r of weekScoreRows ?? []) {
+      liveScores.set(`${r.schedule_id}:${r.team_id}`, Number(r.score ?? 0));
+    }
+
     // Filter to "close" matchups per scoring type
     const candidates: CloseCandidate[] = [];
+    let skippedUnscored = 0;
     for (const m of matchups ?? []) {
       if (!m.away_team_id) continue; // bye week
       const leagueId = leagueByScheduleId.get(m.schedule_id);
       if (!leagueId) continue;
       if (archivedLeagueIds.has(leagueId)) continue;
+      const leagueName = nameByLeague.get(leagueId) ?? "Your League";
       const isCats = scoringTypeByLeague.get(leagueId) === "h2h_categories";
       if (isCats) {
         const hw = m.home_category_wins ?? 0;
@@ -169,6 +195,7 @@ Deno.serve(async (req: Request) => {
           matchup_id: m.id,
           schedule_id: m.schedule_id,
           league_id: leagueId,
+          league_name: leagueName,
           home_team_id: m.home_team_id,
           away_team_id: m.away_team_id,
           home_label: hw,
@@ -177,13 +204,22 @@ Deno.serve(async (req: Request) => {
           isCategories: true,
         });
       } else {
-        const hs = Number(m.home_score ?? 0);
-        const as = Number(m.away_score ?? 0);
+        const hs = liveScores.get(`${m.schedule_id}:${m.home_team_id}`);
+        const as = liveScores.get(`${m.schedule_id}:${m.away_team_id}`);
+        // No week_scores row (get-week-scores hasn't run for this week yet), or
+        // a scoreless 0-0 week: we can't tell a real nail-biter from an unscored
+        // one, and a "within 0.0 pts" push is worse than no push. Wait for the
+        // next poll.
+        if (hs === undefined || as === undefined || (hs === 0 && as === 0)) {
+          skippedUnscored++;
+          continue;
+        }
         if (!pointsClose(hs, as)) continue;
         candidates.push({
           matchup_id: m.id,
           schedule_id: m.schedule_id,
           league_id: leagueId,
+          league_name: leagueName,
           home_team_id: m.home_team_id,
           away_team_id: m.away_team_id,
           home_label: hs,
@@ -196,7 +232,7 @@ Deno.serve(async (req: Request) => {
 
     if (candidates.length === 0) {
       await recordHeartbeat(supabase, "scan-close-matchups", "ok").catch(() => {});
-      return jsonResponse({ ok: true, qualified: 0, sent: 0 });
+      return jsonResponse({ ok: true, qualified: 0, sent: 0, skipped_unscored: skippedUnscored });
     }
 
     // Down-to-the-wire inputs: each candidate matchup's starters today, mapped
@@ -302,7 +338,7 @@ Deno.serve(async (req: Request) => {
         continue;
       }
 
-      const title = "Close matchup tonight";
+      const title = `${c.league_name} — Close matchup tonight`;
       const body = formatBody(c);
       const data = {
         screen: "matchup",
@@ -336,7 +372,8 @@ Deno.serve(async (req: Request) => {
     await recordHeartbeat(supabase, "scan-close-matchups", "ok").catch(() => {});
     console.log(
       `scan-close-matchups qualified=${candidates.length} sent=${sent} ` +
-        `suppressed_dedup=${suppressedByDedup} suppressed_not_imminent=${suppressedNotImminent}`,
+        `suppressed_dedup=${suppressedByDedup} suppressed_not_imminent=${suppressedNotImminent} ` +
+        `skipped_unscored=${skippedUnscored}`,
     );
 
     return jsonResponse({
@@ -345,6 +382,7 @@ Deno.serve(async (req: Request) => {
       sent,
       suppressed_by_dedup: suppressedByDedup,
       suppressed_not_imminent: suppressedNotImminent,
+      skipped_unscored: skippedUnscored,
     });
   } catch (err: unknown) {
     await recordHeartbeat(supabase, "scan-close-matchups", "error", String((err as Error)?.message ?? err)).catch(() => {});

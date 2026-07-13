@@ -37,11 +37,13 @@ jobs:
       - name: Install npm dependencies
         run: npm ci
 
-      # `typecheck:edge` shells out to Deno. Pin to a known-good major;
-      # Supabase Edge Functions runtime is on Deno 1.x as of this commit.
-      - uses: denoland/setup-deno@v1
+      # `typecheck:edge` shells out to Deno. Must stay on the Deno 2 line:
+      # supabase/functions/deno.json uses the Deno-2-only `"nodeModulesDir": "auto"`
+      # string form (1.x expects a boolean) and deno.lock is lockfile v5 (1.x tops
+      # out at v3). Supabase Edge Functions runtime is on Deno 2.
+      - uses: denoland/setup-deno@v2
         with:
-          deno-version: v1.x
+          deno-version: v2.x
 
       - name: Cache Deno modules
         uses: actions/cache@v4

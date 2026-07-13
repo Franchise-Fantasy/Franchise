@@ -13,6 +13,7 @@ import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
 import { rosterStyles } from "@/components/roster/rosterStyles";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { ThemedText } from "@/components/ui/ThemedText";
+import { Fonts } from "@/constants/Colors";
 import { type Sport } from "@/constants/LeagueDefaults";
 import { useColors } from "@/hooks/useColors";
 import { type ScoringWeight } from "@/types/player";
@@ -545,7 +546,7 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
   },
   totalChipValue: {
-    fontFamily: "SpaceMono",
+    fontFamily: Fonts.mono,
     fontSize: ms(20),
     lineHeight: ms(24),
     letterSpacing: -0.3,
@@ -615,7 +616,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   fpts: {
-    fontFamily: "SpaceMono",
+    fontFamily: Fonts.mono,
     fontSize: ms(15),
     lineHeight: ms(16),
     fontWeight: "700",
@@ -644,7 +645,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   statVal: {
-    fontFamily: "SpaceMono",
+    fontFamily: Fonts.mono,
     fontSize: ms(13),
     letterSpacing: 0.2,
     textAlign: "center",

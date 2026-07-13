@@ -42,6 +42,10 @@ interface EditWaiverSettingsModalProps {
 export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: EditWaiverSettingsModalProps) {
   const c = useColors();
   const queryClient = useQueryClient();
+  // NFL: one weekly waiver run (Wed 5am ET) and a fixed kickoff lock — the
+  // day-period and lock pickers have nothing to choose. See the waiver_until
+  // RPC, which owns the cadence for every writer of league_waivers.
+  const isNfl = league?.sport === 'nfl';
 
   const [waiverType, setWaiverType] = useState('Standard');
   const [waiverPeriod, setWaiverPeriod] = useState(2);
@@ -131,16 +135,25 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
         />
       </View>
 
-      {/* Waiver Period (not shown for 'None') */}
+      {/* Waiver Period (not shown for 'None'; NFL runs a fixed weekly clear) */}
       {waiverType !== 'None' && (
-        <NumberStepper
-          label="Waiver Period"
-          value={waiverPeriod}
-          onValueChange={setWaiverPeriod}
-          min={1}
-          max={5}
-          suffix=" days"
-        />
+        isNfl ? (
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Waiver Run</ThemedText>
+            <ThemedText style={[styles.rowValue, { color: c.secondaryText }]}>
+              Weekly · Wed 5:00 AM ET
+            </ThemedText>
+          </View>
+        ) : (
+          <NumberStepper
+            label="Waiver Period"
+            value={waiverPeriod}
+            onValueChange={setWaiverPeriod}
+            min={1}
+            max={5}
+            suffix=" days"
+          />
+        )
       )}
 
       {/* FAAB Budget (FAAB only) */}
@@ -206,21 +219,31 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
         accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
       />
 
-      {/* Player Lock */}
+      {/* Player Lock — NFL has one model (kickoff, for the week), so there's
+          nothing to pick; state the rule instead of offering a false choice. */}
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>
         <ThemedText style={styles.rowLabel}>Player Lock</ThemedText>
+        {isNfl && (
+          <ThemedText style={[styles.rowValue, { color: c.secondaryText }]}>
+            At kickoff (weekly)
+          </ThemedText>
+        )}
       </View>
-      <View style={{ paddingVertical: s(8) }}>
-        <SegmentedControl
-          options={PLAYER_LOCK_OPTIONS}
-          selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
-          onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
-        />
-      </View>
+      {!isNfl && (
+        <View style={{ paddingVertical: s(8) }}>
+          <SegmentedControl
+            options={PLAYER_LOCK_OPTIONS}
+            selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
+            onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
+          />
+        </View>
+      )}
       <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
-        {playerLock === 'Daily'
-          ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
-          : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'}
+        {isNfl
+          ? "Each player locks at their game's kickoff and stays locked for that week. Players who haven't played yet can be moved all week."
+          : playerLock === 'Daily'
+            ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
+            : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'}
       </ThemedText>
     </BottomSheet>
   );
@@ -231,4 +254,5 @@ const styles = StyleSheet.create({
   footerBtn: { flex: 1 },
   editRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: s(12), borderBottomWidth: StyleSheet.hairlineWidth },
   rowLabel: { fontSize: ms(14) },
+  rowValue: { fontSize: ms(13) },
 });

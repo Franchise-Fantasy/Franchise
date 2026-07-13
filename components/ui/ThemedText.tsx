@@ -51,26 +51,33 @@ export function ThemedText({
   );
 }
 
+// The body/UI types below name a JUST Sans face explicitly rather than setting
+// `fontWeight`. Each weight is its own single-weight family, and native ignores
+// fontWeight on a custom family — so the family name is what actually picks the
+// face. Before, these types set no fontFamily at all and fell through to the OS
+// system font (SF / Roboto), which is why most of the app didn't read as branded.
 const styles = StyleSheet.create({
   default: {
+    fontFamily: Fonts.body,
     fontSize: ms(16),
     lineHeight: ms(24),
   },
   defaultSemiBold: {
+    fontFamily: Fonts.bodySemibold,
     fontSize: ms(16),
     lineHeight: ms(24),
-    fontWeight: '600',
   },
   title: {
+    fontFamily: Fonts.bodyBold,
     fontSize: ms(32),
-    fontWeight: 'bold',
     lineHeight: ms(32),
   },
   subtitle: {
+    fontFamily: Fonts.bodyBold,
     fontSize: ms(20),
-    fontWeight: 'bold',
   },
   link: {
+    fontFamily: Fonts.body,
     lineHeight: ms(30),
     fontSize: ms(16),
   },

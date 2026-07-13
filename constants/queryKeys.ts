@@ -220,8 +220,8 @@ export const queryKeys = {
     ["draftHistoricalStats", leagueId] as const,
   freeAgentHistoricalStats: (leagueId: string) =>
     ["freeAgentHistoricalStats", leagueId] as const,
-  prevSeasonFpts: (leagueId: string, season: string) =>
-    ["prevSeasonFpts", leagueId, season] as const,
+  prevSeasonFpts: (leagueId: string, season: string, inputsDigest: string) =>
+    ["prevSeasonFpts", leagueId, season, inputsDigest] as const,
   playerProjections: (sport: string, horizon: string) =>
     ["playerProjections", sport, horizon] as const,
   activeDraft: (leagueId: string) => ["activeDraft", leagueId] as const,
@@ -394,3 +394,29 @@ export const queryKeys = {
   nflArchiveAwards: (season: number) =>
     ["nflArchiveAwards", season] as const,
 } as const;
+
+/**
+ * Digest of the inputs a query READS but its (leagueId, season) key doesn't
+ * capture — used by `prevSeasonFpts`, whose fetcher filters on a player-id list
+ * and bakes the league's scoring weights into every cached value.
+ *
+ * Without it, callers holding DIFFERENT player sets for the same league share
+ * one cache entry: the roster tab (one team's ~15 players) and the analytics
+ * preview card (every player in the league) collide, so whichever mounts first
+ * wins and the loser silently computes league-wide rankings from a map that
+ * only covers one team — different numbers on every app open, with no roster
+ * change. Hashed rather than embedded so the key stays small, and sorted so the
+ * unordered row order of `get_league_roster_stats` can't churn it.
+ */
+export function inputsDigest(parts: string[]): string {
+  let hash = 2166136261; // FNV-1a
+  for (const part of [...parts].sort()) {
+    for (let i = 0; i < part.length; i++) {
+      hash ^= part.charCodeAt(i);
+      hash = Math.imul(hash, 16777619);
+    }
+    // Separator, so ['ab','c'] and ['a','bc'] don't collide.
+    hash = Math.imul(hash ^ 0x2c, 16777619);
+  }
+  return (hash >>> 0).toString(36);
+}

@@ -63,6 +63,7 @@ import { guardOverCap } from "@/utils/roster/overCap";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { fetchActiveRosterCount } from "@/utils/roster/rosterCounts";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
+import { countWeeklyAdds } from "@/utils/roster/weeklyAdds";
 import { calculateAvgFantasyPoints, projAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
 
 import { freeAgentListStyles as styles } from "./freeAgentListStyles";
@@ -259,38 +260,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const gameTimeMap = useTodayGameTimes(!isOffseason);
 
-  // Count this week's FA acquisitions (Mon-Sun) for weekly limit enforcement
-  // Only counts transactions where a player was actually added to the team
-  // (excludes pure drops and trade-related transactions)
+  // Adds used inside the league's current fantasy week — see countWeeklyAdds
+  // (the window follows league_schedule, so NFL's Tue–Mon week is counted as
+  // the week it is, not the calendar Mon–Sun one).
   const { data: weeklyAddsUsed } = useQuery({
     queryKey: queryKeys.weeklyAdds(leagueId, teamId),
-    queryFn: async () => {
-      const now = new Date();
-      const day = now.getUTCDay(); // 0=Sun, use UTC to match DB timestamps
-      const mondayOffset = day === 0 ? -6 : 1 - day;
-      const monday = new Date(
-        Date.UTC(
-          now.getUTCFullYear(),
-          now.getUTCMonth(),
-          now.getUTCDate() + mondayOffset,
-        ),
-      );
-      const weekStart = monday.toISOString().split("T")[0];
-
-      const { count, error } = await supabase
-        .from("league_transactions")
-        .select("id, league_transaction_items!inner(team_to_id)", {
-          count: "exact",
-          head: true,
-        })
-        .eq("league_id", leagueId)
-        .eq("team_id", teamId)
-        .eq("type", "waiver")
-        .not("league_transaction_items.team_to_id", "is", null)
-        .gte("created_at", weekStart + "T00:00:00");
-      if (error) throw error;
-      return count ?? 0;
-    },
+    queryFn: () => countWeeklyAdds(leagueId, teamId, todayStr),
     enabled: !!leagueId && !!teamId && weeklyLimit != null,
     placeholderData: (prev: any) => prev,
   });
@@ -778,36 +753,15 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         }
       }
 
-      // Server-side weekly add limit check
+      // Re-check the weekly add limit against fresh data (the pill above may be
+      // stale if another device made an add). Same window the server enforces.
       const serverWeeklyLimit = leagueRes.data?.weekly_acquisition_limit as
         | number
         | null;
       if (serverWeeklyLimit != null) {
-        const now = new Date();
-        const day = now.getUTCDay();
-        const mondayOffset = day === 0 ? -6 : 1 - day;
-        const monday = new Date(
-          Date.UTC(
-            now.getUTCFullYear(),
-            now.getUTCMonth(),
-            now.getUTCDate() + mondayOffset,
-          ),
-        );
-        const weekStart = monday.toISOString().split("T")[0];
+        const addsThisWeek = await countWeeklyAdds(leagueId, teamId, todayStr);
 
-        const { count: addsThisWeek } = await supabase
-          .from("league_transactions")
-          .select("id, league_transaction_items!inner(team_to_id)", {
-            count: "exact",
-            head: true,
-          })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("type", "waiver")
-          .not("league_transaction_items.team_to_id", "is", null)
-          .gte("created_at", weekStart + "T00:00:00");
-
-        if ((addsThisWeek ?? 0) >= serverWeeklyLimit) {
+        if (addsThisWeek >= serverWeeklyLimit) {
           queryClient.invalidateQueries({
             queryKey: queryKeys.weeklyAdds(leagueId, teamId),
           });

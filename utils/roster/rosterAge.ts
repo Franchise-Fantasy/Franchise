@@ -181,9 +181,14 @@ export function buildLeagueComparison(
       (profiles.reduce((s, p) => s + p.avgAge, 0) / profiles.length) * 10,
     ) / 10;
 
-  // Rank by weighted age (1 = youngest)
+  // Rank by weighted age (1 = youngest). Ages are rounded to 1dp before ranking,
+  // so exact ties between teams are common — teamId breaks them, otherwise the
+  // stable sort falls back to input order and the rank rides on the row order of
+  // `get_league_roster_stats` (which has no ORDER BY, so it can differ per call).
   const sorted = [...profiles].sort(
-    (a, b) => a.weightedProductionAge - b.weightedProductionAge,
+    (a, b) =>
+      a.weightedProductionAge - b.weightedProductionAge ||
+      a.teamId.localeCompare(b.teamId),
   );
   const weightedAgeRank = sorted.findIndex((p) => p.teamId === myTeamId) + 1;
 

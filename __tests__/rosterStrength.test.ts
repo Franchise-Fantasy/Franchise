@@ -59,6 +59,25 @@ describe('buildLeagueStrengthComparison', () => {
     expect(result.myRank).toBe(2);
   });
 
+  // get_league_roster_stats has no ORDER BY, so row order can change per fetch.
+  // Teams tied on avgFpts must still rank the same way, or the preview card's
+  // "Roster Strength" flips between app opens with no roster change.
+  it('ranks tied teams deterministically regardless of input row order', () => {
+    // team-a and team-b both average 20 FPTS/G — an exact tie.
+    const teamA = makePlayer({ player_id: 'a1', team_id: 'team-a', games_played: 10, total_pts: 200 });
+    const teamB = makePlayer({ player_id: 'b1', team_id: 'team-b', games_played: 10, total_pts: 200 });
+    const teamC = makePlayer({ player_id: 'c1', team_id: 'team-c', games_played: 10, total_pts: 50 });
+
+    const aFirst = buildLeagueStrengthComparison([teamA, teamB, teamC], WEIGHTS, 'team-a')!;
+    const bFirst = buildLeagueStrengthComparison([teamB, teamA, teamC], WEIGHTS, 'team-a')!;
+
+    expect(aFirst.myAvgFpts).toBe(bFirst.myAvgFpts);
+    expect(aFirst.myRank).toBe(bFirst.myRank);
+    expect(aFirst.allProfiles.map((p) => p.teamId)).toEqual(
+      bFirst.allProfiles.map((p) => p.teamId),
+    );
+  });
+
   it('is independent of active-roster size — depth does not inflate strength', () => {
     const players = [
       // team-a: one elite player, avg 40

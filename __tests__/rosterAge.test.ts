@@ -153,6 +153,29 @@ describe('buildLeagueComparison', () => {
     expect(comp!.weightedAgeRank).toBe(1); // team-a (younger) ranks 1st
     expect(comp!.totalTeams).toBe(2);
   });
+
+  // get_league_roster_stats has no ORDER BY, so the same league can come back in
+  // a different row order on every fetch. Two teams tied at the same 1dp weighted
+  // age must still rank the same way, or the card's "League Position" flips
+  // between app opens with no roster change.
+  it('ranks tied teams deterministically regardless of input row order', () => {
+    const teamPlayers = (teamId: string, prefix: string) => [
+      { ...makePlayer({ player_id: `${prefix}1`, birthdate: '1998-06-01', games_played: 10, total_pts: 200 }), team_id: teamId },
+      { ...makePlayer({ player_id: `${prefix}2`, birthdate: '1998-06-01', games_played: 10, total_pts: 200 }), team_id: teamId },
+      { ...makePlayer({ player_id: `${prefix}3`, birthdate: '1998-06-01', games_played: 10, total_pts: 200 }), team_id: teamId },
+    ];
+    // Identical rosters → identical weighted age → an exact tie.
+    const teamA = teamPlayers('team-a', 'a');
+    const teamB = teamPlayers('team-b', 'b');
+
+    const aFirst = buildLeagueComparison([...teamA, ...teamB] as any, WEIGHTS, 'team-a');
+    const bFirst = buildLeagueComparison([...teamB, ...teamA] as any, WEIGHTS, 'team-a');
+
+    expect(aFirst!.myProfile.weightedProductionAge).toBe(
+      bFirst!.myProfile.weightedProductionAge,
+    );
+    expect(aFirst!.weightedAgeRank).toBe(bFirst!.weightedAgeRank);
+  });
 });
 
 describe('getInsightText', () => {

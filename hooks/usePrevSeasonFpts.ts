@@ -1,7 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { queryKeys } from '@/constants/queryKeys';
 import { getPreviousSeason, type Sport } from '@/constants/LeagueDefaults';
+import { inputsDigest, queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 import type { ScoringWeight } from '@/types/player';
 import { seasonAvgRowToFpts } from '@/utils/scoring/fantasyPoints';
@@ -21,8 +21,20 @@ export function usePrevSeasonFpts(
 ) {
   const previousSeason = getPreviousSeason(sport);
 
+  // The cached map only covers the ids it was fetched with, and its values are
+  // computed with the scoring weights of that fetch — so BOTH have to be part
+  // of the cache key. Callers pass different player sets for the same league
+  // (one team's roster vs. every player in it), and a narrower cached map would
+  // otherwise satisfy a league-wide read: the analytics preview card would rank
+  // every OTHER team with no prev-season fallback, so its numbers changed
+  // between app opens depending on which screen loaded first.
+  const digest = inputsDigest([
+    ...playerIds,
+    ...(scoringWeights ?? []).map((w) => `${w.stat_name}=${w.point_value}`),
+  ]);
+
   return useQuery<Map<string, number>>({
-    queryKey: queryKeys.prevSeasonFpts(leagueId ?? '', previousSeason),
+    queryKey: queryKeys.prevSeasonFpts(leagueId ?? '', previousSeason, digest),
     queryFn: async () => {
       const map = new Map<string, number>();
       if (playerIds.length === 0 || !scoringWeights || scoringWeights.length === 0) {

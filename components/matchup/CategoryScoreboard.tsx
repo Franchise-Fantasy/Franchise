@@ -179,7 +179,9 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   record: {
-    fontFamily: Fonts.varsityBold,
+    // Numerals face — the varsity face has proportional digits and would let
+    // this record shift as the W-L values change.
+    fontFamily: Fonts.mono,
     fontSize: ms(20),
     letterSpacing: 0.5,
     fontVariant: ['tabular-nums'],

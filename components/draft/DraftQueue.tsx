@@ -268,8 +268,8 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
 
   if (queue.length === 0) {
     return (
-      <View style={styles.empty}>
-        <ThemedText style={{ color: c.secondaryText, textAlign: 'center' }}>
+      <View style={[styles.empty, isDesktop && styles.emptyDesktop]}>
+        <ThemedText style={{ color: c.secondaryText, textAlign: isDesktop ? 'left' : 'center' }}>
           No players in your queue.{'\n'}
           {/* Desktop shows the pool beside this panel, so there's no tab to
               send anyone to. */}
@@ -335,6 +335,14 @@ const styles = StyleSheet.create({
   container: { flex: 1 },
   loading: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   empty: { flex: 1, justifyContent: 'center', alignItems: 'center', padding: s(32) },
+  // A rail is a column, not a screen — centering the copy leaves it stranded in
+  // the middle of a tall void. Sit it where the first row would be.
+  emptyDesktop: {
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
+    paddingHorizontal: 16,
+    paddingTop: 18,
+  },
   suggestedBanner: {
     padding: s(10),
     borderBottomWidth: 1,
