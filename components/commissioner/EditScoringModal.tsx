@@ -12,14 +12,18 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { DEFAULT_CATEGORIES, DEFAULT_SCORING } from '@/constants/LeagueDefaults';
+import { DEFAULT_CATEGORIES, DEFAULT_SCORING, type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { Json } from '@/types/database.types';
 import { ms, s } from '@/utils/scale';
+import { getSportModule, scoringStep } from '@/utils/sports/registry';
 
-function statLabel(stat: string): string {
-  return DEFAULT_SCORING.find((d) => d.stat_name === stat)?.label
+/** Friendly label for a stat key, from the league's OWN sport sheet (falling
+ *  back to the basketball sheets, which is where the category names live). */
+function statLabel(stat: string, sheet: readonly { stat_name: string; label: string }[]): string {
+  return sheet.find((d) => d.stat_name === stat)?.label
+    ?? DEFAULT_SCORING.find((d) => d.stat_name === stat)?.label
     ?? DEFAULT_CATEGORIES.find((d) => d.stat_name === stat)?.label
     ?? stat;
 }
@@ -28,14 +32,21 @@ interface EditScoringModalProps {
   visible: boolean;
   onClose: () => void;
   leagueId: string;
+  /** The league's sport — REQUIRED. This sheet is delete-and-replace, so
+   *  building it from the wrong sport's stat list overwrites the league's real
+   *  scoring with another sport's (and scores every player 0 forever). */
+  sport: Sport;
   scoring: { stat_name: string; point_value: number; is_enabled?: boolean; inverse?: boolean }[] | undefined;
   scoringType?: string;
 }
 
-export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringType }: EditScoringModalProps) {
+export function EditScoringModal({ visible, onClose, leagueId, sport, scoring, scoringType }: EditScoringModalProps) {
   const c = useColors();
   const queryClient = useQueryClient();
-  const isCategories = scoringType === 'h2h_categories';
+  const sportModule = getSportModule(sport);
+  // Categories are basketball-only; a points sport can't be in categories mode.
+  const isCategories = sportModule.supportsCategories && scoringType === 'h2h_categories';
+  const defaultScoring = sportModule.defaultScoring;
 
   const [editScoring, setEditScoring] = useState<{ stat_name: string; point_value: number }[]>([]);
   const [editCategories, setEditCategories] = useState<{ stat_name: string; is_enabled: boolean; inverse: boolean }[]>([]);
@@ -54,11 +65,17 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
         });
         setEditCategories(merged);
       } else {
-        const merged = DEFAULT_SCORING.map((d) => {
+        // Seed from the LEAGUE'S sport sheet, not the NBA one — see the `sport`
+        // prop doc. Any stat the league already scores that isn't in the sheet
+        // is preserved rather than dropped on save.
+        const merged = defaultScoring.map((d) => {
           const existing = scoring.find((s) => s.stat_name === d.stat_name);
           return { stat_name: d.stat_name, point_value: existing?.point_value ?? d.point_value };
         });
-        setEditScoring(merged);
+        const extras = scoring
+          .filter((s) => !defaultScoring.some((d) => d.stat_name === s.stat_name))
+          .map((s) => ({ stat_name: s.stat_name, point_value: s.point_value }));
+        setEditScoring([...merged, ...extras]);
       }
     }
   }, [visible]);
@@ -132,7 +149,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
             <View style={styles.catLeft}>
               <ThemedText style={styles.catLabel}>{cat.stat_name}</ThemedText>
               <ThemedText style={[styles.catSublabel, { color: c.secondaryText }]}>
-                {statLabel(cat.stat_name)}
+                {statLabel(cat.stat_name, defaultScoring)}
                 {cat.inverse ? ' (lower wins)' : ''}
               </ThemedText>
             </View>
@@ -146,7 +163,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
               trackColor={{ false: c.border, true: c.accent }}
               thumbColor={Platform.OS === 'android' ? '#FFFFFF' : undefined}
               ios_backgroundColor={c.border}
-              accessibilityLabel={`${statLabel(cat.stat_name)}, ${cat.is_enabled ? 'enabled' : 'disabled'}`}
+              accessibilityLabel={`${statLabel(cat.stat_name, defaultScoring)}, ${cat.is_enabled ? 'enabled' : 'disabled'}`}
               accessibilityState={{ checked: cat.is_enabled }}
             />
           </View>
@@ -155,7 +172,7 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
         editScoring.map((row, idx) => (
           <NumberStepper
             key={row.stat_name}
-            label={statLabel(row.stat_name)}
+            label={statLabel(row.stat_name, defaultScoring)}
             value={row.point_value}
             onValueChange={(v) => {
               const next = [...editScoring];
@@ -164,7 +181,11 @@ export function EditScoringModal({ visible, onClose, leagueId, scoring, scoringT
             }}
             min={-10}
             max={10}
-            step={0.5}
+            // Fractional stats (NFL yardage: 0.04/yd passing) need a 0.01 step —
+            // a 0.5 step can't express them. See scoringStep.
+            step={scoringStep(
+              defaultScoring.find((d) => d.stat_name === row.stat_name)?.point_value ?? 1,
+            )}
           />
         ))
       )}

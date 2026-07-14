@@ -10,7 +10,7 @@ import { LeagueWizardState, SCORING_TYPE_OPTIONS, ScoringTypeOption } from '@/co
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 import { DST_PA_TIERS } from '@/utils/scoring/nflStatLine';
-import { getSportModule } from '@/utils/sports/registry';
+import { getSportModule, scoringStep } from '@/utils/sports/registry';
 
 interface StepScoringProps {
   state: LeagueWizardState;
@@ -42,7 +42,9 @@ export function StepScoring({
   const c = useColors();
   // Categories are basketball-only — NFL leagues are points-only, so the
   // scoring-type picker is replaced by the PPR preset picker.
-  const supportsCategories = getSportModule(state.sport).supportsCategories;
+  const sportModule = getSportModule(state.sport);
+  const supportsCategories = sportModule.supportsCategories;
+  const sportDefaults = sportModule.defaultScoring;
   const isCategories = supportsCategories && state.scoringType === 'H2H Categories';
   const enabledCount = state.categories.filter((cat) => cat.is_enabled).length;
   // Active preset derived from the REC weight (0 / 0.5 / 1); a hand-edited
@@ -156,7 +158,11 @@ export function StepScoring({
               onValueChange={(v) => onScoringChange(index, v)}
               min={-100}
               max={100}
-              step={0.5}
+              // NFL yardage is fractional (0.04/passing yd) — a 0.5 step can't
+              // express it. Step off the sport's default for this stat.
+              step={scoringStep(
+                sportDefaults.find((d) => d.stat_name === cat.stat_name)?.point_value ?? 1,
+              )}
               last={index === state.scoring.length - 1}
             />
           ))}

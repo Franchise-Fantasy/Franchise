@@ -40,7 +40,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
+import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, type Sport, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { PAYWALL_ENABLED, TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
@@ -236,7 +236,7 @@ export default function LeagueInfoScreen() {
   const startDateDisplay = startDateBelongsToSeason(league.season, league.season_start_date)
     ? new Date(league.season_start_date + 'T00:00:00').toLocaleDateString()
     : (() => {
-        const month = SPORT_OPENING_MONTH[(league.sport as 'nba' | 'wnba') ?? 'nba'];
+        const month = SPORT_OPENING_MONTH[(league.sport as Sport) ?? 'nba'];
         const year = parseSeasonStartYear(league.season);
         return month ? `TBD · ~${month} ${year}` : 'TBD';
       })();
@@ -936,7 +936,7 @@ export default function LeagueInfoScreen() {
             visible={showRosterModal}
             onClose={() => setShowRosterModal(false)}
             leagueId={leagueId}
-            sport={(league?.sport as 'nba' | 'wnba') ?? 'nba'}
+            sport={(league?.sport as Sport) ?? 'nba'}
             rosterConfig={rosterConfig}
             positionLimits={league?.position_limits as Record<string, number> | null}
           />
@@ -944,6 +944,7 @@ export default function LeagueInfoScreen() {
             visible={showScoringModal}
             onClose={() => setShowScoringModal(false)}
             leagueId={leagueId}
+            sport={(league?.sport as Sport) ?? 'nba'}
             scoring={scoring}
             scoringType={league?.scoring_type}
           />

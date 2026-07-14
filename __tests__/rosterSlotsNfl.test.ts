@@ -188,9 +188,14 @@ describe('sports registry', () => {
   it('LeagueDefaults sport-keyed getters serve NFL from the registry', () => {
     const slots = getDefaultRosterSlots('nfl');
     expect(slots.map((s) => `${s.position}:${s.count}`)).toEqual([
-      // SFLX ships at 0 — the opt-in superflex seat the wizard stepper enables.
+      // SFLX and TAXI ship at 0 — both are opt-in seats the wizard's steppers
+      // enable (count-0 slots aren't written to league_roster_config). Taxi is
+      // offered because sync-players derives draft_year from BDL's `experience`
+      // string; see utils/sports/nflExperience.ts.
       'QB:1', 'RB:2', 'WR:2', 'TE:1', 'FLEX:1', 'SFLX:0', 'K:1', 'DST:1', 'BE:6', 'IR:1', 'TAXI:0',
     ]);
+    expect(getSportModule('nfl').supportsTaxi).toBe(true);
+    expect(getSportModule('nba').supportsTaxi).toBe(true);
     // Fresh copies — mutating the result must not corrupt the registry.
     slots[0].count = 99;
     expect(getDefaultRosterSlots('nfl')[0].count).toBe(1);

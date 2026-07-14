@@ -11,6 +11,7 @@ import { LeagueWizardState, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDe
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
+import { getSportModule } from '@/utils/sports/registry';
 
 interface StepRosterProps {
   state: LeagueWizardState;
@@ -25,7 +26,10 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
 
   // Taxi squads are a dynasty-only feature — you stash long-term prospects you
   // keep across seasons. Redraft/keeper leagues don't get the taxi config.
-  const isDynasty = (state.leagueType ?? 'Dynasty') === 'Dynasty';
+  // Sports without a draft-year source (NFL) can't determine eligibility at
+  // all, so they don't get it either — see SportModule.supportsTaxi.
+  const isDynasty =
+    (state.leagueType ?? 'Dynasty') === 'Dynasty' && getSportModule(state.sport).supportsTaxi;
   const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== ROSTER_SLOT.TAXI);
   const irSlot = state.rosterSlots.find((s) => s.position === 'IR');
   const irIndex = state.rosterSlots.findIndex((s) => s.position === 'IR');

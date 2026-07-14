@@ -2,6 +2,7 @@ import {
   nextRoundOpponentPool,
   resolvePendingSeedPicks,
   round1OpponentPool,
+  roundHasSeedPickChoice,
   type PendingSeedPick,
   type SeedEntry,
 } from '@/utils/playoff/seedPickAutoResolve';
@@ -12,6 +13,45 @@ const pick = (n: number, opp: string | null = null): PendingSeedPick => ({
   id: `pick${n}`,
   picking_seed: n,
   picked_opponent_id: opp,
+});
+
+describe('roundHasSeedPickChoice', () => {
+  it('the final has no choice — two teams, one possible pairing', () => {
+    // Regression: Lady Chewers 2026. Round 2 of a 4-team higher_seed_picks
+    // bracket created a pick row for the #1 seed whose only legal opponent was
+    // the other finalist. The bracket then blocked on "not all picks completed",
+    // so neither the championship nor the 3rd-place game was ever written.
+    expect(roundHasSeedPickChoice(2)).toBe(false);
+  });
+
+  it('a 2-team bracket opening round has no choice', () => {
+    expect(roundHasSeedPickChoice(2)).toBe(false);
+  });
+
+  it('a 3-team bracket (1 bye, 2 playing) has no choice', () => {
+    const seeds = [1, 2, 3].map(seed);
+    const playing = seeds.slice(1); // seed 1 gets the bye
+    expect(roundHasSeedPickChoice(playing.length)).toBe(false);
+  });
+
+  it('semifinals of an 8-team bracket do have a choice', () => {
+    expect(roundHasSeedPickChoice(4)).toBe(true);
+  });
+
+  it('the opening round of a 4-team bracket has a choice', () => {
+    expect(roundHasSeedPickChoice(4)).toBe(true);
+  });
+
+  it('agrees with the opponent pool — a choice exists iff the pool has >1 team', () => {
+    // The pool is the bottom half of the teams playing, so "more than one
+    // opponent to pick from" and "more than two teams playing" must never
+    // disagree; if they do, a picker is offered a pool it cannot choose within.
+    for (const n of [2, 4, 6, 8]) {
+      const winners = Array.from({ length: n }, (_, i) => seed(i + 1));
+      const pool = nextRoundOpponentPool(winners);
+      expect(roundHasSeedPickChoice(n)).toBe(pool.length > 1);
+    }
+  });
 });
 
 describe('round1OpponentPool', () => {

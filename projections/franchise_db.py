@@ -49,8 +49,15 @@ load_dotenv()
 PG_DSN = os.environ["PG_DSN"].strip()
 
 # Bumped independently of the engine's MODEL_VERSION — this is the
-# Franchise-data flavor of the model.
-MODEL_VERSION = "franchise-v1"
+# Franchise-data flavor of the model. POLICY (audit 2026-07-13): bump on ANY
+# change that alters output values, so model eras stay segmentable in backtests.
+# The ~+16% absence-bias era (2026-06-04..07-08) shipped unversioned and is only
+# separable by projection_date; don't repeat that.
+#   franchise-v1   — original edge.py port (+ absence freshness fade, 2026-07-08)
+#   franchise-v1.1 — 2026-07-13: recent-minutes min>0 conditioning, minutes/stat
+#                    level calibration, phantom gate, OUT-player zero-row
+#                    retraction, stale-OUT guard
+MODEL_VERSION = "franchise-v1.1"
 
 # Per-36 rate stats projected by the season snapshot (mirrors
 # season_project.RATE_STATS).
@@ -217,10 +224,59 @@ def get_unavailable_players(conn, sport: str) -> dict:
 
     Returns the engine's "Out" status string so `estimate_projected_minutes`
     drops them. (Franchise doesn't track a distinct 'Day-To-Day' status.)
+
+    Stale-OUT guard (audit 2026-07-13): a player who logged real minutes on/after
+    their team's most recent completed game-day is playing, whatever the status
+    column says — a stale OUT flag would both drop them from the board AND
+    redistribute their full minutes to teammates at freshness weight 1.0, the
+    exact double-count the absence fade exists to prevent (2 of 38 OUT-flagged
+    players were in this state on 2026-07-12). Teamless OUT players stay flagged
+    (conservative: they can't poison redistribution — load_player_meta skips
+    NULL pro_team — and shouldn't be on the board).
     """
-    q = "SELECT id, status FROM players WHERE sport = %s AND status IN ('OUT', 'SUSP')"
+    q = """
+        SELECT p.id, p.status
+        FROM players p
+        WHERE p.sport = %s
+          AND p.status IN ('OUT', 'SUSP')
+          AND NOT (
+              p.pro_team IS NOT NULL
+              AND EXISTS (
+                  SELECT 1 FROM player_games pg
+                  WHERE pg.player_id = p.id
+                    AND pg.sport = p.sport
+                    AND pg.min > 0
+                    AND pg.game_date >= (
+                        SELECT MAX(gs.game_date) FROM game_schedule gs
+                        WHERE gs.sport = p.sport
+                          AND gs.game_date < CURRENT_DATE
+                          AND (gs.home_team = p.pro_team
+                               OR gs.away_team = p.pro_team))
+              )
+          )
+    """
     df = pd.read_sql(q, conn, params=(sport,))
     return {str(r["id"]): "Out" for _, r in df.iterrows()}
+
+
+def get_team_games_played(conn, sport: str, season: int) -> dict:
+    """tricode -> completed games this season, from game_schedule by DATE.
+    Feeds franchise_edge.is_phantom. Deliberately not score-based: WNBA schedule
+    scores don't persist (audit 2026-07-13 — only the latest day's games carry
+    them), so `game_date < CURRENT_DATE` is the reliable completed-game test."""
+    q = """
+        SELECT team, COUNT(*) AS games FROM (
+            SELECT home_team AS team FROM game_schedule
+            WHERE sport = %s AND EXTRACT(YEAR FROM game_date) = %s
+              AND game_date < CURRENT_DATE
+            UNION ALL
+            SELECT away_team FROM game_schedule
+            WHERE sport = %s AND EXTRACT(YEAR FROM game_date) = %s
+              AND game_date < CURRENT_DATE
+        ) t GROUP BY team
+    """
+    df = pd.read_sql(q, conn, params=(sport, season, sport, season))
+    return {r["team"]: int(r["games"]) for _, r in df.iterrows()}
 
 
 def get_absence_games_missed(conn, sport: str) -> dict:
@@ -231,8 +287,8 @@ def get_absence_games_missed(conn, sport: str) -> dict:
     every teammate's projection. A player with no game this season returns a large
     count (→ zero weight). 'Team' is the live pro_team, matching load_player_meta
     (absences are evaluated as of now). The 5-minute floor mirrors
-    franchise_edge.MIN_MINUTES / _recent_minutes so 'team games' and the recent
-    baseline count the same appearances."""
+    franchise_edge.MIN_MINUTES (_season_distributions' "meaningful appearance"
+    threshold) so a 2-minute cameo doesn't reset an absence."""
     q = """
         WITH outp AS (
             SELECT id, pro_team FROM players

@@ -21,6 +21,21 @@ export interface SeedPickAssignment {
 }
 
 /**
+ * Whether the `higher_seed_picks` format has a real decision to offer a round.
+ *
+ * With only two teams playing — the final, or the opening round of a 2/3-team
+ * bracket — there is exactly one possible pairing, so the "picker" has nothing
+ * to choose. Creating a pick row there stalls the entire bracket on an
+ * unanswerable question: no matchups get written, so there is no championship
+ * game, no 3rd-place game, and nothing on the Scores or Schedule tabs until
+ * resolve-stale-seed-picks defaults the pick 24h later. Those rounds must pair
+ * directly instead. (This is what happened to Lady Chewers 2026 round 2.)
+ */
+export function roundHasSeedPickChoice(teamsPlaying: number): boolean {
+  return teamsPlaying > 2;
+}
+
+/**
  * Round-1 opponent pool: the bottom half of the playing (non-bye) seeds — the
  * teams the higher seeds choose among. The top `byes` seeds auto-advance and
  * are never opponents. Mirrors how generate-playoff-round partitions pickers

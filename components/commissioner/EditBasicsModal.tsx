@@ -12,6 +12,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { buildDraftPicks, buildFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
@@ -129,7 +130,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
                   league.rookie_draft_rounds ?? 3,
                   league.season,
                   league.max_future_seasons,
-                  (league.sport as 'nba' | 'wnba' | null) ?? 'nba',
+                  (league.sport as Sport | null) ?? 'nba',
                 ) as unknown as Json,
               }
             : {}),

@@ -8,6 +8,7 @@ import { ListRow } from "@/components/ui/ListRow";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Fonts, cardShadow } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
+import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
 import { type LeaguePlayerWithTeam } from "@/hooks/useLeagueRosterStats";
 import { type ScoringWeight } from "@/types/player";
@@ -42,6 +43,9 @@ export function DependencyRiskCard({
 }: DependencyRiskCardProps) {
   const c = useColors();
   const [infoVisible, setInfoVisible] = useState(false);
+  // Scoring must be evaluated with the league's sport, or an NFL roster's
+  // production sums to zero and every team shows 0% dependency.
+  const sport = useActiveLeagueSport(leagueId);
 
   // Team names/tricodes for the rows. Shares the standings query key, so it's
   // already in cache whenever the user has seen Standings or the home preview —
@@ -59,8 +63,8 @@ export function DependencyRiskCard({
 
   const depResults = useMemo(() => {
     if (!allPlayers?.length || !weights?.length) return [];
-    return computeDependencyRisk(allPlayers, weights, scoringType);
-  }, [allPlayers, weights, scoringType]);
+    return computeDependencyRisk(allPlayers, weights, scoringType, sport);
+  }, [allPlayers, weights, scoringType, sport]);
 
   const depSorted = useMemo(
     () => [...depResults].sort((a, b) => b.topThreePct - a.topThreePct),

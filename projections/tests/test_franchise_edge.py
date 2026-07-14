@@ -153,3 +153,32 @@ def test_apply_scales_stats_and_minutes():
     assert dists["a"]["pts"][0] == pytest.approx(24.0)     # 20 * 1.2
     assert dists["a"]["_proj_min"] == pytest.approx(36.0)  # 30 * 1.2 — fix #4
     assert dists["a"]["_absence_boost"] == {"factor": 1.2}
+
+
+# ── phantom gate ─────────────────────────────────────────────────────────────
+
+def test_phantom_prior_only_after_gate():
+    # Team well into the season, player never appeared → phantom.
+    assert fe.is_phantom("prior_only", fe.PHANTOM_GATE_TEAM_GAMES + 1)
+
+
+def test_phantom_early_season_grace():
+    # Everyone is prior_only on opening day; the gate must not fire early.
+    assert not fe.is_phantom("prior_only", 0)
+    assert not fe.is_phantom("prior_only", fe.PHANTOM_GATE_TEAM_GAMES)
+
+
+def test_phantom_requires_prior_only_basis():
+    # Any current-season appearance (blend/current_only) exempts the player.
+    assert not fe.is_phantom("blend", 30)
+    assert not fe.is_phantom("current_only", 30)
+
+
+# ── level calibration ────────────────────────────────────────────────────────
+
+def test_level_calibration_constants_deflate():
+    # The calibration corrects a measured OVER-projection; both scales must stay
+    # in (0, 1]. If a refit ever pushes one above 1.0, the bias flipped sign and
+    # the surrounding model assumptions deserve a fresh look, not a bigger knob.
+    assert 0.0 < fe.MINUTES_LEVEL_SCALE <= 1.0
+    assert 0.0 < fe.STATS_LEVEL_SCALE <= 1.0

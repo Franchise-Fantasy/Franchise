@@ -130,6 +130,9 @@ export interface ResolvedComparePlayer {
   l10Ast: number | null;
   l10Stl: number | null;
   l10Blk: number | null;
+  /** NFL per-game averages keyed by the bare column (pass_yd, rec, …). Absent
+   *  for basketball; the basketball fields above are all NULL on an NFL row. */
+  nfl?: Record<string, number | null>;
 }
 
 export interface BuildCompareGroupsOptions {
@@ -137,27 +140,65 @@ export interface BuildCompareGroupsOptions {
   /** When true, the recent-form group is included (Phase 1 ships groups 1–4
    *  and may omit it; the screen passes true once game logs are wired). */
   includeRecentForm?: boolean;
+  /** League sport. NFL swaps the basketball box-score + shooting groups for
+   *  per-game NFL rows — those columns are all NULL on an NFL row, so without
+   *  this the whole comparison table reads as em-dashes. */
+  sport?: string | null;
 }
+
+/**
+ * NFL per-game compare rows: [avg column, label, which direction wins].
+ * Rendered only when at least one compared player has a value for the row, so
+ * comparing two WRs doesn't drag along five empty passing rows — but comparing
+ * a QB to a WR still shows both sides' work.
+ */
+const NFL_COMPARE_ROWS: [string, string, 'higher' | 'lower'][] = [
+  ['pass_yd', 'Pass Yds', 'higher'],
+  ['pass_td', 'Pass TD', 'higher'],
+  ['pass_int', 'INT', 'lower'],
+  ['rush_att', 'Carries', 'higher'],
+  ['rush_yd', 'Rush Yds', 'higher'],
+  ['rush_td', 'Rush TD', 'higher'],
+  ['targets', 'Targets', 'higher'],
+  ['rec', 'Rec', 'higher'],
+  ['rec_yd', 'Rec Yds', 'higher'],
+  ['rec_td', 'Rec TD', 'higher'],
+  ['fum_lost', 'Fum Lost', 'lower'],
+  ['fg_made', 'FG', 'higher'],
+  ['xp_made', 'XP', 'higher'],
+  ['dst_sacks', 'Sacks', 'higher'],
+  ['dst_int', 'D/ST INT', 'higher'],
+  ['dst_fum_rec', 'Fum Rec', 'higher'],
+  ['dst_td', 'D/ST TD', 'higher'],
+  ['dst_pts_allowed', 'Pts Allowed', 'lower'],
+];
 
 /** The 9-category row keys used for the category-league win tally. */
 const NINE_CAT_KEYS = ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fgPct', 'ftPct', 'tpPct'];
 
 export function buildCompareGroups(
   players: ResolvedComparePlayer[],
-  { isCategories, includeRecentForm = true }: BuildCompareGroupsOptions,
+  { isCategories, includeRecentForm = true, sport }: BuildCompareGroupsOptions,
 ): CompareGroup[] {
+  const isNfl = sport === 'nfl';
   const col = <T,>(sel: (p: ResolvedComparePlayer) => T): T[] => players.map(sel);
   const groups: CompareGroup[] = [];
 
   // 1. Fantasy value — points leagues only (category leagues have no FPTS).
+  // The projection rows are dropped for NFL: there's no NFL projections engine,
+  // so they'd be two permanent em-dash rows.
   if (!isCategories) {
     groups.push({
       key: 'value',
       label: 'Fantasy Value',
       rows: [
         makeRow('seasonFpts', 'FPTS/G', 'higher', col((p) => p.seasonFpts), fmtDecimal1),
-        makeRow('nextProj', 'Next Game (proj)', 'higher', col((p) => p.nextGameProjFpts), fmtDecimal1),
-        makeRow('seasonProj', 'Rest of Season (proj)', 'higher', col((p) => p.seasonProjFpts), fmtDecimal1),
+        ...(isNfl
+          ? []
+          : [
+              makeRow('nextProj', 'Next Game (proj)', 'higher', col((p) => p.nextGameProjFpts), fmtDecimal1),
+              makeRow('seasonProj', 'Rest of Season (proj)', 'higher', col((p) => p.seasonProjFpts), fmtDecimal1),
+            ]),
       ],
     });
   }
@@ -172,32 +213,43 @@ export function buildCompareGroups(
     ],
   });
 
-  // 3. Season averages.
-  groups.push({
-    key: 'season',
-    label: 'Season Averages',
-    rows: [
-      makeRow('min', 'MIN', 'higher', col((p) => p.avgMin), fmtDecimal1),
-      makeRow('pts', 'PTS', 'higher', col((p) => p.avgPts), fmtDecimal1),
-      makeRow('reb', 'REB', 'higher', col((p) => p.avgReb), fmtDecimal1),
-      makeRow('ast', 'AST', 'higher', col((p) => p.avgAst), fmtDecimal1),
-      makeRow('stl', 'STL', 'higher', col((p) => p.avgStl), fmtDecimal1),
-      makeRow('blk', 'BLK', 'higher', col((p) => p.avgBlk), fmtDecimal1),
-      makeRow('tov', 'TOV', 'lower', col((p) => p.avgTov), fmtDecimal1),
-    ],
-  });
+  // 3 + 4. Per-game production. NFL has no minutes and no shooting splits, so
+  // it gets one position-shaped group instead of the box-score + shooting pair.
+  if (isNfl) {
+    const rows = NFL_COMPARE_ROWS
+      .filter(([key]) => players.some((p) => p.nfl?.[key] != null))
+      .map(([key, label, better]) =>
+        makeRow(key, label, better, col((p) => p.nfl?.[key] ?? null), fmtDecimal1),
+      );
+    if (rows.length > 0) {
+      groups.push({ key: 'season', label: 'Per Game', rows });
+    }
+  } else {
+    groups.push({
+      key: 'season',
+      label: 'Season Averages',
+      rows: [
+        makeRow('min', 'MIN', 'higher', col((p) => p.avgMin), fmtDecimal1),
+        makeRow('pts', 'PTS', 'higher', col((p) => p.avgPts), fmtDecimal1),
+        makeRow('reb', 'REB', 'higher', col((p) => p.avgReb), fmtDecimal1),
+        makeRow('ast', 'AST', 'higher', col((p) => p.avgAst), fmtDecimal1),
+        makeRow('stl', 'STL', 'higher', col((p) => p.avgStl), fmtDecimal1),
+        makeRow('blk', 'BLK', 'higher', col((p) => p.avgBlk), fmtDecimal1),
+        makeRow('tov', 'TOV', 'lower', col((p) => p.avgTov), fmtDecimal1),
+      ],
+    });
 
-  // 4. Shooting.
-  groups.push({
-    key: 'shooting',
-    label: 'Shooting',
-    rows: [
-      makeRow('fgPct', 'FG%', 'higher', col((p) => p.fgPct), fmtPercent),
-      makeRow('ftPct', 'FT%', 'higher', col((p) => p.ftPct), fmtPercent),
-      makeRow('tpPct', '3P%', 'higher', col((p) => p.tpPct), fmtPercent),
-      makeRow('tpm', '3PM', 'higher', col((p) => p.tpm), fmtDecimal1),
-    ],
-  });
+    groups.push({
+      key: 'shooting',
+      label: 'Shooting',
+      rows: [
+        makeRow('fgPct', 'FG%', 'higher', col((p) => p.fgPct), fmtPercent),
+        makeRow('ftPct', 'FT%', 'higher', col((p) => p.ftPct), fmtPercent),
+        makeRow('tpPct', '3P%', 'higher', col((p) => p.tpPct), fmtPercent),
+        makeRow('tpm', '3PM', 'higher', col((p) => p.tpm), fmtDecimal1),
+      ],
+    });
+  }
 
   // 5. Recent form.
   if (includeRecentForm) {

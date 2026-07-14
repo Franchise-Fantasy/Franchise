@@ -16,7 +16,7 @@ import { parseBody, z } from '../_shared/validate.ts';
 import { parseRotowireNewsHtml } from './rotowire-html.ts';
 
 const Body = z.object({
-  sport: z.enum(['nba', 'wnba']).optional(),
+  sport: z.enum(['nba', 'wnba', 'nfl']).optional(),
 });
 
 const supabase = createClient(
@@ -40,8 +40,9 @@ const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string; expectedC
   wnba: [
     { url: 'https://www.rotowire.com/rss/news.php?sport=WNBA', source: 'rotowire', expectedChannelTag: 'WNBA' },
   ],
-  // No NFL feed configured (and no NFL cron entry) — an nfl call is a clean no-op.
-  nfl: [],
+  nfl: [
+    { url: 'https://www.rotowire.com/rss/news.php?sport=NFL', source: 'rotowire', expectedChannelTag: 'NFL' },
+  ],
 };
 
 // The RSS feed only holds the latest 5 items, so a post-game burst overflows it
@@ -50,10 +51,13 @@ const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string; expectedC
 // the burst never overflows between our once-a-minute polls. HTML items are
 // inserted with requireMatch=true so the shared NBA player index scopes out the
 // G-League / euro / minors blurbs that also live on the basketball news page.
-// NBA only for now — WNBA stays RSS-only until its news-page URL/markup is
-// confirmed (lower volume there, so the 5-item cap rarely bites).
+// NFL needs the HTML page even more than the NBA does: a Sunday slate dumps
+// dozens of blurbs in minutes, so a 5-item RSS window overflows almost
+// immediately. WNBA stays RSS-only until its news-page URL/markup is confirmed
+// (lower volume there, so the 5-item cap rarely bites).
 const HTML_NEWS_BY_SPORT: Partial<Record<Sport, { url: string; source: string }>> = {
   nba: { url: 'https://www.rotowire.com/basketball/news.php', source: 'rotowire' },
+  nfl: { url: 'https://www.rotowire.com/football/news.php', source: 'rotowire' },
 };
 
 // ── RSS Parsing ────────────────────────────────
@@ -118,7 +122,10 @@ Deno.serve(async (req: Request) => {
   let sport: Sport = 'nba';
   try {
     const parsed = parseBody(Body, await req.json());
-    if (parsed.sport === 'wnba') sport = 'wnba';
+    // Assign whatever the (validated) body says. This used to be a hand-rolled
+    // `if (parsed.sport === 'wnba')`, which silently ran EVERY nfl call as NBA
+    // even after the Zod enum was widened — the same trap that bit poll-injuries.
+    if (parsed.sport) sport = parsed.sport;
   } catch {
     // No body / not JSON — default sport stays 'nba'.
   }

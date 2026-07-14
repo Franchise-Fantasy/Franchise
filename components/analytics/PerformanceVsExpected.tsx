@@ -59,12 +59,12 @@ export function PerformanceVsExpected({ players, weights, sport }: PerformanceVs
     for (const p of players) {
       const projRow = projections.get(p.player_id);
       if (!projRow) continue;
-      const proj = projAvgRowToFpts(projRow as Record<string, unknown>, weights);
+      const proj = projAvgRowToFpts(projRow as Record<string, unknown>, weights, sport);
       if (proj <= 0) continue;
       // Only compare against a meaningful current-season sample, else "actual"
       // is just early-season noise.
       if ((p.games_played ?? 0) < ANALYTICS_MIN_CURRENT_SEASON_GAMES) continue;
-      const actual = calculateAvgFantasyPoints(p, weights);
+      const actual = calculateAvgFantasyPoints(p, weights, sport);
       out.push({ playerId: p.player_id, name: p.name, proj, actual, delta: actual - proj });
     }
     return out.sort((a, b) => b.delta - a.delta);

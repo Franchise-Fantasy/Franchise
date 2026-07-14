@@ -19,6 +19,7 @@ import {
   projAvgRowToFpts,
   windowFantasyPoints,
 } from '@/utils/scoring/fantasyPoints';
+import { NFL_GAME_COLUMNS } from '@/utils/scoring/nflStatLine';
 import { computeRankings } from '@/utils/scoring/playerRankings';
 import { averageGames, lastNPlayedGames } from '@/utils/scoring/windowAverages';
 
@@ -68,8 +69,8 @@ export function useCompareData(
 
   const rankingsMap = useMemo(() => {
     if (!allPlayers || !scoringWeights || scoringWeights.length === 0) return null;
-    return computeRankings(allPlayers, scoringWeights);
-  }, [allPlayers, scoringWeights]);
+    return computeRankings(allPlayers, scoringWeights, sport);
+  }, [allPlayers, scoringWeights, sport]);
 
   const resolved = useMemo<ResolvedComparePlayer[]>(() => {
     return candidates.map((cand) => {
@@ -87,14 +88,16 @@ export function useCompareData(
         player_id: cand.player_id,
         gamesPlayed: stats?.games_played ?? 0,
         ranking: rankingsMap?.get(cand.player_id) ?? null,
-        seasonFpts: stats && weights.length ? calculateAvgFantasyPoints(stats, weights) : null,
+        // Every fpts call needs `sport` — the NBA stat map matches none of an
+        // NFL league's weights, so without it every NFL cell reads 0.0.
+        seasonFpts: stats && weights.length ? calculateAvgFantasyPoints(stats, weights, sport) : null,
         nextGameProjFpts:
           nextRow && weights.length
-            ? projAvgRowToFpts(nextRow as Record<string, unknown>, weights)
+            ? projAvgRowToFpts(nextRow as Record<string, unknown>, weights, sport)
             : null,
         seasonProjFpts:
           seasonRow && weights.length
-            ? projAvgRowToFpts(seasonRow as Record<string, unknown>, weights)
+            ? projAvgRowToFpts(seasonRow as Record<string, unknown>, weights, sport)
             : null,
         avgMin: stats?.avg_min ?? null,
         avgPts: stats?.avg_pts ?? null,
@@ -107,21 +110,32 @@ export function useCompareData(
         ftPct: stats ? pctOrNull(stats.avg_ftm, stats.avg_fta) : null,
         tpPct: stats ? pctOrNull(stats.avg_3pm, stats.avg_3pa) : null,
         tpm: stats?.avg_3pm ?? null,
-        l5Fpts: weights.length ? windowFantasyPoints(log, weights, 5) : null,
-        l10Fpts: weights.length ? windowFantasyPoints(log, weights, 10) : null,
-        l15Fpts: weights.length ? windowFantasyPoints(log, weights, 15) : null,
+        l5Fpts: weights.length ? windowFantasyPoints(log, weights, 5, sport) : null,
+        l10Fpts: weights.length ? windowFantasyPoints(log, weights, 10, sport) : null,
+        l15Fpts: weights.length ? windowFantasyPoints(log, weights, 15, sport) : null,
         l10Pts: l10?.avg_pts ?? null,
         l10Reb: l10?.avg_reb ?? null,
         l10Ast: l10?.avg_ast ?? null,
         l10Stl: l10?.avg_stl ?? null,
         l10Blk: l10?.avg_blk ?? null,
+        // NFL per-game averages, straight off the matview row's avg_* columns —
+        // the basketball fields above are all NULL for an NFL player.
+        nfl:
+          sport === 'nfl' && stats
+            ? Object.fromEntries(
+                NFL_GAME_COLUMNS.map((c) => {
+                  const v = (stats as unknown as Record<string, unknown>)[`avg_${c}`];
+                  return [c, v == null ? null : Number(v)];
+                }),
+              )
+            : undefined,
       };
     });
-  }, [candidates, seasonStatsMap, scoringWeights, gameLogs, nextProj, seasonProj, rankingsMap]);
+  }, [candidates, seasonStatsMap, scoringWeights, gameLogs, nextProj, seasonProj, rankingsMap, sport]);
 
   const groups = useMemo(
-    () => buildCompareGroups(resolved, { isCategories }),
-    [resolved, isCategories],
+    () => buildCompareGroups(resolved, { isCategories, sport }),
+    [resolved, isCategories, sport],
   );
 
   const winTally = useMemo(

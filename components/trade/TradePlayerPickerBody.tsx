@@ -67,7 +67,10 @@ export function TradePlayerPickerBody({
     const isPendingDrop = pendingDropPlayerIds?.has(item.player_id) ?? false;
     const isOnIR = item.roster_slot === 'IR';
     const isDisabled = isLocked || isOnIR || isPendingDrop;
-    const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights) : null;
+    // sport matters: without it an NFL row scores 0 (the NBA stat map finds
+    // none of PASS_YD/RUSH_TD/...), and that 0 is what onToggle hands to the
+    // trade's fairness bar — every NFL proposal would read as perfectly even.
+    const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights, sport) : null;
     const badge = getInjuryBadge(item.status);
 
     return (

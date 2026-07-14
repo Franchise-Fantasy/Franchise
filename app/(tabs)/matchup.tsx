@@ -1063,6 +1063,7 @@ export default function MatchupScreen() {
       edges={["top", "left", "right"]}
     >
       <MatchupHero
+        sport={sport}
         selectedDate={selectedDate}
         today={today}
         isPastDate={selectedDate < today}

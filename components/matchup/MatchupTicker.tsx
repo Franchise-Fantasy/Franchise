@@ -5,6 +5,9 @@ import { chipStyles, MarqueeBand } from '@/components/matchup/MarqueeBand';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { TickerEvent, TickerEventKind } from '@/hooks/useMatchupTickerEvents';
 import { ScoringWeight } from '@/types/player';
+import { NFL_EVENT_DEFS, nflEventLabel } from '@/utils/scoring/nflStatLine';
+
+const NFL_EVENT_KINDS = new Set<string>(NFL_EVENT_DEFS.map((d) => d.kind));
 
 // Live recap fpts colors. Green for a positive contribution, red for a
 // negative one (e.g. a turnover in a league that penalizes it).
@@ -36,6 +39,9 @@ function fptsForEvent(
 ): number {
   const w = (name: string) =>
     scoring.find((s) => s.stat_name === name)?.point_value ?? 0;
+  // NFL event kinds are named after the league's own scoring stat_name
+  // (PASS_TD, DST_SACK, …), so the value is just delta × weight — no map.
+  if (NFL_EVENT_KINDS.has(kind)) return value * w(kind);
   switch (kind) {
     case 'MADE_3PT':
       // 3pt make moves PTS+3, 3PM+1, 3PA+1, FGM+1, FGA+1
@@ -75,6 +81,8 @@ function fptsForEvent(
 }
 
 function actionLabel(kind: TickerEventKind, value: number): string {
+  const nfl = nflEventLabel(kind, value);
+  if (nfl) return nfl;
   switch (kind) {
     case 'MADE_3PT':   return value > 1 ? `MADE ${value} 3-PT`    : 'MADE 3-PT';
     case 'MADE_2PT':   return value > 1 ? `MADE ${value} 2-PT`    : 'MADE 2-PT';

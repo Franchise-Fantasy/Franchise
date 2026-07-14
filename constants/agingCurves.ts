@@ -1,6 +1,12 @@
 import curveData from './agingCurves.json';
 
-export type PositionCurve = 'ALL' | 'PG' | 'SG' | 'SF' | 'PF' | 'C' | 'G' | 'F';
+// The scatter's position-filter chips. Basketball tokens + the NFL set — the
+// chips filter dots by eligibility (getEligiblePositions), so any sport's
+// tokens work; the NBA-derived AGING_CURVES data below is basketball-only and
+// is NOT what these chips drive.
+export type PositionCurve =
+  | 'ALL' | 'PG' | 'SG' | 'SF' | 'PF' | 'C' | 'G' | 'F'
+  | 'QB' | 'RB' | 'WR' | 'TE' | 'K' | 'DST';
 
 /** Per-game stat averages at a given age */
 export interface StatLine {

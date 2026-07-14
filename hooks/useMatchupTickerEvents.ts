@@ -4,6 +4,11 @@ import { useEffect, useMemo } from 'react';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 
+import type { NflEventKind } from '@/utils/scoring/nflStatLine';
+
+/** Basketball plays. The NFL kinds come from NFL_EVENT_DEFS (shared with the
+ *  edge derivation); both sets must stay listed in the live_scoring_events.kind
+ *  CHECK constraint — one unlisted kind aborts the whole batch insert. */
 export type TickerEventKind =
   | 'MADE_3PT'
   | 'MADE_2PT'
@@ -18,7 +23,8 @@ export type TickerEventKind =
   | 'TOV'
   | 'PF'
   | 'DD'
-  | 'TD';
+  | 'TD'
+  | NflEventKind;
 
 export interface TickerEvent {
   id: string;

@@ -3,8 +3,16 @@
  * (utils/scoring/nflStatLine.ts — zero-dep, used by client cells and the
  * poll-live-stats Live Activity lines).
  */
-import { NFL_GAME_COLUMNS, nflStatFields, nflStatLine } from '@/utils/scoring/nflStatLine';
+import {
+  deriveNflEvents,
+  NFL_EVENT_DEFS,
+  NFL_GAME_COLUMNS,
+  nflEventLabel,
+  nflStatFields,
+  nflStatLine,
+} from '@/utils/scoring/nflStatLine';
 import { getSportModule } from '@/utils/sports/registry';
+
 
 describe('nflStatFields — position shaping', () => {
   it('passer: leads with passing, keeps INT as the third block', () => {
@@ -60,5 +68,61 @@ describe('NFL_GAME_COLUMNS ↔ registry alignment', () => {
     for (const col of scored) {
       expect(NFL_GAME_COLUMNS).toContain(col);
     }
+  });
+});
+
+// ── Live event tape ──────────────────────────────────────────────────────────
+
+describe('deriveNflEvents', () => {
+  it('emits one event per positive stat delta', () => {
+    const prev = { pass_td: 1, rush_td: 0, pass_int: 1 };
+    const curr = { pass_td: 3, rush_td: 1, pass_int: 1 };
+    expect(deriveNflEvents(prev, curr)).toEqual([
+      { kind: 'PASS_TD', value: 2 },
+      { kind: 'RUSH_TD', value: 1 },
+    ]);
+  });
+
+  it('ignores negative deltas — a stat revised DOWN must not "un-score" a play', () => {
+    // BDL occasionally reverses a TD on review. Emitting a negative event would
+    // be worse than staying silent: the tape would read "-1 RUSHING TD".
+    expect(deriveNflEvents({ rush_td: 2 }, { rush_td: 1 })).toEqual([]);
+  });
+
+  it('treats a missing/null column as zero, not NaN', () => {
+    expect(deriveNflEvents({}, { rec_td: 1, fum_lost: null as unknown as number })).toEqual([
+      { kind: 'REC_TD', value: 1 },
+    ]);
+  });
+
+  it('emits D/ST takeaways but never points-allowed (it is not a highlight)', () => {
+    const events = deriveNflEvents(
+      { dst_sacks: 1, dst_pts_allowed: 7 },
+      { dst_sacks: 3, dst_int: 1, dst_pts_allowed: 21 },
+    );
+    expect(events).toEqual([
+      { kind: 'DST_SACK', value: 2 },
+      { kind: 'DST_INT', value: 1 },
+    ]);
+  });
+
+  it('every event kind is named after a real scoring stat, so fpts = value × weight', () => {
+    // The client relies on this: MatchupTicker does `value * w(kind)` with no map.
+    const scored = new Set(Object.keys(getSportModule('nfl').statToGame));
+    for (const def of NFL_EVENT_DEFS) {
+      expect(scored.has(def.kind)).toBe(true);
+    }
+  });
+});
+
+describe('nflEventLabel', () => {
+  it('singularizes and pluralizes', () => {
+    expect(nflEventLabel('PASS_TD', 1)).toBe('PASSING TD');
+    expect(nflEventLabel('PASS_TD', 2)).toBe('2 PASSING TDS');
+    expect(nflEventLabel('DST_SACK', 3)).toBe('3 SACKS');
+  });
+
+  it('returns null for a basketball kind so the caller falls through', () => {
+    expect(nflEventLabel('MADE_3PT', 1)).toBeNull();
   });
 });

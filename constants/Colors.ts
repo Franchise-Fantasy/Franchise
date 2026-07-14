@@ -314,11 +314,20 @@ export const cardShadowMedium = {
 //
 // `mono` is the numerals/ticker voice (scoreboards, stat columns, live scores).
 // It is no longer a monospace face; the name is kept because ~112 call sites and
-// ThemedText's "mono" type refer to it, and the ROLE is unchanged. Bloomy ships
-// no `tnum` feature, so assets/fonts/Bloomy-Regular.ttf is metrics-patched to
-// uniform digit widths — see scripts/fonts/patch-bloomy-tabular.py. Any numeric
-// readout belongs on this token; the other three faces have proportional digits
-// (Stoner 53%, Desporm 50% spread) and will visibly reflow as values tick.
+// ThemedText's "mono" type refer to it, and the ROLE is unchanged.
+//
+// assets/fonts/Bloomy-Regular.ttf is NOT the file the designer delivered — it's
+// metrics-patched by scripts/fonts/patch-bloomy.py, for two reasons. As shipped
+// Bloomy draws 35% smaller than Space Mono at the same fontSize (it's unicase and
+// sits small in its em box), which made every stat unreadable; and it has no
+// `tnum`, so its narrow '1' frayed columns and made live scores reflow. The patch
+// scales it to Space Mono's digit height and squares up the digit widths, which
+// is why none of the ~112 mono fontSizes had to change. Re-run that script if the
+// designer ever ships a new Bloomy.
+//
+// Any numeric readout belongs on this token: the other three faces have
+// proportional digits (Stoner 53%, Desporm 50% spread) and will visibly reflow
+// as values tick.
 export const Fonts = {
   display: "Desporm", // headlines, hero, big moments
   varsitySemibold: "StonerSport", // secondary varsity labels

@@ -75,7 +75,7 @@ export function AnalyticsPreviewCard({
 
   const profile = useMemo(() => {
     if (!myPlayers.length || !weights?.length) return null;
-    return calculateRosterAgeProfile(myPlayers, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES);
+    return calculateRosterAgeProfile(myPlayers, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES, sport);
   }, [myPlayers, weights, prevSeasonFptsMap]);
 
   const comparison = useMemo(() => {
@@ -86,8 +86,9 @@ export function AnalyticsPreviewCard({
       teamId,
       prevSeasonFptsMap,
       ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+      sport,
     );
-  }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
+  }, [allPlayers, weights, teamId, prevSeasonFptsMap, sport]);
 
   const isCategories = scoringType === 'h2h_categories';
   const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
@@ -102,8 +103,9 @@ export function AnalyticsPreviewCard({
     return buildLeagueStrengthComparison(allPlayers as any, weights, teamId, {
       prevSeasonFptsMap,
       minGames: ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+      sport,
     });
-  }, [isDynasty, isCategories, allPlayers, weights, teamId, prevSeasonFptsMap]);
+  }, [isDynasty, isCategories, allPlayers, weights, teamId, prevSeasonFptsMap, sport]);
 
   const teamAvgs = useMemo(() => {
     if (!isCategories || !allPlayers?.length) return null;

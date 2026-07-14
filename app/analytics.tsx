@@ -22,6 +22,7 @@ import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
 import { fetchStandingsTeams } from "@/utils/league/standingsQueries";
 import { s } from "@/utils/scale";
+import { getSportModule } from "@/utils/sports/registry";
 
 /**
  * Roster Analytics — routes to one of three views by league shape:
@@ -85,12 +86,16 @@ export default function AnalyticsScreen() {
     weights,
   );
 
-  // Aging-curve chip set — WNBA uses canonical basketball positions
-  // (G/F/C); other sports use the NBA spectrum. Filter logic for G/F
-  // already maps PG/SG → G and SF/PF → F, so chip semantics match.
-  const curveChips: PositionCurve[] = sport === "wnba"
-    ? ["ALL", "G", "F", "C"]
-    : ["ALL", "PG", "SG", "SF", "PF", "C"];
+  // Position-filter chips for the scatter, straight from the sport registry —
+  // NBA adds the G/F group chips on top of its five tokens (the filter maps
+  // PG/SG → G and SF/PF → F), WNBA already reports bare G/F/C, and NFL gets
+  // QB/RB/WR/TE/K/DST. Hardcoding basketball here was why an NFL league saw
+  // five chips that matched none of its players.
+  const curveChips: PositionCurve[] = [
+    "ALL",
+    ...(getSportModule(sport).positions as readonly PositionCurve[]),
+    ...(sport === "nba" ? (["G", "F"] as PositionCurve[]) : []),
+  ];
 
   // The charted team's players (for scatter / leaderboard / detail modal)
   const players = useMemo(

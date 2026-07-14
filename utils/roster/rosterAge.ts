@@ -3,9 +3,13 @@ import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { effectiveFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
-// Age bucket boundaries
+// Age bucket boundaries. NFL careers run shorter and peak earlier than NBA
+// ones — a 31-year-old RB is a veteran on the decline, not "prime" — so the
+// buckets shift down a year rather than mislabeling half an NFL roster.
 const RISING_MAX = 25;
 const PRIME_MAX = 31;
+const NFL_RISING_MAX = 25;
+const NFL_PRIME_MAX = 29;
 
 export interface AgeFptsPoint {
   name: string;
@@ -69,9 +73,11 @@ export function calculateAge(birthdate: string): number {
   return Math.round((years + monthsElapsed / 12) * 10) / 10;
 }
 
-export function ageBucket(age: number): 'rising' | 'prime' | 'vet' {
-  if (age < RISING_MAX) return 'rising';
-  if (age < PRIME_MAX) return 'prime';
+export function ageBucket(age: number, sport?: string | null): 'rising' | 'prime' | 'vet' {
+  const risingMax = sport === 'nfl' ? NFL_RISING_MAX : RISING_MAX;
+  const primeMax = sport === 'nfl' ? NFL_PRIME_MAX : PRIME_MAX;
+  if (age < risingMax) return 'rising';
+  if (age < primeMax) return 'prime';
   return 'vet';
 }
 
@@ -80,6 +86,7 @@ export function calculateRosterAgeProfile(
   scoringWeights: ScoringWeight[],
   prevSeasonFptsMap?: Map<string, number>,
   minGames?: number,
+  sport?: string | null,
 ): RosterAgeProfile {
   let totalAge = 0;
   let weightedAgeSum = 0;
@@ -95,14 +102,14 @@ export function calculateRosterAgeProfile(
     // Use prev-season fpts as the weight for players who haven't crossed
     // the games threshold yet — keeps the metric meaningful during WNBA
     // pre-tipoff and the first weeks of any season.
-    const fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames);
+    const fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames, sport);
 
     totalWithAge++;
     totalAge += age;
     weightedAgeSum += age * Math.max(fpts, 0);
     totalFpts += Math.max(fpts, 0);
 
-    const bucket = ageBucket(age);
+    const bucket = ageBucket(age, sport);
     if (bucket === 'rising') risingCount++;
     else if (bucket === 'prime') primeCount++;
     else vetCount++;
@@ -127,6 +134,7 @@ export function buildScatterData(
   scoringWeights: ScoringWeight[],
   prevSeasonFptsMap?: Map<string, number>,
   minGames?: number,
+  sport?: string | null,
 ): AgeFptsPoint[] {
   // Players need either a current-season sample OR a prev-season fallback
   // — pre-tipoff WNBA rosters have no current games but should still chart.
@@ -136,7 +144,7 @@ export function buildScatterData(
       name: p.name,
       shortName: shortDisplayName(p.name),
       age: calculateAge(p.birthdate!),
-      avgFpts: effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames),
+      avgFpts: effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames, sport),
       playerId: p.player_id,
       position: p.position,
     }));
@@ -149,6 +157,7 @@ export function buildLeagueComparison(
   myTeamId: string,
   prevSeasonFptsMap?: Map<string, number>,
   minGames?: number,
+  sport?: string | null,
 ): LeagueAgeComparison | null {
   // Group players by team
   const byTeam = new Map<string, PlayerSeasonStats[]>();
@@ -162,7 +171,7 @@ export function buildLeagueComparison(
   // Compute profile for each team
   const profiles: TeamAgeProfile[] = [];
   for (const [teamId, teamPlayers] of byTeam) {
-    const profile = calculateRosterAgeProfile(teamPlayers, scoringWeights, prevSeasonFptsMap, minGames);
+    const profile = calculateRosterAgeProfile(teamPlayers, scoringWeights, prevSeasonFptsMap, minGames, sport);
     if (profile.totalWithAge >= 3) {
       profiles.push({ ...profile, teamId });
     }

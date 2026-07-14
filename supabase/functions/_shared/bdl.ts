@@ -10,11 +10,14 @@
  * same auth and envelope shapes — callers pass `sport` and we route
  * accordingly.
  *
- * NFL quirks (verified 2026-07-10, see wiki "NFL Support"):
+ * NFL quirks (verified 2026-07-10 / 2026-07-13, see wiki "NFL Support"):
  *   - `start_date`/`end_date` params are silently IGNORED on /nfl/v1/games;
  *     filter by `seasons[]`, `weeks[]`, `dates[]`, `postseason` instead.
  *   - No preseason data; postseason games restart `week` numbering at 1.
  *   - Score fields use NBA-style names (home_team_score/visitor_team_score).
+ *   - Overtime finals read "Final/OT", not "Final" (see mapGameStatus).
+ *   - The players feed has NO draft_year — `experience` ("10th Season") stands
+ *     in for it (see utils/sports/nflExperience.ts).
  */
 
 import { fetchWithRetry } from './retry.ts';
@@ -105,23 +108,15 @@ export async function bdlFetchAll(
 }
 
 /**
- * Map BDL game status string to numeric game_status used in the DB.
- * 1 = scheduled, 2 = live, 3 = final.
+ * Map BDL game status string to the numeric game_status used in the DB
+ * (1 = scheduled, 2 = live, 3 = final).
  *
- * NBA reports "Q1"/"Q3"/"OT" while in-progress and "Final" when over.
- * WNBA reports the verbatim strings "pre" / "in" / "post" for the three
- * lifecycle states. Halftime appears as "Half" in NBA feeds.
- * NFL: "Final" when over; pre-game is a kickoff string like
- * "9/9 - 8:20 PM EDT" (falls through to scheduled). Live-status strings
- * are unverified until the first live NFL slate (no preseason in BDL) —
- * quarter strings would match the existing Q\d/Half/OT patterns.
+ * The logic is pure and lives in utils/sports/gameStatus.ts so the client test
+ * runner can cover it — this module reads `Deno.env` at import time and can't be
+ * loaded from jest. Re-exported here so edge call sites keep importing from
+ * `_shared/bdl.ts`.
  */
-export function mapGameStatus(status: string): number {
-  if (status === "Final" || status === "post") return 3;
-  if (status === "in") return 2;
-  if (/Qtr|Half|OT|Q\d/i.test(status)) return 2;
-  return 1;
-}
+export { mapGameStatus } from '../../../utils/sports/gameStatus.ts';
 
 /**
  * Convert a BDL game's UTC date/datetime to the ET "slate date" it belongs to.

@@ -152,12 +152,12 @@ export function PointsAgeAnalytics({
 
   const scatterData = useMemo(() => {
     if (!players.length || !weights?.length) return [];
-    return buildScatterData(players, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES);
+    return buildScatterData(players, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES, sport);
   }, [players, weights, prevSeasonFptsMap]);
 
   const profile = useMemo(() => {
     if (!players.length || !weights?.length) return null;
-    return calculateRosterAgeProfile(players, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES);
+    return calculateRosterAgeProfile(players, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES, sport);
   }, [players, weights, prevSeasonFptsMap]);
 
   // League-wide comparison
@@ -169,8 +169,9 @@ export function PointsAgeAnalytics({
       teamId,
       prevSeasonFptsMap,
       ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+      sport,
     );
-  }, [allPlayers, weights, teamId, prevSeasonFptsMap]);
+  }, [allPlayers, weights, teamId, prevSeasonFptsMap, sport]);
 
   // Career trajectory for the selected player, plotted on the chart's own
   // age/FPTS axes: each past season becomes a point at (age that year, FPTS
@@ -194,7 +195,7 @@ export function PointsAgeAnalytics({
         return {
           season: r.season,
           age: displayedPlayer.age - (currentStartYear - startYear),
-          fpts: seasonAvgRowToFpts(r as unknown as Record<string, unknown>, weights),
+          fpts: seasonAvgRowToFpts(r as unknown as Record<string, unknown>, weights, sport),
         };
       })
       .filter((p) => p.fpts > 0 && Number.isFinite(p.age))
@@ -821,7 +822,7 @@ export function PointsAgeAnalytics({
                 {visibleScatter.map((point) => {
                   const cx = xScale(point.age);
                   const cy = yScale(point.avgFpts);
-                  const bucket = ageBucket(point.age);
+                  const bucket = ageBucket(point.age, sport);
                   const color = BUCKET_COLORS[bucket];
                   const isSelected =
                     selectedPlayer?.playerId === point.playerId;
@@ -1113,13 +1114,13 @@ export function PointsAgeAnalytics({
                   <View style={styles.detailBadges}>
                     <Badge
                       label={
-                        ageBucket(displayedPlayer.age) === 'rising'
+                        ageBucket(displayedPlayer.age, sport) === 'rising'
                           ? 'RISING'
-                          : ageBucket(displayedPlayer.age) === 'prime'
+                          : ageBucket(displayedPlayer.age, sport) === 'prime'
                             ? 'PRIME'
                             : 'VETERAN'
                       }
-                      variant={bucketBadgeVariant(ageBucket(displayedPlayer.age))}
+                      variant={bucketBadgeVariant(ageBucket(displayedPlayer.age, sport))}
                       size="small"
                     />
                   </View>

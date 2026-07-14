@@ -5,6 +5,7 @@ import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { normalizeName } from '../_shared/normalize.ts';
+import { nflDraftYearFromExperience, nflReferenceSeason } from '../../../utils/sports/nflExperience.ts';
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -276,11 +277,17 @@ Deno.serve(async (req: Request) => {
       // the basketball position namespace).
       if (sport === 'nfl' && !coercedPosition) continue;
 
-      // BDL's draft_year is a plain calendar year (e.g. 2018) for basketball,
-      // or null for undrafted/unknown. Drives taxi-squad rookie eligibility.
-      // The NFL players feed has no draft_year field.
+      // Drives taxi-squad rookie eligibility. BDL's draft_year is a plain
+      // calendar year (e.g. 2018) for basketball, or null for undrafted/unknown.
+      // The NFL feed has no draft_year field at all, but its `experience` string
+      // ("10th Season") inverts to one — see utils/sports/nflExperience.ts for
+      // the mapping and for why "1st Season" is discarded rather than trusted.
       const draftYear =
-        typeof bp.draft_year === 'number' && bp.draft_year > 1900 ? bp.draft_year : null;
+        sport === 'nfl'
+          ? nflDraftYearFromExperience(bp.experience, nflReferenceSeason(new Date()))
+          : typeof bp.draft_year === 'number' && bp.draft_year > 1900
+            ? bp.draft_year
+            : null;
 
       activePlayers.push({
         bdl_id: bp.id,

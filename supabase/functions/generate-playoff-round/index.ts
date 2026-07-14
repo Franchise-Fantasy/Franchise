@@ -10,6 +10,7 @@ import {
   nextRoundOpponentPool,
   resolvePendingSeedPicks,
   round1OpponentPool,
+  roundHasSeedPickChoice,
   type SeedEntry,
 } from '../../../utils/playoff/seedPickAutoResolve.ts';
 
@@ -234,20 +235,28 @@ Deno.serve(async (req: Request) => {
 
       if (!teams || teams.length < 2) return errorResponse('Not enough teams', 400);
 
+      // The `teams` row shape, non-null. Typing the helpers below against
+      // `typeof teams` instead would carry the query's `| null` into every
+      // param and return, which is what let `wpct` go undefined unnoticed.
+      type StandingsTeam = NonNullable<typeof teams>[number];
+
       // Apply tiebreaker resolution
       const tiebreakerOrder: string[] = league.tiebreaker_order ?? ['head_to_head', 'points_for'];
 
+      // Win percentage, ties counting as half a win. Used both to group teams
+      // for tiebreaking and to rank the two division winners against each other.
+      const wpct = (t: StandingsTeam) => {
+        const gp = t.wins + t.losses + t.ties;
+        return gp === 0 ? 0 : (t.wins + t.ties * 0.5) / gp;
+      };
+
       // Helper: rank a list of teams using tiebreaker logic
-      function rankTeams(teamList: typeof teams): typeof teams {
+      function rankTeams(teamList: StandingsTeam[]): StandingsTeam[] {
         let ranked = teamList;
 
         if (tiebreakerOrder.includes('head_to_head') && h2hMatchups) {
-          const wpct = (t: typeof teamList[0]) => {
-            const gp = t.wins + t.losses + t.ties;
-            return gp === 0 ? 0 : (t.wins + t.ties * 0.5) / gp;
-          };
           const sorted = [...teamList].sort((a, b) => wpct(b) - wpct(a));
-          const groups: (typeof teamList)[] = [];
+          const groups: StandingsTeam[][] = [];
           let currentGroup = [sorted[0]];
           for (let i = 1; i < sorted.length; i++) {
             if (wpct(sorted[i]) === wpct(sorted[i - 1])) {
@@ -298,7 +307,7 @@ Deno.serve(async (req: Request) => {
         }
       }
 
-      const getH2HWins = (teamId: string, group: typeof teams) => {
+      const getH2HWins = (teamId: string, group: StandingsTeam[]) => {
         let wins = 0;
         for (const other of group) {
           if (other.id === teamId) continue;
@@ -307,21 +316,17 @@ Deno.serve(async (req: Request) => {
         return wins;
       };
 
+      const div1Winner = rankTeams(teams.filter(t => t.division === 1))[0];
+      const div2Winner = rankTeams(teams.filter(t => t.division === 2))[0];
+
       let seeds: SeedEntry[];
 
-      if (league.division_count === 2) {
-        // Division-based seeding: division winners get seeds 1 & 2
-        const div1Teams = teams.filter(t => t.division === 1);
-        const div2Teams = teams.filter(t => t.division === 2);
-
-        const div1Ranked = rankTeams(div1Teams);
-        const div2Ranked = rankTeams(div2Teams);
-
-        const div1Winner = div1Ranked[0];
-        const div2Winner = div2Ranked[0];
-
-        // Determine which division winner gets seed 1 (better record by win%)
-        let seed1: typeof teams[0], seed2: typeof teams[0];
+      // Division seeding needs an actual winner on each side. A league flagged
+      // as 2-division but with an empty division is misconfigured; seed it
+      // straight rather than blocking its playoffs entirely.
+      if (league.division_count === 2 && div1Winner && div2Winner) {
+        // Division winners take seeds 1 & 2, better win% first.
+        let seed1: StandingsTeam, seed2: StandingsTeam;
         const div1Pct = wpct(div1Winner);
         const div2Pct = wpct(div2Winner);
         if (div1Pct > div2Pct) {
@@ -336,48 +341,33 @@ Deno.serve(async (req: Request) => {
 
         // Remaining spots: all other teams ranked by overall record (wild card)
         const divWinnerIds = new Set([seed1.id, seed2.id]);
-        const remainingTeams = teams.filter(t => !divWinnerIds.has(t.id));
-        const rankedRemaining = rankTeams(remainingTeams);
+        const rankedRemaining = rankTeams(teams.filter(t => !divWinnerIds.has(t.id)));
 
-        // Build seeds: division winners first, then wild cards
         const seeded = [seed1, seed2, ...rankedRemaining.slice(0, playoffTeams - 2)];
         seeds = seeded.map((t, i) => ({ teamId: t.id, seed: i + 1 }));
       } else {
+        if (league.division_count === 2) {
+          console.warn(`League ${league_id} is 2-division but a division has no teams — seeding straight.`);
+        }
         // Standard seeding: rank all teams together
-        const rankedTeams = rankTeams(teams);
-        seeds = rankedTeams
+        seeds = rankTeams(teams)
           .slice(0, playoffTeams)
           .map((t, i) => ({ teamId: t.id, seed: i + 1 }));
       }
 
-      if (format === 'higher_seed_picks' && !from_seed_picks) {
-        const byes = calcByes(playoffTeams);
-        const playingSeeds = seeds.slice(byes);
+      const byes = calcByes(playoffTeams);
+      const playingSeeds = seeds.slice(byes);
+
+      if (format === 'higher_seed_picks' && !from_seed_picks && roundHasSeedPickChoice(playingSeeds.length)) {
         const halfCount = playingSeeds.length / 2;
         const pickers = playingSeeds.slice(0, halfCount);
 
-        const round1Pairings = buildRound1(seeds);
-        const byeBracketRows = round1Pairings
-          .map((p, i) => ({ pairing: p, pos: i + 1 }))
-          .filter(({ pairing }) => pairing.teamB === null)
-          .map(({ pairing, pos }) => ({
-            league_id,
-            season: league.season,
-            round: 1,
-            bracket_position: pos,
-            team_a_id: pairing.teamA.teamId,
-            team_a_seed: pairing.teamA.seed,
-            team_b_id: null,
-            team_b_seed: null,
-            winner_id: pairing.teamA.teamId,
-            is_bye: true,
-            is_third_place: false,
-          }));
-
-        if (byeBracketRows.length > 0) {
-          await supabase.from('playoff_bracket').insert(byeBracketRows);
-        }
-
+        // Nothing is written to playoff_bracket yet — not even the byes. The
+        // whole round (byes + the picked pairings) is written in one atomic call
+        // once the last pick lands. Inserting the bye rows here instead would
+        // deadlock the bracket: the `Round N already generated` guard below sees
+        // them and 409s the from_seed_picks callback, so the round never builds.
+        // While picks are pending the client shows its projected bracket.
         const pickRows = pickers.map(s => ({
           league_id,
           season: league.season,
@@ -426,8 +416,14 @@ Deno.serve(async (req: Request) => {
         const seedMap = new Map(seeds.map(s => [s.teamId, s]));
 
         if (auto_resolve_picks) {
-          await autoAssignPendingPicks(supabase, picks, round1OpponentPool(seeds, calcByes(playoffTeams)));
+          await autoAssignPendingPicks(supabase, picks, round1OpponentPool(seeds, byes));
         }
+
+        // Byes lead the round, then the pairings the higher seeds chose. The
+        // top `byes` seeds auto-advance and were never in the pick pool, so
+        // they carry no matchup — but they still need their bracket row, and
+        // this is the only call that writes round 1.
+        pairings = seeds.slice(0, byes).map(s => ({ teamA: s, teamB: null }));
 
         for (const pick of picks) {
           if (!pick.picked_opponent_id) return errorResponse('Not all picks completed', 400);
@@ -460,12 +456,16 @@ Deno.serve(async (req: Request) => {
         return errorResponse(`Previous round has ${unresolved.length} unresolved matchups`, 400);
       }
 
-      if (format === 'higher_seed_picks' && !from_seed_picks) {
-        const winners = prevBracket.map(b => {
-          const winnerSeed = b.winner_id === b.team_a_id ? b.team_a_seed : b.team_b_seed;
-          return { teamId: b.winner_id!, seed: winnerSeed! };
-        }).sort((a, b) => a.seed - b.seed);
+      // Every winner advances — a bye row's winner is its team_a. Sorted by seed
+      // so the top half are the pickers and the bottom half their opponent pool.
+      const winners: SeedEntry[] = prevBracket.map(b => {
+        const winnerSeed = b.winner_id === b.team_a_id ? b.team_a_seed : b.team_b_seed;
+        return { teamId: b.winner_id!, seed: winnerSeed! };
+      }).sort((a, b) => a.seed - b.seed);
 
+      const usesSeedPicks = format === 'higher_seed_picks' && roundHasSeedPickChoice(winners.length);
+
+      if (usesSeedPicks && !from_seed_picks) {
         const halfCount = winners.length / 2;
         const pickers = winners.slice(0, halfCount);
 
@@ -502,7 +502,7 @@ Deno.serve(async (req: Request) => {
         });
       }
 
-      if (format === 'higher_seed_picks' && from_seed_picks) {
+      if (usesSeedPicks && from_seed_picks) {
         const { data: picks } = await supabase
           .from('playoff_seed_picks')
           .select('id, picking_team_id, picking_seed, picked_opponent_id')
@@ -528,12 +528,6 @@ Deno.serve(async (req: Request) => {
         if (auto_resolve_picks) {
           // Pool = the previous round's winners (their seeds carried forward);
           // nextRoundOpponentPool takes the bottom half — the pickers are the top.
-          const winners = (prevBracket ?? [])
-            .filter((b) => !b.is_bye && b.winner_id)
-            .map((b) => ({
-              teamId: b.winner_id as string,
-              seed: (b.winner_id === b.team_a_id ? b.team_a_seed : b.team_b_seed) as number,
-            }));
           await autoAssignPendingPicks(supabase, picks, nextRoundOpponentPool(winners));
         }
 
@@ -547,6 +541,12 @@ Deno.serve(async (req: Request) => {
             },
           });
         }
+      } else if (format === 'higher_seed_picks') {
+        // Two teams left (the final): one possible pairing, nothing to pick.
+        // Higher seed is team A. Any stale pick row for this round is ignored.
+        // `?? null` so a lone winner reads as a bye rather than a matchup row
+        // with a null away team.
+        pairings = [{ teamA: winners[0], teamB: winners[1] ?? null }];
       } else {
         const results: RoundResult[] = prevBracket.map(b => ({
           bracket_position: b.bracket_position,

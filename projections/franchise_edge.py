@@ -18,11 +18,17 @@ No archetype clustering, no hierarchical cross-player regression — each player
 is anchored to their own production, so stars are never dragged toward a cluster
 mean and breakouts are tracked.
 
-The blend math, constants and minutes factor are copied verbatim from edge.py.
-Only two things change: the data source is Franchise `player_games` (sport-
-scoped, UUID player_id) instead of the engine's `game_player_stats`, and the
-stat list is extended from edge.py's 4 prop stats to the full fantasy set (same
-blend per stat). The original's betting math (edge/EV/de-vig) is NOT ported.
+The blend math and constants are copied verbatim from edge.py. Deliberate
+divergences from the source (each documented at its site):
+  1. Data source: Franchise `player_games` (sport-scoped, UUID player_id)
+     instead of the engine's `game_player_stats`.
+  2. Stat list: extended from edge.py's 4 prop stats to the full fantasy set
+     (same blend per stat).
+  3. Absence freshness fade (2026-07-08): see ABSENCE_FADE_GAMES.
+  4. Recent-minutes conditioning (2026-07-13): _recent_minutes counts all
+     played games (min > 0), not just min >= MIN_MINUTES ones.
+  5. Level calibration (2026-07-13): see MINUTES_LEVEL_SCALE.
+The original's betting math (edge/EV/de-vig) is NOT ported.
 """
 import math
 
@@ -40,6 +46,41 @@ MIN_FACTOR_HI     = 1.35
 # (mapped to proj_3pm/proj_3pa on write).
 STATS = ["pts", "reb", "ast", "stl", "blk", "tov", "fg3m", "fg3a",
          "fgm", "fga", "ftm", "fta"]
+
+# ── Level calibration (divergence #5, 2026-07-13) ────────────────────────────
+# The engine persistently over-projects the LEVEL of minutes and (less so)
+# stats: projections are conditional on meaningful playing time while realized
+# games include blowout benchings, foul trouble and early exits, and the
+# minutes-factor/absence machinery only ever ratchets up. Backtest (post
+# absence-fix pairs, projection_date 2026-07-09..12, n=490 played games):
+# actual/projected = 0.895 on minutes, ~0.91-0.96 per counting stat
+# (fantasy-weighted 0.914). Net of the ~2.3% the min>0 conditioning fix in
+# _recent_minutes recovers, that leaves ~0.92 on minutes and ~0.95 on stats.
+# Applied as final multipliers in get_player_distributions. SDs are NOT scaled:
+# marginal ±1σ coverage measured slightly UNDER nominal (0.63-0.68 vs 0.68), so
+# shrinking means against unchanged SDs nudges coverage the right way.
+# REFIT after 2-3 weeks of post-v1.1 runs: recompute avg(actual)/avg(projected)
+# over matched pairs (first played game within 6 days of projection_date,
+# model_version = current) and fold the ratio into these constants.
+MINUTES_LEVEL_SCALE = 0.92
+STATS_LEVEL_SCALE = 0.95
+
+# ── Phantom gate (2026-07-13) ─────────────────────────────────────────────────
+# A player projected purely from PRIOR-season logs after the season is well
+# underway is almost always out of the league (retired / overseas / waived /
+# unsigned) with a status that never flipped to OUT — the 2026-07-12 board
+# carried ~22 such rows, refreshed daily at last year's full line. prior_only is
+# the legitimate basis early season (on day 1 EVERYONE is prior_only), so the
+# gate keys on the player's team having played enough games for a real
+# appearance to have happened. Teamless players use the league max.
+PHANTOM_GATE_TEAM_GAMES = 5
+
+
+def is_phantom(basis: str, team_games_played: float) -> bool:
+    """True if a prior_only player should be dropped from the board because
+    their team (or the league, if teamless) has played more than
+    PHANTOM_GATE_TEAM_GAMES games without them ever appearing."""
+    return basis == "prior_only" and team_games_played > PHANTOM_GATE_TEAM_GAMES
 
 
 def _f(v):
@@ -108,8 +149,17 @@ def _season_distributions(conn, sport: str, season: int, min_games: int) -> dict
 
 
 def _recent_minutes(conn, sport: str, season: int, k: int) -> dict:
-    """Average minutes over each player's most recent `k` games this season.
-    Mirrors edge.py._recent_minutes."""
+    """Average minutes over each player's most recent `k` PLAYED games (min > 0)
+    this season.
+
+    Divergence #4 from edge.py, which filtered min >= MIN_MINUTES here too. That
+    made demotions invisible: a player collapsed to sub-5-minute garbage duty
+    contributed no rows, so their "recent" minutes stayed frozen at the pre-
+    demotion level and the MIN_FACTOR_LO clamp never engaged. The 2026-07-13
+    backtest measured the conditioning at ~0.5 min of the engine's +2.3 min/game
+    over-projection (trailing-5 bias: -1.04 with the min>=5 filter vs -0.53 over
+    all played games). min = 0 DNP rows stay excluded — including them
+    over-corrects (+0.75 under-projection on the same pairs)."""
     sql = """
         WITH ranked AS (
             SELECT pg.player_id, pg.min AS min_played,
@@ -117,13 +167,13 @@ def _recent_minutes(conn, sport: str, season: int, k: int) -> dict:
                                       ORDER BY pg.game_date DESC) AS rn
             FROM player_games pg
             WHERE pg.sport = %s AND EXTRACT(YEAR FROM pg.game_date) = %s
-              AND pg.min >= %s
+              AND pg.min > 0
         )
         SELECT player_id, AVG(min_played) FROM ranked WHERE rn <= %s GROUP BY player_id
     """
     out = {}
     with conn.cursor() as cur:
-        cur.execute(sql, (sport, season, MIN_MINUTES, k))
+        cur.execute(sql, (sport, season, k))
         for pid, am in cur.fetchall():
             out[pid] = _f(am)
     return out
@@ -168,15 +218,17 @@ def get_player_distributions(conn, sport: str, season: int) -> dict:
         else:
             factor = 1.0
 
+        # _proj_min and stat means carry the level calibration; the factor,
+        # _base_min and SDs stay raw (see MINUTES_LEVEL_SCALE for why).
         rec = {"_n": (c or {}).get("_n", 0),
                "_n_prior": (p or {}).get("_n", 0),
                "_basis": basis,
                "_min_factor": round(factor, 3),
-               "_proj_min": round(proj_min, 1),
+               "_proj_min": round(proj_min * MINUTES_LEVEL_SCALE, 1),
                "_base_min": round(base_min, 1)}
         for s in STATS:
             m, sd = _blend_stat((c or {}).get(s), (p or {}).get(s), n_c)
-            rec[s] = (m * factor, sd * factor)   # rate × minutes, via scaling
+            rec[s] = (m * factor * STATS_LEVEL_SCALE, sd * factor)  # rate × minutes
         out[pid] = rec
     return out
 

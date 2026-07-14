@@ -58,6 +58,66 @@ export function dstPointsAllowedPts(pointsAllowed: number): number {
   return DST_PA_TIERS[DST_PA_TIERS.length - 1].pts;
 }
 
+/**
+ * Live-ticker event kinds for NFL, and the column each one diffs.
+ *
+ * The basketball tape emits shot-by-shot detail because basketball generates a
+ * scoring event every ~30 seconds. Football's cadence is the opposite: ~12
+ * possessions a side, most plays worth a few yards. So the NFL tape emits only
+ * the plays that MOVE a fantasy score — touchdowns, turnovers, kicks, D/ST
+ * takeaways — rather than every completion. Yardage isn't an event: it would
+ * fire on nearly every snap and drown the band it's rendered in.
+ *
+ * `kind` is deliberately identical to the league's scoring `stat_name`, so the
+ * client's fpts-per-event calc is just `value × weight(kind)` with no map.
+ *
+ * The DB CHECK on live_scoring_events.kind must list every kind here — a single
+ * unlisted kind aborts the whole batch INSERT and silently drops every event in
+ * that poll cycle (that bug already bit the basketball tape once; see migration
+ * 20260510184500).
+ */
+export const NFL_EVENT_DEFS = [
+  { kind: 'PASS_TD', col: 'pass_td', one: 'PASSING TD', many: 'PASSING TDS' },
+  { kind: 'RUSH_TD', col: 'rush_td', one: 'RUSHING TD', many: 'RUSHING TDS' },
+  { kind: 'REC_TD', col: 'rec_td', one: 'RECEIVING TD', many: 'RECEIVING TDS' },
+  { kind: 'RET_TD', col: 'ret_td', one: 'RETURN TD', many: 'RETURN TDS' },
+  { kind: 'DST_TD', col: 'dst_td', one: 'DEFENSIVE TD', many: 'DEFENSIVE TDS' },
+  { kind: 'PASS_INT', col: 'pass_int', one: 'THREW INT', many: 'INTS THROWN' },
+  { kind: 'FUM_LOST', col: 'fum_lost', one: 'FUMBLE LOST', many: 'FUMBLES LOST' },
+  { kind: 'FG', col: 'fg_made', one: 'FIELD GOAL', many: 'FIELD GOALS' },
+  { kind: 'XP', col: 'xp_made', one: 'EXTRA POINT', many: 'EXTRA POINTS' },
+  { kind: 'DST_SACK', col: 'dst_sacks', one: 'SACK', many: 'SACKS' },
+  { kind: 'DST_INT', col: 'dst_int', one: 'D/ST INT', many: 'D/ST INTS' },
+  { kind: 'DST_FUM_REC', col: 'dst_fum_rec', one: 'FUMBLE REC', many: 'FUMBLE RECS' },
+] as const;
+
+export type NflEventKind = (typeof NFL_EVENT_DEFS)[number]['kind'];
+
+/** The NFL columns the live tape diffs — the select for the previous snapshot
+ *  must carry all of them or a stat that moved reads as unchanged. */
+export const NFL_EVENT_COLUMNS = NFL_EVENT_DEFS.map((d) => d.col);
+
+/** Ticker label for an NFL event ("2 PASSING TDS" / "SACK"). */
+export function nflEventLabel(kind: string, value: number): string | null {
+  const def = NFL_EVENT_DEFS.find((d) => d.kind === kind);
+  if (!def) return null;
+  return value > 1 ? `${value} ${def.many}` : def.one;
+}
+
+/**
+ * Events implied by the change between two NFL stat snapshots. Only positive
+ * deltas emit — BDL occasionally revises a stat down (a TD reversed on review),
+ * and "un-scoring" a play mid-tape would be worse than staying silent.
+ */
+export function deriveNflEvents(prev: StatRow, curr: StatRow): { kind: NflEventKind; value: number }[] {
+  const events: { kind: NflEventKind; value: number }[] = [];
+  for (const def of NFL_EVENT_DEFS) {
+    const delta = num(curr, def.col) - num(prev, def.col);
+    if (delta > 0) events.push({ kind: def.kind, value: delta });
+  }
+  return events;
+}
+
 function num(row: StatRow, key: string): number {
   const v = row[key];
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;

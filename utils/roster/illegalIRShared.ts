@@ -9,10 +9,20 @@
  *   - supabase/functions/_shared/illegalIR.ts (edge; adds DB helper with explicit supabase param)
  */
 
-// Injury statuses that allow a player to remain on IR.
-// Anything else (null, 'active', 'PROB') counts as "healthy enough to play"
-// and means the player is not IR-eligible.
-export const IR_ELIGIBLE_STATUSES = new Set(["OUT", "SUSP", "DOUBT", "QUES"]);
+/**
+ * Injury statuses that allow a player to remain on IR — the same rule in every
+ * sport. IR is for players who genuinely cannot play, so only OUT and SUSP
+ * qualify. Everything else (null, 'active', 'PROB', 'QUES', 'DOUBT') counts as
+ * "might play" and makes the player illegal on IR.
+ *
+ * DOUBT and QUES are deliberately excluded. Both are game-time designations,
+ * and honoring either turns IR into a free bench slot: stash a Questionable
+ * WR1, add a streamer, activate him Sunday. Excluding DOUBT but not QUES would
+ * also invert the severity ladder (PROB < QUES < DOUBT < OUT) — a doubtful
+ * player barred from IR while a questionable one, who is *more* likely to play,
+ * is allowed.
+ */
+export const IR_ELIGIBLE_STATUSES = new Set(["OUT", "SUSP"]);
 
 export interface IllegalIRPlayer {
   player_id: string;

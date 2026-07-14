@@ -66,6 +66,7 @@ export function computeDependencyRisk(
   players: LeaguePlayerWithTeam[],
   scoringWeights: ScoringWeight[],
   scoringType?: string,
+  sport?: string | null,
 ): DependencyResult[] {
   const isCategories = scoringType === 'h2h_categories';
 
@@ -83,7 +84,7 @@ export function computeDependencyRisk(
       .map(p => {
         const perGame = isCategories
           ? catContributionPerGame(p)
-          : calculateAvgFantasyPoints(p, scoringWeights);
+          : calculateAvgFantasyPoints(p, scoringWeights, sport);
         // Weight by games played for season-total contribution
         return { name: p.name, value: perGame * (p.games_played || 0) };
       })

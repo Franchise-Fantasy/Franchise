@@ -13,15 +13,17 @@ export interface PlayerRanking {
 export function computeRankings(
   players: PlayerSeasonStats[],
   scoringWeights: ScoringWeight[],
+  sport?: string | null,
 ): Map<string, PlayerRanking> {
   const map = new Map<string, PlayerRanking>();
   if (players.length === 0) return map;
 
-  // Score every player
+  // Score every player. Without `sport` an NFL pool scores all-zero (the NBA
+  // stat map matches none of its weights) and every player ties at rank #1.
   const scored = players.map(p => ({
     id: p.player_id,
     position: p.position?.split('-')[0] ?? 'UTIL',
-    fpts: calculateAvgFantasyPoints(p, scoringWeights),
+    fpts: calculateAvgFantasyPoints(p, scoringWeights, sport),
   }));
 
   // Sort descending by fpts

@@ -50,6 +50,8 @@ export interface HeroTeam {
 }
 
 export interface MatchupHeroProps {
+  /** League sport — drives the season-opener word ("KICKOFF" vs "TIP-OFF"). */
+  sport?: string | null;
   selectedDate: string;
   today: string;
   isPastDate: boolean;
@@ -155,6 +157,7 @@ function formatScore(n: number): string {
  * continuous.
  */
 export function MatchupHero({
+  sport,
   selectedDate,
   today,
   isPastDate,
@@ -533,6 +536,7 @@ export function MatchupHero({
           phaseIndex={offseason.phaseIndex}
           countdownDays={offseason.countdownDays}
           tipOffISO={offseason.tipOffISO}
+          openerWord={sport === "nfl" ? "KICKOFF" : "TIP-OFF"}
         />
       ) : (
       <View style={styles.bodyRow}>
@@ -655,23 +659,26 @@ function OffseasonBody({
   phaseIndex,
   countdownDays,
   tipOffISO,
+  openerWord,
 }: {
   phaseLabels: string[];
   phaseIndex: number;
   countdownDays: number | null;
   tipOffISO: string | null;
+  /** What the season starts with — "TIP-OFF" (basketball) or "KICKOFF" (NFL). */
+  openerWord: string;
 }) {
   return (
     <View style={styles.offBody}>
       {countdownDays != null ? (
         <View
           style={styles.countBlock}
-          accessibilityLabel={`Next season tips off in ${countdownDays} ${
+          accessibilityLabel={`Next season ${openerWord.toLowerCase()} in ${countdownDays} ${
             countdownDays === 1 ? "day" : "days"
           }${tipOffISO ? `, ${formatIsoDate(tipOffISO)}` : ""}`}
         >
           <ThemedText type="varsity" style={styles.countLabel}>
-            TIP-OFF IN
+            {openerWord} IN
           </ThemedText>
           <Text style={styles.countNum}>{countdownDays}</Text>
           <ThemedText type="mono" style={styles.countSub}>

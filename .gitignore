@@ -33,6 +33,8 @@ AuthKey_*
 # an excluded directory — so scripts/fonts/ has to be negated before the file.
 scripts/*
 !scripts/check-realtime-channels.mjs
+!scripts/check-paired-files.mjs
+!scripts/check-sport-scope.mjs
 !scripts/reset-project.js
 !scripts/fonts/
-!scripts/fonts/patch-bloomy-tabular.py
+!scripts/fonts/patch-bloomy.py

@@ -9,7 +9,7 @@ import { createLogger } from "../_shared/log.ts";
 import { mapDstGameStats, mapNflGameStats } from "../_shared/nflStats.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
-import { nflStatLine } from "../../../utils/scoring/nflStatLine.ts";
+import { deriveNflEvents, nflStatLine } from "../../../utils/scoring/nflStatLine.ts";
 import { getSportModule } from "../../../utils/sports/registry.ts";
 import { getArchivedLeagueIds } from "../_shared/archivedLeagues.ts";
 
@@ -525,7 +525,7 @@ Deno.serve(async (req: Request) => {
       // Playoff and play-in games flow into live_player_stats for the live UI,
       // but are excluded from the player_games write below (see the
       // regular-season-end gate) so season totals stay clean.
-      const s = mapGameStatus(g.status ?? "");
+      const s = mapGameStatus(g.status ?? "", sport, g.date);
       return s === 2 || s === 3;
     });
 
@@ -618,13 +618,30 @@ Deno.serve(async (req: Request) => {
     // Fetch previous snapshot for oncourt derivation AND scoring-event diffs.
     // Without a previous row, we can't tell whether a stat moved between polls,
     // so the first poll for a player today is silent on event emission.
-    const { data: existingLive, error: existingLiveErr } = await supabase
-      .from("live_player_stats")
-      .select(
-        'player_id, game_id, game_date, game_status, min, pts, reb, ast, stl, blk, tov, fgm, ftm, "3pm", fga, fta, "3pa", pf',
-      )
-      .in("player_id", [...bdlIdToPlayerId.values()])
-      .in("game_date", datesToCheck);
+    // NFL diffs a different column set (the event tape's TD/turnover/kick
+    // columns), so the snapshot select is sport-conditional. Each branch is a
+    // single string literal, never a concatenation — supabase-js can't
+    // type-parse a built-up select and the rows degrade to GenericStringError.
+    // D/ST ids aren't in bdlIdToPlayerId (they're synthetic, no BDL id), so the
+    // NFL query has to be keyed by game_date alone for them; simplest correct
+    // thing is to drop the player filter for NFL and scope by date + sport,
+    // which is bounded by the day's slate anyway.
+    const existingLiveQuery = sport === 'nfl'
+      ? supabase
+          .from("live_player_stats")
+          .select(
+            'player_id, game_id, game_date, game_status, min, pass_td, rush_td, rec_td, ret_td, dst_td, pass_int, fum_lost, fg_made, xp_made, dst_sacks, dst_int, dst_fum_rec',
+          )
+          .eq("sport", "nfl")
+          .in("game_date", datesToCheck)
+      : supabase
+          .from("live_player_stats")
+          .select(
+            'player_id, game_id, game_date, game_status, min, pts, reb, ast, stl, blk, tov, fgm, ftm, "3pm", fga, fta, "3pa", pf',
+          )
+          .in("player_id", [...bdlIdToPlayerId.values()])
+          .in("game_date", datesToCheck);
+    const { data: existingLive, error: existingLiveErr } = await existingLiveQuery;
     if (existingLiveErr) {
       log.error("existingLive query error", existingLiveErr);
     }
@@ -665,6 +682,12 @@ Deno.serve(async (req: Request) => {
         },
       ]),
     );
+    // NFL prior snapshot, keyed the same way — the raw row IS the shape
+    // deriveNflEvents diffs (it reads columns by name), so no field mapping.
+    const prevNflMap = new Map<string, Record<string, unknown>>(
+      (existingLive ?? []).map((r: any) => [`${r.player_id}:${r.game_date}`, r]),
+    );
+
     // Separate map of prior minutes — used only for the on-court derivation,
     // not for scoring-event diffing. Postgres `numeric` returns as a string
     // through the JS client, so coerce explicitly.
@@ -687,18 +710,19 @@ Deno.serve(async (req: Request) => {
 
     if (sport === 'nfl') {
       // ── NFL branch ────────────────────────────────────────────────────
-      // Skill players map via mapNflGameStats; no minutes/on-court concept
-      // (min:1 is the "played" sentinel the matview counts games by); no
-      // scoring-event derivation (the event tape's kinds are basketball
-      // plays — an NFL tape is a future feature). Basketball stat columns
-      // are omitted and take their DB defaults (0).
+      // Skill players map via mapNflGameStats; no minutes concept (min:1 is the
+      // "played" sentinel the matview counts games by) and `oncourt` degrades
+      // to "their game is live". Scoring events come from deriveNflEvents —
+      // touchdowns / turnovers / kicks / D-ST takeaways only, since a yardage
+      // event would fire on nearly every snap. Basketball stat columns are
+      // omitted and take their DB defaults (0).
       for (const stat of activeStats) {
         const playerId = bdlIdToPlayerId.get(stat.player?.id);
         if (!playerId) continue;
         const game = gameMap.get(stat.game?.id);
         if (!game) continue;
 
-        const gameStatus = mapGameStatus(game.status ?? "");
+        const gameStatus = mapGameStatus(game.status ?? "", sport, game.date);
         const gameId = String(game.id);
         const actualGameDate = bdlGameSlateDate(game.date) ?? gameDate;
         const isHome = stat.team?.id === game.home_team?.id;
@@ -720,14 +744,35 @@ Deno.serve(async (req: Request) => {
           period: game.period ?? 0,
           game_clock: toIsoDuration(game.time ?? ""),
           matchup,
+          // NFL has no on-court concept; "in the game" is simply "their game is
+          // live", which is what the widget's playing-now dot wants to mean.
+          oncourt: gameStatus === 2,
           home_score: homeScore,
           away_score: awayScore,
-          oncourt: false,
           min: 1,
           ...nflCols,
           updated_at: new Date().toISOString(),
         });
         if (ownTricode) proTeamByPlayerId.set(playerId, ownTricode);
+
+        // Live tape: emit the plays that moved this player's fantasy score
+        // since the last poll. No prior row = first poll of the day for them,
+        // so we stay silent rather than replay their whole stat line as events.
+        const prevNfl = prevNflMap.get(`${playerId}:${actualGameDate}`);
+        if (prevNfl && gameStatus >= 2) {
+          for (const e of deriveNflEvents(prevNfl, nflCols)) {
+            allEventRows.push({
+              player_id: playerId,
+              player_name: playerIdToName.get(playerId) ?? "Unknown",
+              game_id: gameId,
+              sport,
+              period: game.period ?? 0,
+              game_clock: toIsoDuration(game.time ?? ""),
+              kind: e.kind,
+              value: e.value,
+            });
+          }
+        }
 
         if (
           gameStatus === 3 &&
@@ -754,12 +799,17 @@ Deno.serve(async (req: Request) => {
       // D/ST tier result ticks during games even if team_stats lags.
       const { data: dstPlayers } = await supabase
         .from("players")
-        .select("id, pro_team")
+        .select("id, pro_team, name")
         .eq("sport", "nfl")
         .eq("position", "DST");
       const dstIdByTricode = new Map<string, string>(
         (dstPlayers ?? []).map((d: any) => [d.pro_team, d.id]),
       );
+      // D/ST rows are synthetic (no BDL player id), so they never appear in
+      // playerIdToName — register them here or their ticker chips read "Unknown".
+      for (const d of dstPlayers ?? []) {
+        playerIdToName.set((d as any).id, (d as any).name ?? "D/ST");
+      }
 
       let teamStatsRows: any[] = [];
       try {
@@ -776,7 +826,7 @@ Deno.serve(async (req: Request) => {
       );
 
       for (const game of activeGames) {
-        const gameStatus = mapGameStatus(game.status ?? "");
+        const gameStatus = mapGameStatus(game.status ?? "", sport, game.date);
         if (gameStatus < 2) continue;
         const gameId = String(game.id);
         const actualGameDate = bdlGameSlateDate(game.date) ?? gameDate;
@@ -809,11 +859,30 @@ Deno.serve(async (req: Request) => {
             matchup,
             home_score: homeScore,
             away_score: awayScore,
-            oncourt: false,
+            oncourt: gameStatus === 2,
             min: 1,
             ...dstCols,
             updated_at: new Date().toISOString(),
           });
+
+          // Sacks / picks / fumble recoveries / defensive TDs as they happen.
+          // Points-allowed is deliberately NOT an event — it changes every time
+          // the opponent scores, which is the inverse of a highlight.
+          const prevDst = prevNflMap.get(`${dstId}:${actualGameDate}`);
+          if (prevDst) {
+            for (const e of deriveNflEvents(prevDst, dstCols)) {
+              allEventRows.push({
+                player_id: dstId,
+                player_name: playerIdToName.get(dstId) ?? "D/ST",
+                game_id: gameId,
+                sport,
+                period: game.period ?? 0,
+                game_clock: "",
+                kind: e.kind,
+                value: e.value,
+              });
+            }
+          }
 
           if (
             gameStatus === 3 &&
@@ -842,7 +911,7 @@ Deno.serve(async (req: Request) => {
       const game = gameMap.get(stat.game?.id);
       if (!game) continue;
 
-      const gameStatus = mapGameStatus(game.status ?? "");
+      const gameStatus = mapGameStatus(game.status ?? "", sport, game.date);
       const period = game.period ?? 0;
       const gameClock = toIsoDuration(game.time ?? "");
       const gameId = String(game.id);
@@ -1010,7 +1079,7 @@ Deno.serve(async (req: Request) => {
     upsertPromises.push(
       Promise.all(
         activeGames.map(async (game: any) => {
-          const gs = mapGameStatus(game.status ?? "");
+          const gs = mapGameStatus(game.status ?? "", sport, game.date);
           const updates: Record<string, unknown> = {
             home_score: game.home_score ?? game.home_team_score ?? 0,
             away_score: game.away_score ?? game.visitor_team_score ?? 0,

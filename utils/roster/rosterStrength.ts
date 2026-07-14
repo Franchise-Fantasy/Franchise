@@ -48,6 +48,9 @@ export interface BuildLeagueStrengthComparisonOptions {
    *  logs (matches useRosterGameLogs / useLeagueGameLogs output). Missing
    *  players fall back to season average. */
   gameLogsByPlayer?: Map<string, PlayerGameLog[]>;
+  /** League sport — without it an NFL roster scores 0 (the NBA stat map
+   *  matches none of its weights) and every team's strength collapses. */
+  sport?: string | null;
 }
 
 export function buildLeagueStrengthComparison(
@@ -56,7 +59,7 @@ export function buildLeagueStrengthComparison(
   myTeamId: string,
   options: BuildLeagueStrengthComparisonOptions = {},
 ): LeagueStrengthComparison | null {
-  const { prevSeasonFptsMap, minGames, gameWindow = 'season', gameLogsByPlayer } = options;
+  const { prevSeasonFptsMap, minGames, gameWindow = 'season', gameLogsByPlayer, sport } = options;
   const windowSize = gameWindowSize(gameWindow);
 
   // Group players by team. IR/TAXI players aren't active contributors, so they
@@ -88,10 +91,11 @@ export function buildLeagueStrengthComparison(
           gameLogsByPlayer?.get(p.player_id),
           scoringWeights,
           windowSize,
+          sport,
         );
-        fpts = windowed ?? effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames);
+        fpts = windowed ?? effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames, sport);
       } else {
-        fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames);
+        fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames, sport);
       }
       totalFpts += Math.max(fpts, 0);
     }

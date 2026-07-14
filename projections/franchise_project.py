@@ -7,8 +7,9 @@ ported in `franchise_edge.py`; the season snapshot reuses `season_project.py`.
 All Franchise-specific DB access lives in `franchise_db.py`.
 
 Two horizons:
-  next_game — in-season game-by-game projection (run daily). Exact port of the
-              original engine's PRODUCTION projector (edge.py): each player's
+  next_game — in-season game-by-game projection (run daily). Port of the
+              original engine's PRODUCTION projector (edge.py; deliberate
+              divergences listed in franchise_edge.py): each player's
               in-progress season blended toward their last completed season by
               sample size, scaled by a recent-minutes factor. Self-anchored to
               the player's own logs — no cross-player regression — so stars and
@@ -56,26 +57,52 @@ def run_next_game(sport: str, season: int):
             raise RuntimeError(f"No {sport} game logs to project for {season}")
         unavailable = fdb.get_unavailable_players(conn, sport)   # uuid -> 'Out'
         out_ids = set(unavailable)
+        player_teams, player_names = fdb.load_player_meta(conn, sport)
+
+        # Phantom gate: drop prior_only players once their team (league max if
+        # teamless) is far enough into the season that never appearing means
+        # they're out of the league, not merely unprojected yet. Removing them
+        # BEFORE the boosts also keeps them out of team_active, so absence
+        # minutes redistribute only to players who have actually appeared.
+        team_games = fdb.get_team_games_played(conn, sport, season)
+        league_max_games = max(team_games.values(), default=0)
+        phantoms = set()
+        for pid, d in dists.items():
+            tid = player_teams.get(pid)
+            tgp = team_games.get(tid, league_max_games) if tid else league_max_games
+            if fedge.is_phantom(d["_basis"], tgp):
+                phantoms.add(pid)
+        for pid in phantoms:
+            del dists[pid]
 
         # Absence redistribution (port of the source): an Out player's minutes
         # flow to their active teammates by minute share, scaling every stat
         # (capped +40%). Out players are still in `dists` (they have history) so
-        # their minutes can be redistributed before we drop them from the write.
+        # their minutes can be redistributed before we zero them on the board.
         # Each Out player's contribution is faded by how many team games their
         # absence already spans (games_missed): a long-standing absence is already
         # reflected in teammates' recent minutes, so re-crediting it would
         # double-count and inflate the whole board (see franchise_edge
         # .absence_freshness_weight / ABSENCE_FADE_GAMES).
-        player_teams, player_names = fdb.load_player_meta(conn, sport)
         games_missed = fdb.get_absence_games_missed(conn, sport)
         boosts = fedge.compute_absence_boosts(out_ids, dists, player_teams,
                                               player_names, games_missed)
         fedge.apply_absence_boosts(dists, boosts)
 
         rows = []
+        n_zeroed = 0
         for pid, d in dists.items():
             if pid in out_ids:
-                continue   # Out — dropped from the board, same as the source
+                # Retraction: write an explicit zero line instead of skipping.
+                # Skipping (the source behavior) left yesterday's full-strength
+                # row live in current_player_projections for up to 14 days after
+                # a player was ruled out. sd_* keys are omitted -> NULL.
+                row = {"player_id": pid, "proj_min": 0.0}
+                for s in fedge.STATS:
+                    row[f"proj_{s}"] = 0.0
+                rows.append(row)
+                n_zeroed += 1
+                continue
             row = {"player_id": pid, "proj_min": d["_proj_min"]}
             for s in fedge.STATS:
                 row[f"proj_{s}"] = d[s][0]
@@ -90,7 +117,7 @@ def run_next_game(sport: str, season: int):
         n_blend = sum(1 for d in dists.values() if d["_basis"] == "blend")
         print(f"[next_game] wrote {n} projections "
               f"({n_blend} current+prior blends, {len(boosts)} absence-boosted, "
-              f"{len(out_ids)} out dropped)")
+              f"{n_zeroed} out zeroed, {len(phantoms)} phantoms gated)")
     finally:
         conn.close()
 

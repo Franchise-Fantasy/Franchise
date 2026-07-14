@@ -126,7 +126,11 @@ Deno.serve(async (req: Request) => {
   let sport: Sport = 'nba';
   try {
     const parsed = parseBody(Body, await req.json());
-    if (parsed.sport === 'wnba') sport = 'wnba';
+    // Assign straight from the validated body — a hand-rolled per-sport `if`
+    // silently runs a new sport as NBA even after the enum above is widened
+    // (that exact bug shipped in poll-news and poll-injuries). NFL is gated by
+    // the enum today, deliberately: it has no Google feed configured.
+    if (parsed.sport) sport = parsed.sport;
   } catch {
     // No body / not JSON → default sport stays 'nba'.
   }

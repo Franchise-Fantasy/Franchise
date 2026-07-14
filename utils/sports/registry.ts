@@ -38,6 +38,16 @@ export interface BoxScoreRow {
 
 export interface SportModule {
   sport: RegistrySport;
+  /**
+   * Whether a taxi squad can be offered. Taxi eligibility is "years of pro
+   * experience", derived from `players.draft_year`. True for every sport today:
+   * basketball reads the column straight off BDL, and NFL — whose feed carries
+   * no draft year — derives it from BDL's `experience` string in sync-players
+   * (see utils/sports/nflExperience.ts). Keep the flag: a future sport whose
+   * feed has neither must set it false rather than offer a squad no player can
+   * be sent to.
+   */
+  supportsTaxi: boolean;
   /** 'cross-year' → "2025-26" (NBA); 'single-year' → "2026" (WNBA/NFL). */
   seasonFormat: 'single-year' | 'cross-year';
   /**
@@ -169,6 +179,7 @@ const NBA_MODULE: SportModule = {
     { position: 'TAXI', label: 'Taxi Squad', count: 0 },
   ],
   supportsCategories: true,
+  supportsTaxi: true,
   defaultScoring: BASKETBALL_DEFAULT_SCORING,
   statToGame: BASKETBALL_STAT_TO_GAME,
   statToTotal: BASKETBALL_STAT_TO_TOTAL,
@@ -193,6 +204,7 @@ const WNBA_MODULE: SportModule = {
     { position: 'TAXI', label: 'Taxi Squad', count: 0 },
   ],
   supportsCategories: true,
+  supportsTaxi: true,
   defaultScoring: BASKETBALL_DEFAULT_SCORING,
   statToGame: BASKETBALL_STAT_TO_GAME,
   statToTotal: BASKETBALL_STAT_TO_TOTAL,
@@ -296,6 +308,7 @@ const NFL_MODULE: SportModule = {
     { position: 'TAXI', label: 'Taxi Squad', count: 0 },
   ],
   supportsCategories: false,
+  supportsTaxi: true,
   defaultScoring: NFL_SCORING_PRESETS.half_ppr,
   scoringPresets: NFL_SCORING_PRESETS,
   statToGame: NFL_STAT_TO_GAME,
@@ -331,4 +344,18 @@ const MODULES: Record<RegistrySport, SportModule> = {
  */
 export function getSportModule(sport: string | null | undefined): SportModule {
   return MODULES[(sport ?? 'nba') as RegistrySport] ?? MODULES.nba;
+}
+
+/**
+ * Stepper increment for a scoring row, derived from that stat's DEFAULT weight.
+ *
+ * Basketball weights are whole/half points (PTS 1, REB 1.2, STL 3), so 0.5 is
+ * the right nudge. NFL yardage is fractional by nature — passing yards are
+ * 0.04/yd and rushing/receiving 0.1/yd — and a 0.5 step can't express them at
+ * all: one tap on PASS_YD would take 0.04 → 0.54, a 13× scoring change. Stats
+ * whose default is a fraction below a half-point step by 0.01 instead.
+ */
+export function scoringStep(defaultPointValue: number): number {
+  const v = Math.abs(defaultPointValue);
+  return v > 0 && v < 0.5 ? 0.01 : 0.5;
 }

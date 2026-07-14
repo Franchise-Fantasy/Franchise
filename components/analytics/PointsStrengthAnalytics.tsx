@@ -159,8 +159,9 @@ export function PointsStrengthAnalytics({
       minGames: ANALYTICS_MIN_CURRENT_SEASON_GAMES,
       gameWindow: windowSel,
       gameLogsByPlayer,
+      sport,
     });
-  }, [allPlayers, weights, teamId, prevSeasonFptsMap, windowSel, gameLogsByPlayer]);
+  }, [allPlayers, weights, teamId, prevSeasonFptsMap, windowSel, gameLogsByPlayer, sport]);
 
   // Per-player scoring list, highest first. Each row uses the same FPTS/G
   // calc as the comparison card so the list and the rank/vs-league numbers
@@ -182,16 +183,18 @@ export function PointsStrengthAnalytics({
             gameLogsByPlayer?.get(p.player_id),
             weights,
             winSize,
+            sport,
           );
           avgFpts =
             windowed ??
-            effectiveFantasyPoints(p, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES);
+            effectiveFantasyPoints(p, weights, prevSeasonFptsMap, ANALYTICS_MIN_CURRENT_SEASON_GAMES, sport);
         } else {
           avgFpts = effectiveFantasyPoints(
             p,
             weights,
             prevSeasonFptsMap,
             ANALYTICS_MIN_CURRENT_SEASON_GAMES,
+            sport,
           );
         }
         return {
@@ -218,7 +221,7 @@ export function PointsStrengthAnalytics({
     if (!players.length || !weights?.length || !gameLogsByPlayer) return m;
     const seasonAvgById = new Map<string, number>();
     for (const p of players) {
-      seasonAvgById.set(p.player_id, calculateAvgFantasyPoints(p, weights));
+      seasonAvgById.set(p.player_id, calculateAvgFantasyPoints(p, weights, sport));
     }
     const board = buildRosterTrendBoard(
       players.map((p) => ({ player_id: p.player_id, name: p.name })),
