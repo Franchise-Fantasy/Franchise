@@ -21,6 +21,7 @@ import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
+import { foldSearchText } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { ms, s } from '@/utils/scale';
 
@@ -158,8 +159,9 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
 
   const playerList = action === 'add' ? freeAgents : teamRoster;
   const loading = action === 'add' ? faLoading : rosterLoading;
+  const searchKey = foldSearchText(search);
   const filtered = (playerList ?? []).filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase())
+    foldSearchText(p.name).includes(searchKey)
   );
 
   const title =

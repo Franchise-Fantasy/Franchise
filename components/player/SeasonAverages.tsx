@@ -55,8 +55,13 @@ type Lens = {
   /** Games backing this lens (for the splits strip); empty for past seasons. */
   games: PlayerGameLog[];
   /** True when this lens shows a projected (not actual) line — drives the
-   *  "PROJECTED · SEASON" meta label and suppresses the recent-window trend. */
+   *  "PROJECTED · SEASON" meta label. */
   projected?: boolean;
+  /** True only for the last-N-games windows. The vs-season trend arrow is
+   *  meaningful only here — a past season's average isn't "recent form", so
+   *  comparing it to the current season's average would flag every player who
+   *  simply had a different year. */
+  recent?: boolean;
 };
 
 const RECENT_WINDOWS = [5, 10, 15, 25] as const;
@@ -221,6 +226,7 @@ export function SeasonAverages({
               : null,
           rows: rowsFrom(avg),
           games: slice,
+          recent: true,
         });
       }
     }
@@ -298,9 +304,9 @@ export function SeasonAverages({
   const [activeKey, setActiveKey] = useState<string>("season");
   const active = lenses.find((l) => l.key === activeKey) ?? lenses[seasonIdx];
 
-  // Trend arrow on recent windows: window FPTS vs season FPTS.
+  // Trend arrow on recent windows only: window FPTS vs season FPTS.
   const trend = useMemo(() => {
-    if (!active || active.key === "season" || active.projected || active.fpts == null || avgFpts == null) {
+    if (!active?.recent || active.fpts == null || avgFpts == null) {
       return null;
     }
     const delta = active.fpts - avgFpts;

@@ -42,4 +42,22 @@ function ordinalSuffix(n: number): string {
   return s[(v - 20) % 10] || s[v] || s[0]!;
 }
 
-export { formatPosition, abbreviateFirstName, ordinalSuffix };
+/**
+ * Lowercases and strips diacritics for accent-blind search matching, so typing
+ * "doncic" finds "Dončić". Fold BOTH the query and the candidate. NFD splits
+ * letters from their combining marks (č → c + ̌); the stroked letters and
+ * dotless ı never decompose, so they're mapped by hand. Server-side search
+ * (search_players_fuzzy) gets the same behavior from Postgres `unaccent`.
+ */
+function foldSearchText(text: string): string {
+  return text
+    .toLowerCase() // first: Đ→đ, Ł→ł, İ→i+U+0307 so one lowercase map suffices
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/đ/g, 'd')
+    .replace(/ł/g, 'l')
+    .replace(/ø/g, 'o')
+    .replace(/ı/g, 'i');
+}
+
+export { formatPosition, abbreviateFirstName, ordinalSuffix, foldSearchText };

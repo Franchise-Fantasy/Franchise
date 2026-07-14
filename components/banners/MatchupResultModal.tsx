@@ -439,7 +439,10 @@ const styles = StyleSheet.create({
     color: ECRU_MUTED,
   },
   scoreDigits: {
-    fontFamily: Fonts.mono,
+    // The dot-matrix score face, same as the matchup hero — this is the other
+    // place a score is the whole point. Safe for the subset: `display` is only
+    // ever a toFixed(1) or an integer, so digits and '.' and nothing else.
+    fontFamily: Fonts.score,
     fontSize: ms(34),
     letterSpacing: -1,
     fontVariant: ['tabular-nums'],

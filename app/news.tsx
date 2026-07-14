@@ -17,6 +17,7 @@ import { useLeague } from '@/hooks/useLeague';
 import { useTeamNews } from '@/hooks/useTeamNews';
 import { supabase } from '@/lib/supabase';
 import type { PlayerNewsArticle } from '@/types/news';
+import { foldSearchText } from '@/utils/formatting';
 import { ms, s } from '@/utils/scale';
 
 type FilterMode = 'team' | 'matchup' | 'all';
@@ -118,11 +119,11 @@ export default function NewsScreen() {
   const filteredNews = useMemo(() => {
     const articles = newsQuery.data ?? [];
     if (!searchText.trim()) return articles;
-    const q = searchText.trim().toLowerCase();
+    const q = foldSearchText(searchText.trim());
     return articles.filter(
       (a) =>
-        a.title.toLowerCase().includes(q) ||
-        a.mentioned_players?.some((p) => p.name.toLowerCase().includes(q)),
+        foldSearchText(a.title).includes(q) ||
+        a.mentioned_players?.some((p) => foldSearchText(p.name).includes(q)),
     );
   }, [newsQuery.data, searchText]);
 

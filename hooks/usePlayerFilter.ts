@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { foldSearchText } from '@/utils/formatting';
 import { getEligiblePositions } from '@/utils/roster/rosterSlots';
 import { calculateAvgFantasyPoints, type GameWindow } from '@/utils/scoring/fantasyPoints';
 
@@ -138,10 +139,10 @@ export function usePlayerFilter(
 
     let result = players;
 
-    // Filter by name
+    // Filter by name (accent-blind: "doncic" matches "Dončić")
     if (searchText.trim()) {
-      const query = searchText.trim().toLowerCase();
-      result = result.filter(p => p.name.toLowerCase().includes(query));
+      const query = foldSearchText(searchText.trim());
+      result = result.filter(p => foldSearchText(p.name).includes(query));
     }
 
     // Filter by pro team (tricode match on pro_team field)

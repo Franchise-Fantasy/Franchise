@@ -1,4 +1,9 @@
-import { abbreviateFirstName, formatPosition, ordinalSuffix } from '@/utils/formatting';
+import {
+  abbreviateFirstName,
+  foldSearchText,
+  formatPosition,
+  ordinalSuffix,
+} from '@/utils/formatting';
 
 describe('formatPosition', () => {
   it('returns em-dash for null/undefined/empty', () => {
@@ -45,6 +50,35 @@ describe('abbreviateFirstName', () => {
   it('returns single-token name unchanged', () => {
     expect(abbreviateFirstName('Giannis')).toBe('Giannis');
     expect(abbreviateFirstName('')).toBe('');
+  });
+});
+
+describe('foldSearchText', () => {
+  it('lowercases and strips combining-mark accents', () => {
+    expect(foldSearchText('Dončić')).toBe('doncic');
+    expect(foldSearchText('Kristaps Porziņģis')).toBe('kristaps porzingis');
+    expect(foldSearchText('Dario Šarić')).toBe('dario saric');
+    expect(foldSearchText('Alperen Şengün')).toBe('alperen sengun');
+    expect(foldSearchText('Dāvis Bertāns')).toBe('davis bertans');
+  });
+
+  it('maps the non-decomposing specials (đ ł ø ı İ)', () => {
+    expect(foldSearchText('Đorđe')).toBe('dorde');
+    expect(foldSearchText('Łukasz')).toBe('lukasz');
+    expect(foldSearchText('Søren')).toBe('soren');
+    expect(foldSearchText('Altınbaş')).toBe('altinbas');
+    expect(foldSearchText('İstanbul')).toBe('istanbul');
+  });
+
+  it('passes plain ASCII through unchanged (except case)', () => {
+    expect(foldSearchText('LeBron James')).toBe('lebron james');
+  });
+
+  it('matches accent-blind in both directions', () => {
+    // Plain query finds the accented name, and a pasted accented query
+    // finds it too — both sides get folded at the call sites.
+    expect(foldSearchText('Luka Dončić').includes(foldSearchText('doncic'))).toBe(true);
+    expect(foldSearchText('Luka Doncic').includes(foldSearchText('Dončić'))).toBe(true);
   });
 });
 

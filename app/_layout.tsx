@@ -728,7 +728,8 @@ export default function RootLayout() {
   const [loaded, fontError] = useFonts({
     Desporm: require("../assets/fonts/Desporm-Regular.ttf"),
     StonerSport: require("../assets/fonts/StonerSport-Regular.ttf"),
-    Bloomy: require("../assets/fonts/Bloomy-Regular.ttf"),
+    Fascond: require("../assets/fonts/Fascond-Regular.ttf"),
+    DothedScore: require("../assets/fonts/DothedPixel-Score.otf"),
     JustSans_400Regular: require("../assets/fonts/JUSTSans-Regular.ttf"),
     JustSans_500Medium: require("../assets/fonts/JUSTSans-Medium.ttf"),
     JustSans_600SemiBold: require("../assets/fonts/JUSTSans-SemiBold.ttf"),

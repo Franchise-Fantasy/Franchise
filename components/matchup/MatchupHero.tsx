@@ -1067,8 +1067,9 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
   countNum: {
-    // Bloomy (numerals) rather than the display face: this is a countdown, so
-    // the digits change every tick and need uniform widths to hold still.
+    // The numerals face, not the display face: this is a countdown, so the
+    // digits change every tick and need uniform widths to hold still. Not
+    // Fonts.score either — the dot-matrix face is reserved for the actual score.
     fontFamily: Fonts.mono,
     color: Brand.ecru,
     fontSize: ms(52),
@@ -1375,11 +1376,11 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   bigScore: {
-    // Bloomy — the numerals face, and the only one with uniform digit widths
-    // (it's metrics-patched; see Fonts.mono). That matters here more than
-    // anywhere: this score ticks live, and the varsity/display faces have
-    // ~50% digit-width spread, so the whole hero would reflow on every update.
-    fontFamily: Fonts.mono,
+    // The dot-matrix score face — this is the surface it exists for, and at
+    // ms(40) it has the room to read as a stadium board. Its digits are tabular
+    // (see Fonts.score), which matters here more than anywhere: the score ticks
+    // live, so proportional digits would reflow the whole hero on every update.
+    fontFamily: Fonts.score,
     fontSize: ms(40),
     lineHeight: ms(44),
     letterSpacing: -0.4,

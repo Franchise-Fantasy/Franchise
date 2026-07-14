@@ -38,7 +38,7 @@ interface PlayerDetailHeaderProps {
 
 /**
  * Brand hero header for the player detail sheet — gold-ringed headshot with
- * injury/min-restriction chips, AlfaSlab name, identity eyebrow, and
+ * injury/min-restriction chips, display-face name, identity eyebrow, and
  * ownership/lock status badges. Pure presentation; all roster actions live
  * in PlayerActionBar (the docked footer).
  */

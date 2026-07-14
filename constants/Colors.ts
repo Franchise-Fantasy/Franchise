@@ -312,22 +312,33 @@ export const cardShadowMedium = {
 // components/web/globalWebStyles.ts): native ignores `fontWeight` on a custom
 // fontFamily, so the family name — not the weight — picks the face.
 //
-// `mono` is the numerals/ticker voice (scoreboards, stat columns, live scores).
-// It is no longer a monospace face; the name is kept because ~112 call sites and
-// ThemedText's "mono" type refer to it, and the ROLE is unchanged.
+// NUMERALS. Two faces, split by size — a dot-matrix face is only legible when
+// it's big:
+//   `mono`  — every stat readout (columns, records, cells, tickers). ~112 sites.
+//             Not a monospace face any more; the token name survives because the
+//             ROLE didn't change and ThemedText's "mono" type points at it.
+//   `score` — the focal score ONLY, where the dot-matrix reads as a stadium
+//             board. Anything under ~30px must use `mono` instead: Dothed's dots
+//             collapse into mush at stat-cell sizes. It's also subset to digits
+//             and separators, so it renders TOFU for letters.
 //
-// assets/fonts/Bloomy-Regular.ttf is NOT the file the designer delivered — it's
-// metrics-patched by scripts/fonts/patch-bloomy.py, for two reasons. As shipped
-// Bloomy draws 35% smaller than Space Mono at the same fontSize (it's unicase and
-// sits small in its em box), which made every stat unreadable; and it has no
-// `tnum`, so its narrow '1' frayed columns and made live scores reflow. The patch
-// scales it to Space Mono's digit height and squares up the digit widths, which
-// is why none of the ~112 mono fontSizes had to change. Re-run that script if the
-// designer ever ships a new Bloomy.
+// Neither vendored file is what the designer delivered — both are normalized by
+// scripts/fonts/normalize-numerals.py. Retail display faces consistently arrive
+// (a) optically small, since fontSize is the em box and not the ink, and every
+// size in this app was tuned against Space Mono's digit height; and (b) with
+// proportional digits and no `tnum`, so a narrow '1' frays columns and makes a
+// live score change width as it ticks. The script fixes both, which is why
+// swapping the numerals face has never required touching a single fontSize.
+// Re-run it against any new delivery.
 //
-// Any numeric readout belongs on this token: the other three faces have
-// proportional digits (Stoner 53%, Desporm 50% spread) and will visibly reflow
-// as values tick.
+// Any numeric readout belongs on one of these two. The other three faces have
+// proportional digits (Stoner 53%, Desporm 50% spread) and will visibly reflow.
+//
+// ACCENTS. Desporm shipped with Latin-1 only — no Latin Extended-A — so player
+// names like Dončić / Porziņģis dropped to the OS fallback font mid-word. The
+// vendored file has those glyphs synthesized from the face's own accent parts
+// by scripts/fonts/add-accents.py. Re-run it against any new Desporm delivery.
+// Stoner / Fascond / JUST Sans arrived with full coverage and need nothing.
 export const Fonts = {
   display: "Desporm", // headlines, hero, big moments
   varsitySemibold: "StonerSport", // secondary varsity labels
@@ -336,5 +347,6 @@ export const Fonts = {
   bodyMedium: "JustSans_500Medium",
   bodySemibold: "JustSans_600SemiBold",
   bodyBold: "JustSans_700Bold",
-  mono: "Bloomy", // numerals, stat tickers, scoreboards (tabular-patched)
+  mono: "Fascond", // stat numerals — condensed, tabular
+  score: "DothedScore", // focal score only, >=30px (digits + separators only)
 } as const;

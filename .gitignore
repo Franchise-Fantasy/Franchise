@@ -37,4 +37,5 @@ scripts/*
 !scripts/check-sport-scope.mjs
 !scripts/reset-project.js
 !scripts/fonts/
-!scripts/fonts/patch-bloomy.py
+!scripts/fonts/normalize-numerals.py
+!scripts/fonts/add-accents.py

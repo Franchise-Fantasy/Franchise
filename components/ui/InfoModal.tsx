@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import {
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
@@ -54,13 +55,21 @@ export function InfoModal({
       animationType="fade"
       onRequestClose={onClose}
     >
-      <TouchableOpacity
-        style={styles.scrim}
-        activeOpacity={1}
-        onPress={onClose}
-        accessibilityRole="button"
-        accessibilityLabel="Close"
-      >
+      <View style={styles.scrim}>
+        {/*
+         * Tap-to-close backdrop. It sits BEHIND the card as a sibling rather
+         * than wrapping it — a touchable ancestor (plus the
+         * `onStartShouldSetResponder` needed to block its onPress) claims the
+         * gesture on touch-start and the card's ScrollView never scrolls.
+         * Same layering BottomSheet uses.
+         */}
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={onClose}
+          accessibilityRole="button"
+          accessibilityLabel="Close"
+        />
+
         <View
           style={[
             styles.card,
@@ -69,8 +78,6 @@ export function InfoModal({
               borderColor: c.border,
             },
           ]}
-          // Block the scrim's onPress when tapping inside the card.
-          onStartShouldSetResponder={() => true}
           accessibilityViewIsModal
         >
           {/* Top gold rule — the signature broadcast bug */}
@@ -97,7 +104,11 @@ export function InfoModal({
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.body} bounces={false}>
+          <ScrollView
+            style={styles.body}
+            bounces={false}
+            keyboardShouldPersistTaps="handled"
+          >
             {message ? (
               <ThemedText
                 style={[styles.text, { color: c.secondaryText }]}
@@ -108,7 +119,7 @@ export function InfoModal({
             {children}
           </ScrollView>
         </View>
-      </TouchableOpacity>
+      </View>
     </Modal>
   );
 }

@@ -9,7 +9,7 @@ import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
-import { formatPosition } from '@/utils/formatting';
+import { foldSearchText, formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
@@ -57,8 +57,9 @@ export function TradePlayerPickerBody({
   const { data: roster, isLoading } = useTeamRosterForTrade(teamId, leagueId);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
 
+  const searchKey = foldSearchText(search);
   const filtered = (roster ?? []).filter((p) =>
-    p.name.toLowerCase().includes(search.toLowerCase()),
+    foldSearchText(p.name).includes(searchKey),
   );
 
   const renderItem = ({ item, index }: { item: TradeRosterPlayer; index: number }) => {

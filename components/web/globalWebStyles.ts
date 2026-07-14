@@ -9,12 +9,12 @@
  * exported bundle.
  *
  * `font-synthesis: none` is the important one. Every brand face is loaded as a
- * SINGLE-WEIGHT family (`Fonts.bodyBold` *is* the bold file; Stoner Sport and
- * Bloomy ship Regular only), and the codebase pairs them with `fontWeight: '600'
- * | '700'` in places. Native ignores fontWeight on a custom fontFamily and draws
- * the real face; the browser instead FAKES the weight by smearing the glyphs,
- * which is what made mono stat readouts and varsity caps look blurry on web.
- * Disabling synthesis makes the browser draw the real face — matching native.
+ * SINGLE-WEIGHT family (`Fonts.bodyBold` *is* the bold file; the varsity, stat
+ * and score faces ship Regular only), and the codebase pairs them with
+ * `fontWeight: '600' | '700'` in places. Native ignores fontWeight on a custom
+ * fontFamily and draws the real face; the browser instead FAKES the weight by
+ * smearing the glyphs, which is what made stat readouts and varsity caps look
+ * blurry on web. Disabling synthesis makes the browser draw the real face.
  */
 // The inputs paint their own focus state (border goes accent), so the browser's
 // default focus ring just doubles up on it. Keyboard focus stays visible via
