@@ -68,6 +68,22 @@ const POSITION_MAP: Record<string, string> = {
   UTIL: 'UTIL', FLEX: 'UTIL', BN: 'BE', IR: 'IR', IL: 'IR',
 };
 
+// Tricodes must be unique per league (the `teams_tricode_unique_per_league`
+// index). Two Sleeper team names sharing their first 3 letters (e.g. "Yogis
+// Balls" -> YOG and "Yogi's Revenge" -> YOG) otherwise trip an unhandled unique
+// violation that 500s the whole import mid-way. Disambiguate collisions by
+// keeping the first 2 letters and appending a counter (YO2, YO3, ...). Mirrors
+// makeUniqueTricode in import-screenshot-league. `tricode` is unbounded `text`.
+function makeUniqueTricode(name: string, used: Set<string>): string {
+  const clean = name.replace(/[^A-Za-z0-9]/g, '').toUpperCase() || 'TM';
+  let code = clean.slice(0, 3);
+  for (let n = 2; used.has(code); n++) {
+    code = clean.slice(0, 2) + n;
+  }
+  used.add(code);
+  return code;
+}
+
 
 // --- Main handler ---
 
@@ -561,6 +577,7 @@ async function handleExecute(
   // 4. Create placeholder teams (no user_id)
   // Map sleeper roster_id → our team_id
   const rosterIdToTeamId = new Map<number, string>();
+  const usedTricodes = new Set<string>();
 
   for (const team of teams) {
     const { data: teamData, error: teamError } = await supabaseAdmin
@@ -569,7 +586,7 @@ async function handleExecute(
         league_id: leagueId,
         user_id: null,
         name: team.team_name,
-        tricode: team.team_name.substring(0, 3).toUpperCase(),
+        tricode: makeUniqueTricode(team.team_name, usedTricodes),
         is_commissioner: false,
         sleeper_roster_id: team.roster_id,
         wins: 0,
@@ -677,11 +694,42 @@ async function handleExecute(
     }
   }
 
+  // A player can only be rostered on one team — league_players has
+  // UNIQUE(league_id, player_id) (uq_league_player). Two Sleeper roster slots
+  // mapping onto the same players.id (e.g. two sleeper_ids that preview matched
+  // to one of our players) would otherwise throw a raw unique violation
+  // mid-insert and 500 the whole import. Dedupe on player_id (keep the first
+  // occurrence) and surface the skipped players. Mirrors import-screenshot-league.
+  const seenPlayerIds = new Set<string>();
+  const dedupedPlayerRows: any[] = [];
+  const droppedPlayerIds: string[] = [];
+  for (const row of leaguePlayerRows) {
+    if (seenPlayerIds.has(row.player_id)) {
+      droppedPlayerIds.push(row.player_id);
+      continue;
+    }
+    seenPlayerIds.add(row.player_id);
+    dedupedPlayerRows.push(row);
+  }
+
   // Insert in chunks
-  for (let i = 0; i < leaguePlayerRows.length; i += 100) {
-    const chunk = leaguePlayerRows.slice(i, i + 100);
+  for (let i = 0; i < dedupedPlayerRows.length; i += 100) {
+    const chunk = dedupedPlayerRows.slice(i, i + 100);
     const { error } = await supabaseAdmin.from('league_players').insert(chunk);
     if (error) throw error;
+  }
+
+  // Resolve any skipped duplicates to names for the response.
+  let duplicatePlayers: { player_id: string; name: string }[] = [];
+  if (droppedPlayerIds.length > 0) {
+    const uniqueDropped = [...new Set(droppedPlayerIds)];
+    const { data: dupRows } = await supabaseAdmin
+      .from('players')
+      .select('id, name')
+      .in('id', uniqueDropped);
+    const nameById = new Map<string, string>((dupRows ?? []).map((p: any) => [p.id, p.name]));
+    duplicatePlayers = uniqueDropped.map((id) => ({ player_id: id, name: nameById.get(id) ?? 'Unknown' }));
+    console.warn('Import skipped duplicate players (already rostered on another team):', duplicatePlayers);
   }
 
   // 6. Create draft (marked complete since import implies draft already happened)
@@ -844,7 +892,11 @@ async function handleExecute(
   return jsonResponse({
     league_id: leagueId,
     teams_created: teams.length,
-    players_imported: leaguePlayerRows.length,
-    message: `Successfully imported "${league_name}" with ${teams.length} teams and ${leaguePlayerRows.length} players.`,
+    players_imported: dedupedPlayerRows.length,
+    duplicate_players: duplicatePlayers,
+    message: `Successfully imported "${league_name}" with ${teams.length} teams and ${dedupedPlayerRows.length} players.`
+      + (duplicatePlayers.length
+        ? ` Skipped ${duplicatePlayers.length} duplicate player${duplicatePlayers.length === 1 ? '' : 's'} already on another team: ${duplicatePlayers.map((p) => p.name).join(', ')}.`
+        : ''),
   });
 }

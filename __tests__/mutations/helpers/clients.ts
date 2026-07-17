@@ -30,7 +30,14 @@ export async function serverInvoke<T = any>(
   functionName: string,
   body: Record<string, unknown>,
 ): Promise<{ data: T | null; error: Error | null }> {
-  return adminClient().functions.invoke<T>(functionName, { body });
+  // Newer supabase-js (observed in 2.110.x) sends the client key only as
+  // `apikey` — no Authorization header — when there's no user session, but the
+  // edge functions' isServerCall gate compares `Authorization === Bearer
+  // <secret>`, so set the header explicitly.
+  return adminClient().functions.invoke<T>(functionName, {
+    body,
+    headers: { Authorization: `Bearer ${SECRET_KEY}` },
+  });
 }
 
 let cachedCronSecret: string | null = null;

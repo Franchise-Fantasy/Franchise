@@ -21,6 +21,9 @@ export function usePlayerGameLogWithDnp(
 ): PlayerGameLog[] | undefined {
   const currentSeason = getCurrentSeason(sport);
   const priorEnd = getSeasonEnd(sport, getPreviousSeason(sport));
+  // Regular-season end (season_config.end_date — the same boundary
+  // poll-live-stats uses to keep play-in/postseason out of player_games).
+  const currentEnd = getSeasonEnd(sport, currentSeason);
 
   const { data: teamFinals } = useQuery({
     queryKey: ['playerDnpSchedule', sport, currentSeason, proTeam ?? ''],
@@ -36,6 +39,10 @@ export function usePlayerGameLogWithDnp(
         .lt('game_date', today);
       // Floor at the prior season's end — same window the game log itself uses.
       if (priorEnd) query = query.gt('game_date', priorEnd);
+      // Cap at the regular-season end: player_games deliberately excludes
+      // postseason games, so a final playoff schedule row would otherwise
+      // synthesize a phantom 0-min "DNP" for every player on both teams.
+      if (currentEnd) query = query.lte('game_date', currentEnd);
       // NBA stores games twice (legacy NBA-official `00%` ids + canonical BDL
       // ids); keep only the canonical rows so dates aren't doubled. WNBA has a
       // single id scheme.

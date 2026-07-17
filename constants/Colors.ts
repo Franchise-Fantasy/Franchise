@@ -325,9 +325,11 @@ export const cardShadowMedium = {
 // Neither vendored file is what the designer delivered — both are normalized by
 // scripts/fonts/normalize-numerals.py. Retail display faces consistently arrive
 // (a) optically small, since fontSize is the em box and not the ink, and every
-// size in this app was tuned against Space Mono's digit height; and (b) with
+// size in this app was tuned against Space Mono's digit height; (b) with
 // proportional digits and no `tnum`, so a narrow '1' frays columns and makes a
-// live score change width as it ticks. The script fixes both, which is why
+// live score change width as it ticks; and (c) with cramped vertical metrics
+// (Fascond's ascender barely cleared its own digits), so fixed lineHeights
+// clipped stat tops by a pixel or two. The script fixes all three, which is why
 // swapping the numerals face has never required touching a single fontSize.
 // Re-run it against any new delivery.
 //

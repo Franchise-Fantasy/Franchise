@@ -2,6 +2,21 @@ import { useMutation } from '@tanstack/react-query';
 
 import { supabase } from '@/lib/supabase';
 
+// Supabase wraps a non-2xx edge response in a FunctionsHttpError whose
+// `.message` is a generic "non-2xx status code" string; the real reason (e.g.
+// "This is a nfl league. Only NBA leagues are supported.") sits in the JSON
+// body on `.context`. Pull it out so the wizard shows *why* the import failed
+// instead of the opaque wrapper (mirrors TeamAssigner / lottery-room).
+async function edgeErrorMessage(error: any, fallback: string): Promise<string> {
+  try {
+    const body = await error?.context?.json?.();
+    if (body?.error) return body.error;
+  } catch {
+    // fall through to the generic message
+  }
+  return error?.message ?? fallback;
+}
+
 // --- Types ---
 
 export interface SleeperPreviewTeam {
@@ -82,6 +97,9 @@ export interface SleeperImportResult {
   league_id: string;
   teams_created: number;
   players_imported: number;
+  /** Players skipped because they were already rostered on another team (the
+   *  league_players UNIQUE(league_id, player_id) guard). Surfaced in `message`. */
+  duplicate_players?: { player_id: string; name: string }[];
   message: string;
 }
 
@@ -97,7 +115,7 @@ export function useSleeperPreview() {
         body: { action: 'preview', sleeper_league_id: sleeperLeagueId },
       });
 
-      if (res.error) throw new Error(res.error.message ?? 'Preview failed');
+      if (res.error) throw new Error(await edgeErrorMessage(res.error, 'Preview failed'));
       return res.data as SleeperPreviewResult;
     },
   });
@@ -113,7 +131,7 @@ export function useSleeperImport() {
         body: { action: 'execute', ...payload },
       });
 
-      if (res.error) throw new Error(res.error.message ?? 'Import failed');
+      if (res.error) throw new Error(await edgeErrorMessage(res.error, 'Import failed'));
       return res.data as SleeperImportResult;
     },
   });

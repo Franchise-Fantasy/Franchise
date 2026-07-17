@@ -17,6 +17,7 @@ import { ToggleRow } from '@/components/ui/ToggleRow';
 import { DRAFT_TYPE_OPTIONS, getMaxRookieDraftRounds, INITIAL_DRAFT_ORDER_DISPLAY, INITIAL_DRAFT_ORDER_OPTIONS, INITIAL_DRAFT_ORDER_TO_DB, ROOKIE_DRAFT_ORDER_OPTIONS, TIME_PER_PICK_MIN, TIME_PER_PICK_STEP } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { TablesUpdate } from '@/types/database.types';
 import { isSlowClock } from '@/utils/draft/pickClock';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
@@ -117,7 +118,7 @@ export function EditDraftSettingsModal({
     if (!draft) return;
     setSaving(true);
 
-    const leagueUpdate: Record<string, any> = {
+    const leagueUpdate: TablesUpdate<'leagues'> = {
       initial_draft_order: INITIAL_DRAFT_ORDER_TO_DB[initialOrder as keyof typeof INITIAL_DRAFT_ORDER_TO_DB] ?? 'random',
     };
     if (isDynasty) {

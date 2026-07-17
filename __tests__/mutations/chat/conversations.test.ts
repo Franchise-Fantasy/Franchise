@@ -31,26 +31,26 @@ describe('chat conversations', () => {
     'creates a DM conversation and adds both teams as members',
     async () => {
       const bot3 = await signInAsBot(3);
-      const { data: conv, error: convErr } = await bot3
-        .from('chat_conversations')
-        .insert({ league_id: league.leagueId, type: 'dm' })
-        .select('id')
-        .single();
-      expect(convErr).toBeNull();
-      expect(conv?.id).toBeTruthy();
-
-      const { error: membersErr } = await bot3.from('chat_members').insert([
-        { conversation_id: conv!.id, team_id: bot3Team.id },
-        { conversation_id: conv!.id, team_id: bot4Team.id },
-      ]);
-      expect(membersErr).toBeNull();
+      // Direct chat_members INSERTs were removed by the 2026-07-07
+      // chat_members lockdown migration; DMs are created through the
+      // get_or_create_dm SECURITY DEFINER RPC (same path as useCreateDM).
+      const { data: convId, error: rpcErr } = await bot3.rpc('get_or_create_dm', {
+        p_league_id: league.leagueId,
+        p_my_team_id: bot3Team.id,
+        p_other_team_id: bot4Team.id,
+      });
+      expect(rpcErr).toBeNull();
+      expect(convId).toBeTruthy();
 
       const admin = adminClient();
       const { data: members } = await admin
         .from('chat_members')
         .select('team_id')
-        .eq('conversation_id', conv!.id);
+        .eq('conversation_id', convId as string);
       expect(members).toHaveLength(2);
+      expect((members ?? []).map((m) => m.team_id).sort()).toEqual(
+        [bot3Team.id, bot4Team.id].sort(),
+      );
     },
     TIMEOUT,
   );
