@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 
+import { type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
 
 // Supabase wraps a non-2xx edge response in a FunctionsHttpError whose
@@ -74,6 +75,8 @@ export interface SleeperHistoricalSeason {
 }
 
 export interface SleeperPreviewResult {
+  /** Sport detected from the Sleeper league (nba or nfl). */
+  sport: Sport;
   league: {
     name: string;
     season: string;

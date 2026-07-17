@@ -10,17 +10,20 @@
  *
  * Season-string formatting mirrors `constants/LeagueDefaults.ts`
  * (`formatSeason`) and `advance-season`'s `nextSeason` — NBA seasons span
- * two calendar years ("2027-28"), WNBA is single-year ("2027"). The
+ * two calendar years ("2027-28"), WNBA and NFL are single-year ("2027"). The
  * import functions previously hand-rolled the NBA-only form inline, which
  * silently produced wrong season strings for WNBA leagues (every consumer
  * filters by the canonical format and dropped them).
  */
 
-export type ImportSport = 'nba' | 'wnba';
+export type ImportSport = 'nba' | 'wnba' | 'nfl';
 
 export function formatSeason(startYear: number, sport: ImportSport): string {
-  if (sport === 'wnba') return String(startYear);
-  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+  // Only NBA spans two calendar years; WNBA and NFL are single-year.
+  if (sport === 'nba') {
+    return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+  }
+  return String(startYear);
 }
 
 export function parseSeasonStartYear(season: string): number {

@@ -43,6 +43,34 @@ describe('mapSleeperPositions', () => {
     const slots = mapSleeperPositions(['XYZ', 'PG']);
     expect(slots.find((s) => s.position === 'PG')!.count).toBe(1);
   });
+
+  it('maps an NFL roster (FLEX/SUPER_FLEX/DEF) into our slots', () => {
+    const slots = mapSleeperPositions(
+      ['QB', 'RB', 'RB', 'WR', 'WR', 'TE', 'FLEX', 'SUPER_FLEX', 'K', 'DEF', 'BN', 'BN', 'IR'],
+      'nfl',
+    );
+    const map = new Map(slots.map((s) => [s.position, s.count]));
+    expect(map.get('QB')).toBe(1);
+    expect(map.get('RB')).toBe(2);
+    expect(map.get('WR')).toBe(2);
+    expect(map.get('TE')).toBe(1);
+    expect(map.get('FLEX')).toBe(1);
+    expect(map.get('SFLX')).toBe(1); // SUPER_FLEX → SFLX
+    expect(map.get('K')).toBe(1);
+    expect(map.get('DST')).toBe(1); // DEF → DST
+    expect(map.get('BE')).toBe(2); // BN → BE
+    expect(map.get('IR')).toBe(1);
+  });
+
+  it('folds Sleeper narrow flexes (WRRB_FLEX/REC_FLEX) into FLEX', () => {
+    const slots = mapSleeperPositions(['WRRB_FLEX', 'REC_FLEX'], 'nfl');
+    expect(slots.find((s) => s.position === 'FLEX')!.count).toBe(2);
+  });
+
+  it('always includes TAXI at 0 for NFL too', () => {
+    const slots = mapSleeperPositions(['QB', 'RB'], 'nfl');
+    expect(slots.find((s) => s.position === 'TAXI')!.count).toBe(0);
+  });
 });
 
 describe('mapSleeperScoring', () => {
@@ -71,6 +99,36 @@ describe('mapSleeperScoring', () => {
     const reb = result.find((c) => c.stat_name === 'REB')!;
     expect(pts.point_value).toBe(99);
     expect(reb.point_value).toBeDefined(); // unchanged default
+  });
+
+  it('accepts already-mapped (our-stat-name) keys verbatim', () => {
+    // The edge preview pre-maps Sleeper keys to our stat names before the
+    // client re-maps; an our-stat-name key must survive the round-trip.
+    const result = mapSleeperScoring({ '3PM': 0.5, PTS: 2 });
+    const map = new Map(result.map((c) => [c.stat_name, c.point_value]));
+    expect(map.get('3PM')).toBe(0.5);
+    expect(map.get('PTS')).toBe(2);
+  });
+
+  it('maps NFL scoring keys into our NFL stat names', () => {
+    const result = mapSleeperScoring(
+      { pass_yd: 0.04, pass_td: 4, rush_yd: 0.1, rec: 1, rec_td: 6, fum_lost: -2, sack: 1 },
+      'nfl',
+    );
+    const map = new Map(result.map((c) => [c.stat_name, c.point_value]));
+    expect(map.get('PASS_YD')).toBe(0.04);
+    expect(map.get('PASS_TD')).toBe(4);
+    expect(map.get('RUSH_YD')).toBe(0.1);
+    expect(map.get('REC')).toBe(1); // full PPR
+    expect(map.get('REC_TD')).toBe(6);
+    expect(map.get('FUM_LOST')).toBe(-2);
+    expect(map.get('DST_SACK')).toBe(1);
+  });
+
+  it('does not leak NBA stat names into an NFL scoring sheet', () => {
+    const result = mapSleeperScoring({ rec: 0.5 }, 'nfl');
+    expect(result.some((c) => c.stat_name === 'PTS')).toBe(false);
+    expect(result.find((c) => c.stat_name === 'REC')!.point_value).toBe(0.5);
   });
 });
 
@@ -191,6 +249,27 @@ describe('assignRosterSlots', () => {
     );
     expect(slots.has('0')).toBe(false);
     expect(slots.get('p3')).toBe('C');
+  });
+
+  it('assigns NFL starters to bare position/flex slots (two RB both "RB")', () => {
+    const slots = assignRosterSlots(
+      ['qb', 'rb1', 'rb2', 'flx', 'def'],
+      ['qb', 'rb1', 'rb2', 'flx', 'def', 'bn1'],
+      null,
+      ['QB', 'RB', 'RB', 'FLEX', 'DEF', 'BN'],
+      'nfl',
+    );
+    expect(slots.get('qb')).toBe('QB');
+    expect(slots.get('rb1')).toBe('RB');
+    expect(slots.get('rb2')).toBe('RB'); // both RB starters share the bare "RB" slot
+    expect(slots.get('flx')).toBe('FLEX');
+    expect(slots.get('def')).toBe('DST'); // DEF → DST
+    expect(slots.get('bn1')).toBe('BE');
+  });
+
+  it('benches an unknown (unsupported IDP) NFL starter slot', () => {
+    const slots = assignRosterSlots(['p1'], ['p1'], null, ['LB'], 'nfl');
+    expect(slots.get('p1')).toBe('BE');
   });
 });
 

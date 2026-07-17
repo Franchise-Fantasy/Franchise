@@ -7,11 +7,14 @@ import { FieldGroup } from "@/components/ui/FieldGroup";
 import { FormSection } from "@/components/ui/FormSection";
 import { NumberStepper } from "@/components/ui/NumberStepper";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
+import { ThemedText } from "@/components/ui/ThemedText";
+import { Colors } from "@/constants/Colors";
 import {
   LEAGUE_TYPE_OPTIONS,
   LeagueWizardState,
 } from "@/constants/LeagueDefaults";
-import { s } from "@/utils/scale";
+import { useColorScheme } from "@/hooks/useColorScheme";
+import { ms, s } from "@/utils/scale";
 
 interface StepBasicsProps {
   state: LeagueWizardState;
@@ -19,9 +22,14 @@ interface StepBasicsProps {
   /** Passed to SportSelector — true in the import flows so the
    *  season-creation window doesn't gate an existing league. */
   ignoreCreationWindow?: boolean;
+  /** Import flows: the sport is detected from the source league and is
+   *  immutable, so show it read-only instead of the interactive selector. */
+  lockSport?: boolean;
 }
 
-export function StepBasics({ state, onChange, ignoreCreationWindow }: StepBasicsProps) {
+export function StepBasics({ state, onChange, ignoreCreationWindow, lockSport }: StepBasicsProps) {
+  const scheme = useColorScheme() ?? "light";
+  const c = Colors[scheme];
   // Required fields first
   const identity = (
     <FormSection key="identity" title="League Identity">
@@ -35,11 +43,22 @@ export function StepBasics({ state, onChange, ignoreCreationWindow }: StepBasics
       />
 
       <FieldGroup label="Sport">
-        <SportSelector
-          selected={state.sport}
-          onSelect={(sport) => onChange("sport", sport)}
-          ignoreCreationWindow={ignoreCreationWindow}
-        />
+        {lockSport ? (
+          <View
+            style={[styles.sportChip, { borderColor: c.border, backgroundColor: c.card }]}
+            accessibilityLabel={`Sport: ${state.sport.toUpperCase()} (from imported league)`}
+          >
+            <ThemedText type="varsity" style={[styles.sportChipText, { color: c.text }]}>
+              {state.sport.toUpperCase()}
+            </ThemedText>
+          </View>
+        ) : (
+          <SportSelector
+            selected={state.sport}
+            onSelect={(sport) => onChange("sport", sport)}
+            ignoreCreationWindow={ignoreCreationWindow}
+          />
+        )}
       </FieldGroup>
 
       <FieldGroup label="League Type">
@@ -151,5 +170,16 @@ const styles = StyleSheet.create({
   // them. The inner wrapper gets its own gap.
   paymentGroup: {
     gap: s(10),
+  },
+  sportChip: {
+    alignSelf: "flex-start",
+    borderWidth: 1.5,
+    borderRadius: 10,
+    paddingVertical: s(10),
+    paddingHorizontal: s(16),
+  },
+  sportChipText: {
+    fontSize: ms(15),
+    letterSpacing: 1.0,
   },
 });

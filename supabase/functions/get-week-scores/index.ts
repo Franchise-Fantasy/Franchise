@@ -4,7 +4,8 @@ import { corsResponse } from "../_shared/cors.ts";
 import { requireUser } from "../_shared/auth.ts";
 import { errorResponse, handleError, jsonResponse } from "../_shared/http.ts";
 import { checkRateLimit } from "../_shared/rate-limit.ts";
-import { pushActivityUpdate } from "../_shared/apns.ts";
+import { sendActivityStates, type ActivityStateSend } from "../_shared/apns.ts";
+import { deferWork } from "../_shared/background.ts";
 import { type CategoryResult } from "../_shared/finalizeWeek/scoring.ts";
 import {
   buildCategoriesContentState,
@@ -386,13 +387,33 @@ async function upsertScores(
 ): Promise<void> {
   if (Object.keys(scores).length === 0) return;
 
-  const rows = Object.entries(scores).map(([teamId, score]) => ({
-    league_id: leagueId,
-    schedule_id: scheduleId,
-    team_id: teamId,
-    score,
-    updated_at: new Date().toISOString(),
-  }));
+  // Skip rows whose stored score already matches — between polls most (often
+  // all) scores are unchanged, and the unconditional upsert rewrote every row
+  // every tick (~270k no-op updates/6wk of pure WAL churn). Postgres numeric
+  // comes back as a string, so compare through Number(). A failed read falls
+  // through with an empty map and every row upserts (old behavior).
+  const stored = new Map<string, number>();
+  const { data: existingRows, error: readErr } = await supabase
+    .from("week_scores")
+    .select("team_id, score")
+    .eq("league_id", leagueId)
+    .eq("schedule_id", scheduleId);
+  if (readErr) {
+    console.warn("week_scores baseline read failed — upserting all rows:", readErr.message);
+  }
+  for (const r of existingRows ?? []) stored.set(r.team_id, Number(r.score));
+
+  const now = new Date().toISOString();
+  const rows = Object.entries(scores)
+    .filter(([teamId, score]) => stored.get(teamId) !== score)
+    .map(([teamId, score]) => ({
+      league_id: leagueId,
+      schedule_id: scheduleId,
+      team_id: teamId,
+      score,
+      updated_at: now,
+    }));
+  if (rows.length === 0) return;
 
   const { error } = await supabase
     .from("week_scores")
@@ -401,8 +422,9 @@ async function upsertScores(
   if (error) throw error;
 
   // Live-score broadcast is handled by the `week_scores_broadcast` DB trigger
-  // (per-row `score_update` to `scores:<schedule_id>`), which also covers
-  // finalize-week's writes — no manual channel.send() needed here.
+  // (per-row `score_update` to `scores:<schedule_id>`, guarded to fire only
+  // when score actually changed), which also covers finalize-week's writes —
+  // no manual channel.send() needed here.
 }
 
 // ── Update live category wins on league_matchups ───────────────────────────
@@ -429,11 +451,13 @@ async function upsertCategoryWins(
 
 // ── Game activity check ─────────────────────────────────────────────────────
 
-/** Returns true if any game (any sport) has tipped off today. Reads from
- *  game_schedule rather than BDL so a single check covers both leagues without
- *  paying for two API calls.
+/** Returns the set of sports with a game tipped off (or finished) today, or
+ *  null on error. Reads from game_schedule rather than BDL so one check
+ *  covers all sports without API calls. The per-sport set lets the cron skip
+ *  leagues whose sport has no games today — previously a single cross-sport
+ *  boolean meant an NBA slate re-scored every NFL/WNBA league every tick.
  *  Between midnight–3am ET, also checks yesterday for late West Coast games. */
-async function hasActiveOrFinishedGames(): Promise<boolean> {
+async function sportsWithStartedGames(): Promise<Set<string> | null> {
   try {
     // ET-anchored: this cron's "today" must match game_schedule.game_date,
     // which is also ET-anchored (see bdlGameSlateDate). Get the ET wall-clock
@@ -446,18 +470,18 @@ async function hasActiveOrFinishedGames(): Promise<boolean> {
     const hour = parseInt(etParts.find((p) => p.type === 'hour')!.value, 10);
     const datesToCheck = hour < 3 ? [today, addSlateDays(today, -1)] : [today];
 
-    // sport-scope: global "any games happening at all" short-circuit for the
-    // whole cron run — cross-sport on purpose.
-    const { data } = await supabase
+    // sport-scope: deliberately cross-sport — one query yields every sport's
+    // started-games signal for the whole cron run.
+    const { data, error } = await supabase
       .from('game_schedule')
-      .select('game_id', { head: false, count: 'exact' })
+      .select('sport')
       .in('game_date', datesToCheck)
-      .lte('game_time_utc', new Date().toISOString())
-      .limit(1);
+      .lte('game_time_utc', new Date().toISOString());
+    if (error) return null;
 
-    return (data?.length ?? 0) > 0;
+    return new Set((data ?? []).map((g) => g.sport as string));
   } catch {
-    return true; // On error, assume games are happening
+    return null; // On error, callers treat every sport as active
   }
 }
 
@@ -658,7 +682,7 @@ async function dispatchMatchupActivities(
 
   const { data: tokens } = await supabase
     .from('activity_tokens')
-    .select('id, team_id, schedule_id, league_id, matchup_id, metadata')
+    .select('id, push_token, team_id, schedule_id, league_id, matchup_id, metadata')
     .eq('activity_type', 'matchup')
     .eq('stale', false)
     .in('schedule_id', scheduleIds);
@@ -773,6 +797,12 @@ async function dispatchMatchupActivities(
     away_team: g.away_team ? `${g.sport}:${g.away_team}` : g.away_team,
     game_time_utc: g.game_time_utc,
   }));
+
+  // Collected across all weeks: personalized APNs sends (one per token) and
+  // per-token marginHistory metadata writes — both flushed in parallel after
+  // the loop instead of being awaited serially inside it.
+  const sends: ActivityStateSend[] = [];
+  const metadataUpdates: Array<{ id: string; metadata: Record<string, unknown> }> = [];
 
   for (const weekResult of weekResults) {
     const weekTokens = tokens.filter(t => t.schedule_id === weekResult.schedule_id);
@@ -902,23 +932,18 @@ async function dispatchMatchupActivities(
         // Spread the existing metadata first to preserve playerTicker (written
         // by poll-live-stats on its own cadence). Race window is small; if
         // poll writes between our read and our write, we lose ≤1 tick of
-        // playerTicker freshness — self-heals on the next poll.
+        // playerTicker freshness — self-heals on the next poll. Collected and
+        // flushed in parallel after the loop.
         const newHistory = appendMarginHistory(
           meta.marginHistory ?? [],
           gap,
           new Date(nowMs).toISOString(),
           nowMs,
         );
-        await supabase
-          .from('activity_tokens')
-          .update({
-            metadata: {
-              ...(token.metadata ?? {}),
-              marginHistory: newHistory,
-            },
-          })
-          .eq('id', token.id)
-          .then(() => undefined, () => undefined);
+        metadataUpdates.push({
+          id: token.id,
+          metadata: { ...(token.metadata ?? {}), marginHistory: newHistory },
+        });
 
         contentState = buildPointsContentState({
           myTeamName: myMeta.name,
@@ -940,14 +965,26 @@ async function dispatchMatchupActivities(
         });
       }
 
-      await pushActivityUpdate(supabase, 'matchup', {
-        schedule_id: weekResult.schedule_id,
-        league_id: weekResult.league_id,
-      }, contentState).catch((err) =>
-        console.warn('pushActivityUpdate failed (get-week-scores):', err),
-      );
+      // One personalized send per token — pushActivityUpdate's filter-based
+      // broadcast previously delivered every token's "my team vs opponent"
+      // state to EVERY device in the league (T² sends, flapping perspectives).
+      sends.push({ tokenId: token.id, pushToken: token.push_token, contentState });
     }
   }
+
+  await Promise.all(
+    metadataUpdates.map(({ id, metadata }) =>
+      supabase
+        .from('activity_tokens')
+        .update({ metadata })
+        .eq('id', id)
+        .then(() => undefined, () => undefined),
+    ),
+  );
+
+  await sendActivityStates(supabase, sends).catch((err) =>
+    console.warn('sendActivityStates failed (get-week-scores):', err),
+  );
 }
 
 // ── Main handler ────────────────────────────────────────────────────────────
@@ -1003,22 +1040,35 @@ Deno.serve(async (req: Request) => {
     //    BDL call entirely during offseason and between-week gaps. ──
     const today = getSportToday(null);
 
-    const { data: liveWeeks, error: weekErr } = await supabase
+    // The inner join to leagues carries each week's sport for the per-sport
+    // games gate below AND excludes archived leagues (service-role bypasses
+    // the leagues_select RLS that hides them from clients — without the
+    // filter this cron kept scoring soft-deleted leagues forever).
+    const { data: liveWeeksRaw, error: weekErr } = await supabase
       .from("league_schedule")
-      .select("id, league_id, start_date, end_date")
+      .select("id, league_id, start_date, end_date, leagues!inner(sport, archived_at)")
       .lte("start_date", today)
-      .gte("end_date", today);
+      .gte("end_date", today)
+      .is("leagues.archived_at", null);
 
     if (weekErr) throw weekErr;
 
-    if (!liveWeeks || liveWeeks.length === 0) {
+    if (!liveWeeksRaw || liveWeeksRaw.length === 0) {
       return jsonResponse({ ok: true, skipped: true, reason: "no live weeks" });
     }
 
-    // ── Skip if no NBA games are active or recently finished ──
-    const gamesActive = await hasActiveOrFinishedGames();
-    if (!gamesActive) {
+    // ── Per-sport games gate: only score leagues whose sport has a game
+    //    tipped off (or finished) today. A null set (query error) fails open
+    //    and scores everything, matching the old behavior. ──
+    const startedSports = await sportsWithStartedGames();
+    if (startedSports && startedSports.size === 0) {
       return jsonResponse({ ok: true, skipped: true, reason: "no active/finished games" });
+    }
+    const liveWeeks = liveWeeksRaw.filter((w: any) =>
+      !startedSports || startedSports.has(w.leagues?.sport ?? 'nba'),
+    );
+    if (liveWeeks.length === 0) {
+      return jsonResponse({ ok: true, skipped: true, reason: "no games for live-week sports" });
     }
 
     const settled = await Promise.allSettled(
@@ -1048,8 +1098,9 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Dispatch Live Activity updates (non-blocking) ──
-    // Fire-and-forget: don't let activity push failures slow down the cron
-    dispatchMatchupActivities(results.map(r => {
+    // deferWork keeps the isolate alive until the APNs sends settle — a bare
+    // unawaited call races worker teardown after the response returns.
+    deferWork(dispatchMatchupActivities(results.map(r => {
       const settledValue = (settled.find(
         s => s.status === 'fulfilled' && s.value.league_id === r.league_id && s.value.schedule_id === r.schedule_id,
       ) as PromiseFulfilledResult<any>)?.value;
@@ -1061,7 +1112,7 @@ Deno.serve(async (req: Request) => {
         inverseByStat: settledValue?.inverseByStat ?? {},
         categoryUpdates: settledValue?.categoryUpdates ?? [],
       };
-    })).catch(err => console.warn('Live activity dispatch error (non-fatal):', err));
+    })), 'get-week-scores live-activity dispatch');
 
     return jsonResponse({ ok: true, processed: results.length, results });
   } catch (err: unknown) {

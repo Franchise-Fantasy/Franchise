@@ -47,26 +47,64 @@ async function sleeperGet(path: string) {
   return res.json();
 }
 
-// --- Scoring key mapping ---
+// --- Sport detection ---
+//
+// Sleeper's `league.sport` is 'nba' for basketball, 'nfl' for football. We
+// support both; anything else (Sleeper has no WNBA) is rejected in the preview.
+// Our `sport` strings happen to match Sleeper's for the two we support.
+type SupportedSport = 'nba' | 'nfl';
 
-const SCORING_KEY_MAP: Record<string, string> = {
+// --- Scoring key mapping (Sleeper stat key → our stat_name) ---
+
+const NBA_SCORING_KEY_MAP: Record<string, string> = {
   pts: 'PTS', reb: 'REB', ast: 'AST', stl: 'STL', blk: 'BLK',
   to: 'TO', fg3m: '3PM', fg3a: '3PA', fgm: 'FGM', fga: 'FGA',
   ftm: 'FTM', fta: 'FTA', pf: 'PF', dd: 'DD', td: 'TD',
   threes: '3PM', turnovers: 'TO', double_double: 'DD', triple_double: 'TD',
 };
 
-const DEFAULT_SCORING: Record<string, number> = {
-  PTS: 1, REB: 1.2, AST: 1.5, STL: 3, BLK: 3, TO: -1,
-  '3PM': 1, '3PA': 0, FGM: 2, FGA: -1, FTM: 1, FTA: -1, PF: -1, DD: 0, TD: 0,
+// Conservative NFL map: the unambiguous Sleeper keys that line up with our
+// points-only NFL model (utils/sports/registry.ts NFL_SCORING_PRESETS). Sleeper
+// exposes many more (per-distance FG buckets, points-allowed tiers, 2pt, IDP);
+// those we don't model are left at the sport-default weight, and the user tunes
+// scoring in the wizard's Scoring step regardless. Keep in sync with the client
+// copy in utils/sleeperMapping.ts.
+const NFL_SCORING_KEY_MAP: Record<string, string> = {
+  pass_yd: 'PASS_YD', pass_td: 'PASS_TD', pass_int: 'PASS_INT',
+  rush_yd: 'RUSH_YD', rush_td: 'RUSH_TD',
+  rec: 'REC', rec_yd: 'REC_YD', rec_td: 'REC_TD',
+  fum_lost: 'FUM_LOST',
+  fgm: 'FG', xpm: 'XP',
+  def_td: 'DST_TD', sack: 'DST_SACK', int: 'DST_INT', fum_rec: 'DST_FUM_REC',
 };
 
-// --- Position mapping ---
+// Accepts the broader ImportSport: WNBA shares the basketball maps with NBA,
+// so only NFL needs its own branch.
+function scoringKeyMap(sport: ImportSport): Record<string, string> {
+  return sport === 'nfl' ? NFL_SCORING_KEY_MAP : NBA_SCORING_KEY_MAP;
+}
 
-const POSITION_MAP: Record<string, string> = {
+// --- Position / slot mapping (Sleeper roster-position token → our slot) ---
+
+const NBA_POSITION_MAP: Record<string, string> = {
   PG: 'PG', SG: 'SG', SF: 'SF', PF: 'PF', C: 'C', G: 'G', F: 'F',
   UTIL: 'UTIL', FLEX: 'UTIL', BN: 'BE', IR: 'IR', IL: 'IR',
 };
+
+// NFL slots: our flex slots are FLEX (RB/WR/TE) and SFLX (QB/RB/WR/TE). Sleeper's
+// narrower flexes (WRRB_FLEX = RB/WR, REC_FLEX = WR/TE) fold into our FLEX — the
+// closest slot we model. IDP tokens (DL/LB/DB/IDP_FLEX) are intentionally absent;
+// unmapped starter tokens land the player on the bench (see the execute loop).
+const NFL_POSITION_MAP: Record<string, string> = {
+  QB: 'QB', RB: 'RB', WR: 'WR', TE: 'TE', K: 'K',
+  DEF: 'DST', DST: 'DST',
+  FLEX: 'FLEX', SUPER_FLEX: 'SFLX', WRRB_FLEX: 'FLEX', REC_FLEX: 'FLEX',
+  BN: 'BE', IR: 'IR', IL: 'IR', TAXI: 'TAXI',
+};
+
+function positionMap(sport: ImportSport): Record<string, string> {
+  return sport === 'nfl' ? NFL_POSITION_MAP : NBA_POSITION_MAP;
+}
 
 // Tricodes must be unique per league (the `teams_tricode_unique_per_league`
 // index). Two Sleeper team names sharing their first 3 letters (e.g. "Yogis
@@ -107,7 +145,7 @@ Deno.serve(async (req) => {
     const body = parseBody(Body, await req.json());
 
     if (body.action === 'preview') {
-      return await handlePreview(body, supabaseAdmin);
+      return await handlePreview(body, supabaseAdmin, user.id);
     }
 
     // An import is ~10 sequential write phases (league → roster config →
@@ -147,7 +185,8 @@ Deno.serve(async (req) => {
 
 async function handlePreview(
   body: { sleeper_league_id: string },
-  supabaseAdmin: any
+  supabaseAdmin: any,
+  userId: string,
 ) {
   const { sleeper_league_id } = body;
 
@@ -160,9 +199,25 @@ async function handlePreview(
     sleeperGet(`/league/${sleeper_league_id}/drafts`),
   ]);
 
-  // Validate this is a basketball league
-  if (league.sport && league.sport !== 'nba') {
-    throw new HttpError(`This is a ${league.sport} league. Only NBA leagues are supported.`);
+  // Detect + validate the sport. Sleeper is 'nba' or 'nfl' for the two we
+  // support (it has no WNBA); our sport strings match Sleeper's for both.
+  const sport: SupportedSport = (league.sport ?? 'nba');
+  if (sport !== 'nba' && sport !== 'nfl') {
+    throw new HttpError(`This is a ${league.sport} league. Only NBA and NFL leagues are supported.`);
+  }
+
+  // NFL is admin-gated during internal testing (mirrors the create-league
+  // `leagues_nfl_admin_gate` DB trigger, which would otherwise reject the
+  // execute insert with a late generic 500). Fail fast here with a clear reason.
+  if (sport === 'nfl') {
+    const { data: profile } = await supabaseAdmin
+      .from('profiles')
+      .select('is_admin')
+      .eq('id', userId)
+      .single();
+    if (!profile?.is_admin) {
+      throw new HttpError('NFL leagues are in internal testing and not yet available.', 403);
+    }
   }
 
   // Collect all player IDs from rosters
@@ -173,8 +228,8 @@ async function handlePreview(
   }
 
   // Fetch Sleeper player database (only the players we need)
-  // The full /players/nba is ~5MB, so we fetch it once
-  const sleeperPlayers = await sleeperGet('/players/nba');
+  // The full /players/<sport> dictionary is ~5MB, so we fetch it once.
+  const sleeperPlayers = await sleeperGet(`/players/${sport}`);
 
   // Build roster player info
   const rosterPlayers: Array<{
@@ -196,29 +251,52 @@ async function handlePreview(
     }
   }
 
-  // Fetch our players for matching. Sleeper import is NBA-only — without the
-  // sport filter, same-name WNBA/NFL players could hijack matches.
+  // Fetch our players for matching, sport-scoped — without the filter a
+  // same-name player in another sport could hijack a match.
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
     .select('id, name, pro_team, position')
-    .eq('sport', 'nba');
+    .eq('sport', sport);
 
   // Match players
   const byNameAndTeam = new Map<string, any>();
   const byNameOnly = new Map<string, any[]>();
+  // NFL team defenses are synthetic "<Team> D/ST" rows keyed by pro_team; Sleeper
+  // references them by bare team code (position "DEF"), so name matching can't
+  // reach them — match those by team abbreviation instead.
+  const byTeamDst = new Map<string, any>();
   for (const p of (ourPlayers ?? [])) {
     const norm = normalizeName(p.name);
     byNameAndTeam.set(`${norm}|${(p.pro_team ?? '').toUpperCase()}`, p);
     if (!byNameOnly.has(norm)) byNameOnly.set(norm, []);
     byNameOnly.get(norm)!.push(p);
+    if (p.position === 'DST') byTeamDst.set((p.pro_team ?? '').toUpperCase(), p);
   }
 
   const playerMatches: any[] = [];
   const unmatchedPlayers: any[] = [];
 
   for (const sp of rosterPlayers) {
-    const norm = normalizeName(sp.name);
     const team = (sp.team ?? '').toUpperCase();
+
+    // NFL defenses: match by team code, not name.
+    if (sport === 'nfl' && sp.position === 'DEF') {
+      const dst = byTeamDst.get(team);
+      if (dst) {
+        playerMatches.push({
+          sleeper_id: sp.sleeper_id, sleeper_name: sp.name, sleeper_team: sp.team,
+          matched_player_id: dst.id, matched_name: dst.name, confidence: 'high',
+        });
+      } else {
+        unmatchedPlayers.push({
+          sleeper_id: sp.sleeper_id, name: sp.name, team: sp.team,
+          position: sp.position, confidence: 'none',
+        });
+      }
+      continue;
+    }
+
+    const norm = normalizeName(sp.name);
 
     const exact = byNameAndTeam.get(`${norm}|${team}`);
     if (exact) {
@@ -270,9 +348,10 @@ async function handlePreview(
   });
 
   // Map scoring
+  const scoreMap = scoringKeyMap(sport);
   const scoring = Object.entries(league.scoring_settings ?? {}).reduce(
     (acc: Record<string, number>, [key, val]: [string, any]) => {
-      const mapped = SCORING_KEY_MAP[key.toLowerCase()];
+      const mapped = scoreMap[key.toLowerCase()];
       if (mapped) acc[mapped] = val;
       return acc;
     },
@@ -280,10 +359,11 @@ async function handlePreview(
   );
 
   // Map roster positions
+  const posMap = positionMap(sport);
   const rosterPositions = (league.roster_positions ?? []) as string[];
   const positionCounts: Record<string, number> = {};
   for (const pos of rosterPositions) {
-    const mapped = POSITION_MAP[pos.toUpperCase()] ?? pos;
+    const mapped = posMap[pos.toUpperCase()] ?? pos;
     positionCounts[mapped] = (positionCounts[mapped] ?? 0) + 1;
   }
 
@@ -294,6 +374,7 @@ async function handlePreview(
   );
 
   return jsonResponse({
+    sport,
     league: {
       name: league.name,
       season: league.season,
@@ -467,10 +548,28 @@ async function handleExecute(
     });
   }
 
-  // Build player lookup: sleeper_id → { player_id, position }
-  const playerLookup = new Map<string, { player_id: string; position: string }>();
+  // Build player lookup: sleeper_id → player_id.
+  const playerLookup = new Map<string, string>();
   for (const pm of player_mappings) {
-    playerLookup.set(pm.sleeper_id, { player_id: pm.player_id, position: pm.position });
+    playerLookup.set(pm.sleeper_id, pm.player_id);
+  }
+
+  // Resolve each mapped player's REAL position from our players table rather
+  // than trusting the client payload — league_players.position is read back by
+  // the position-limit checks (FA-add RPC, waivers, trades), so a wrong value
+  // (e.g. the Sleeper team code the client sends for auto-matched players)
+  // would mis-count roster caps. Mirrors the "position from players, never the
+  // client" rule in roster_add_drop / the draft-pick RPCs.
+  const mappedPlayerIds = [...new Set(player_mappings.map(pm => pm.player_id))];
+  const positionById = new Map<string, string>();
+  if (mappedPlayerIds.length > 0) {
+    // sport-scope: ids belong to exactly one sport, so this is already scoped.
+    const { data: posRows, error: posErr } = await supabaseAdmin
+      .from('players')
+      .select('id, position')
+      .in('id', mappedPlayerIds);
+    if (posErr) throw posErr;
+    for (const p of (posRows ?? [])) positionById.set(p.id, p.position);
   }
 
   // Compute roster size (exclude IR and TAXI from draft rounds)
@@ -507,6 +606,10 @@ async function handleExecute(
     .insert({
       name: league_name,
       created_by: userId,
+      // leagues.sport defaults to 'nba' at the column level — set it explicitly
+      // or an NFL/WNBA import would silently become an NBA league (and the
+      // sport is immutable post-insert). Admin-gated for NFL by a DB trigger.
+      sport,
       teams: teams.length,
       current_teams: 0,
       roster_size: rosterSize,
@@ -609,9 +712,10 @@ async function handleExecute(
     .eq('id', leagueId);
 
   // 5. Insert rosters (league_players)
-  const starterPositions = roster_positions.filter(
-    p => p !== 'BN' && p !== 'IR' && p !== 'IL'
-  );
+  const posMap = positionMap(sport);
+  // Structural (non-starter) tokens don't consume a positional starter slot.
+  const NON_STARTER_TOKENS = new Set(['BN', 'IR', 'IL', 'TAXI']);
+  const starterPositions = roster_positions.filter(p => !NON_STARTER_TOKENS.has(p.toUpperCase()));
   const timestamp = new Date().toISOString();
   const leaguePlayerRows: any[] = [];
 
@@ -626,71 +730,63 @@ async function handleExecute(
     let utilIndex = 0;
     const assigned = new Set<string>();
 
-    // Starters
+    // Build a league_players row for one player, resolving player_id + real
+    // position from the authoritative maps. Returns null if the player wasn't
+    // mapped (skipped) — caller decides whether to mark it assigned.
+    const makeRow = (sleeperId: string, roster_slot: string) => {
+      const playerId = playerLookup.get(sleeperId);
+      if (!playerId) return null;
+      return {
+        league_id: leagueId,
+        team_id: teamId,
+        player_id: playerId,
+        position: positionById.get(playerId) ?? '',
+        roster_slot,
+        acquired_via: 'draft',
+        acquired_at: timestamp,
+        on_trade_block: false,
+      };
+    };
+
+    // Starters — the starters array is index-aligned with starterPositions.
     for (let i = 0; i < rosterData.starters.length && i < starterPositions.length; i++) {
       const sleeperId = rosterData.starters[i];
       if (!sleeperId || sleeperId === '0') continue;
 
-      const mapped = playerLookup.get(sleeperId);
-      if (!mapped) continue;
-
-      const pos = POSITION_MAP[starterPositions[i].toUpperCase()] ?? starterPositions[i];
+      // UTIL is numbered (UTIL1..N); every other slot uses its bare name (two
+      // RB starters both become "RB", disambiguated by positional fill at
+      // render). An unknown token (e.g. an unsupported IDP slot) benches the
+      // player rather than inventing a bogus slot.
+      const mappedSlot = posMap[starterPositions[i].toUpperCase()];
       let slot: string;
-      if (pos === 'UTIL') {
+      if (mappedSlot === 'UTIL') {
         utilIndex++;
         slot = `UTIL${utilIndex}`;
       } else {
-        slot = pos;
+        slot = mappedSlot ?? 'BE';
       }
 
-      leaguePlayerRows.push({
-        league_id: leagueId,
-        team_id: teamId,
-        player_id: mapped.player_id,
-        position: mapped.position,
-        roster_slot: slot,
-        acquired_via: 'draft',
-        acquired_at: timestamp,
-        on_trade_block: false,
-      });
+      const row = makeRow(sleeperId, slot);
+      if (!row) continue;
+      leaguePlayerRows.push(row);
       assigned.add(sleeperId);
     }
 
     // Reserve/IR
     for (const sleeperId of rosterData.reserve) {
       if (!sleeperId || sleeperId === '0' || assigned.has(sleeperId)) continue;
-      const mapped = playerLookup.get(sleeperId);
-      if (!mapped) continue;
-
-      leaguePlayerRows.push({
-        league_id: leagueId,
-        team_id: teamId,
-        player_id: mapped.player_id,
-        position: mapped.position,
-        roster_slot: 'IR',
-        acquired_via: 'draft',
-        acquired_at: timestamp,
-        on_trade_block: false,
-      });
+      const row = makeRow(sleeperId, 'IR');
+      if (!row) continue;
+      leaguePlayerRows.push(row);
       assigned.add(sleeperId);
     }
 
     // Bench (everyone in players array not already assigned)
     for (const sleeperId of rosterData.players) {
       if (assigned.has(sleeperId)) continue;
-      const mapped = playerLookup.get(sleeperId);
-      if (!mapped) continue;
-
-      leaguePlayerRows.push({
-        league_id: leagueId,
-        team_id: teamId,
-        player_id: mapped.player_id,
-        position: mapped.position,
-        roster_slot: 'BE',
-        acquired_via: 'draft',
-        acquired_at: timestamp,
-        on_trade_block: false,
-      });
+      const row = makeRow(sleeperId, 'BE');
+      if (!row) continue;
+      leaguePlayerRows.push(row);
     }
   }
 

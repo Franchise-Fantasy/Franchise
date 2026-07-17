@@ -199,9 +199,77 @@ function buildEndPayload(
   };
 }
 
+export interface ActivityStateSend {
+  tokenId: string;
+  pushToken: string;
+  contentState: Record<string, unknown>;
+}
+
 /**
- * Send a Live Activity update to all registered tokens for a given context.
- * Marks dead tokens as stale in the database.
+ * Send per-token Live Activity content states. Each item carries its OWN
+ * contentState — this is the primitive for personalized pushes (each device's
+ * "my team vs opponent" perspective). Marks dead tokens as stale.
+ *
+ * get-week-scores previously called pushActivityUpdate once per token with
+ * that token's personalized state; the filter-based re-query inside it then
+ * sent every personalized payload to EVERY token in the league — T² sends,
+ * with devices flapping between other users' perspectives.
+ */
+export async function sendActivityStates(
+  supabase: SupabaseClient,
+  items: ActivityStateSend[],
+  options?: { end?: boolean; dismissalDate?: number; priority?: 5 | 10 },
+): Promise<{ sent: number; failed: number; stale: number }> {
+  if (items.length === 0) return { sent: 0, failed: 0, stale: 0 };
+
+  const config = await getConfig();
+  const jwt = await getJwt(config);
+
+  const payloadFor = (contentState: Record<string, unknown>) =>
+    options?.end
+      ? buildEndPayload(contentState, options.dismissalDate)
+      : buildUpdatePayload(contentState);
+
+  // Send in parallel with concurrency limit of 20
+  const CONCURRENCY = 20;
+  const results: Array<APNsResult & { tokenId: string }> = [];
+  for (let i = 0; i < items.length; i += CONCURRENCY) {
+    const batch = items.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(
+      batch.map(async (item) => ({
+        ...(await sendToToken(config, jwt, item.pushToken, payloadFor(item.contentState), options?.priority ?? 10)),
+        tokenId: item.tokenId,
+      })),
+    );
+    for (const r of batchResults) {
+      if (r.status === 'fulfilled') results.push(r.value);
+    }
+  }
+
+  // Mark dead tokens as stale (410 Gone or BadDeviceToken/Unregistered)
+  const staleTokenIds = results
+    .filter(r => !r.success && (r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered'))
+    .map(r => r.tokenId);
+
+  if (staleTokenIds.length > 0) {
+    await supabase
+      .from('activity_tokens')
+      .update({ stale: true })
+      .in('id', staleTokenIds);
+  }
+
+  return {
+    sent: results.filter(r => r.success).length,
+    failed: results.filter(r => !r.success).length,
+    stale: staleTokenIds.length,
+  };
+}
+
+/**
+ * Send ONE Live Activity update to all registered tokens for a given context.
+ * For broadcast-style pushes where every device gets the same payload (e.g.
+ * the zeroed `end` state) — personalized per-device states must go through
+ * sendActivityStates instead. Marks dead tokens as stale.
  */
 export async function pushActivityUpdate(
   supabase: SupabaseClient,
@@ -226,47 +294,11 @@ export async function pushActivityUpdate(
     return { sent: 0, failed: 0, stale: 0 };
   }
 
-  const config = await getConfig();
-  const jwt = await getJwt(config);
-
-  const payload = options?.end
-    ? buildEndPayload(contentState, options.dismissalDate)
-    : buildUpdatePayload(contentState);
-
-  // Send in parallel with concurrency limit of 20
-  const CONCURRENCY = 20;
-  const results: APNsResult[] = [];
-  for (let i = 0; i < tokens.length; i += CONCURRENCY) {
-    const batch = tokens.slice(i, i + CONCURRENCY);
-    const batchResults = await Promise.allSettled(
-      batch.map(t => sendToToken(config, jwt, t.push_token, payload, options?.priority ?? 10)),
-    );
-    for (const r of batchResults) {
-      if (r.status === 'fulfilled') results.push(r.value);
-    }
-  }
-
-  // Mark dead tokens as stale (410 Gone or BadDeviceToken/Unregistered)
-  const staleTokenIds = results
-    .filter(r => !r.success && (r.status === 410 || r.reason === 'BadDeviceToken' || r.reason === 'Unregistered'))
-    .map(r => {
-      const match = tokens.find(t => t.push_token === r.token);
-      return match?.id;
-    })
-    .filter(Boolean) as string[];
-
-  if (staleTokenIds.length > 0) {
-    await supabase
-      .from('activity_tokens')
-      .update({ stale: true })
-      .in('id', staleTokenIds);
-  }
-
-  return {
-    sent: results.filter(r => r.success).length,
-    failed: results.filter(r => !r.success).length,
-    stale: staleTokenIds.length,
-  };
+  return sendActivityStates(
+    supabase,
+    tokens.map(t => ({ tokenId: t.id, pushToken: t.push_token, contentState })),
+    options,
+  );
 }
 
 export { buildUpdatePayload, buildEndPayload };

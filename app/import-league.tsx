@@ -232,20 +232,28 @@ function seedTradedPicks(data: SleeperPreviewResult): TradedPickDraft[] {
 const maxWeeks = computeMaxWeeks(CURRENT_NBA_SEASON);
 
 function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
-  const rosterSlots = mapSleeperPositions(data.league.roster_positions);
-  const scoring = mapSleeperScoring(data.league.scoring_settings);
+  // Sport is detected server-side from the Sleeper league (nba | nfl).
+  const sport = data.sport ?? 'nba';
+  const rosterSlots = mapSleeperPositions(data.league.roster_positions, sport);
+  const scoring = mapSleeperScoring(data.league.scoring_settings, sport);
+  // NFL/WNBA seasons run shorter (and later) than NBA — size the playoff/week
+  // defaults off the detected sport's current-season calendar, not the
+  // module-level NBA one (mirrors the pre-NFL behaviour, which used the current
+  // NBA season here).
+  const sportMaxWeeks = computeMaxWeeks(getCurrentSeason(sport), sport);
   // Teams-first playoff defaults: a 2-team import gets a 1-week final, not
   // the 3-week/6-team template.
-  const playoffDefaults = defaultPlayoffSetup(data.teams.length, maxWeeks);
+  const playoffDefaults = defaultPlayoffSetup(data.teams.length, sportMaxWeeks);
 
   return {
-    sport: 'nba',
+    sport,
     leagueType: 'Dynasty',
     keeperCount: 5,
     name: data.league.name,
     teams: data.teams.length,
     isPrivate: true,
     rosterSlots,
+    // NFL is points-only (no H2H categories); NBA imports default to Points too.
     scoringType: 'Points',
     scoring,
     categories: DEFAULT_CATEGORIES.map(c => ({ ...c })),
@@ -265,9 +273,9 @@ function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
     faabBudget: 100,
     waiverPriorityReset: 'Reverse Standings',
     faabTiebreak: 'Earliest Bid',
-    season: data.league.season ?? CURRENT_NBA_SEASON,
+    season: data.league.season ?? getCurrentSeason(sport),
     seasonStartDate: null,
-    regularSeasonWeeks: Math.max(1, maxWeeks - playoffDefaults.playoffWeeks),
+    regularSeasonWeeks: Math.max(1, sportMaxWeeks - playoffDefaults.playoffWeeks),
     playoffWeeks: playoffDefaults.playoffWeeks,
     playoffTeams: playoffDefaults.playoffTeams,
     playoffSeedingFormat: 'Standard',
@@ -1047,6 +1055,7 @@ export default function ImportLeague() {
                 state={state.wizardState}
                 onChange={handleWizardChange}
                 ignoreCreationWindow
+                lockSport
               />
             )}
 
