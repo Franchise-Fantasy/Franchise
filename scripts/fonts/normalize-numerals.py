@@ -18,8 +18,17 @@ are invisible until the app is on a device:
    columns fray and a live score changes width as it ticks. Fixed by giving the
    digits a shared advance box, with each outline centered inside it.
 
-Both passes are metrics-only — glyph shapes are never redrawn, only scaled
-uniformly and repositioned — and both target ABSOLUTE values, so this is
+3. CRAMPED VERTICAL METRICS. Ascent/descent decide where the baseline lands
+   inside a line box, and every fixed lineHeight in the app was tuned against
+   Space Mono's ratios (ascent 1.120em, descent -0.361em → digits get ~0.4em of
+   ceiling). Fascond arrived with typoAscender 0.750em — a hair above the
+   0.728em the digits draw to after pass 1 — and a deep 0.550em descent that
+   pushes the baseline toward the top of a fixed lineHeight box, so every stat
+   readout clipped at the top by a pixel or two. Fixed by giving all three
+   metrics tables (hhea, OS/2 typo, OS/2 win) Space Mono's ratios.
+
+All passes are metrics-only — glyph shapes are never redrawn, only scaled
+uniformly and repositioned — and all target ABSOLUTE values, so this is
 idempotent. To take a new delivery from a designer: drop their file in at the
 vendored path below and re-run. Handles TrueType (glyf) and OpenType (CFF).
 """
@@ -36,6 +45,12 @@ from fontTools.ttLib import TTFont
 # fontSize in the app is implicitly tuned against. Don't change it without
 # re-tuning those call sites.
 TARGET_DIGIT_EM = 0.728
+
+# Space Mono's vertical metrics as fractions of the em, applied to every metrics
+# table so iOS (hhea), Android (hhea), and web (typo, via USE_TYPO_METRICS) all
+# agree. Same tuning caveat as TARGET_DIGIT_EM.
+TARGET_ASCENT_EM = 1.120
+TARGET_DESCENT_EM = -0.361
 
 # `keep` subsets the font to those characters. Only set it for a face with a
 # genuinely closed character set — Dothed is 755KB of dot contours and is only
@@ -63,9 +78,8 @@ def digit_height_em(font, char="8"):
 def transform_glyphs(font, scale=1.0, shifts=None):
     """Scale every glyph by `scale`, then nudge named glyphs by shifts[name].
 
-    Vertical metrics are deliberately left alone: the scaled outlines still fit
-    inside the existing ascent/descent, so the line box doesn't grow and no fixed
-    lineHeight in the app starts clipping.
+    Only outlines and horizontal metrics move here — the vertical metrics are
+    set separately (and absolutely) by set_vertical_metrics.
     """
     shifts = shifts or {}
     glyphs, hmtx = font.getGlyphSet(), font["hmtx"]
@@ -100,6 +114,18 @@ def transform_glyphs(font, scale=1.0, shifts=None):
         hmtx[name] = entry
 
 
+def set_vertical_metrics(font):
+    """Stamp Space Mono's ascent/descent ratios into hhea, typo, and win."""
+    upm = font["head"].unitsPerEm
+    ascent = round(TARGET_ASCENT_EM * upm)
+    descent = round(TARGET_DESCENT_EM * upm)
+    hhea = font["hhea"]
+    hhea.ascent, hhea.descent, hhea.lineGap = ascent, descent, 0
+    os2 = font["OS/2"]
+    os2.sTypoAscender, os2.sTypoDescender, os2.sTypoLineGap = ascent, descent, 0
+    os2.usWinAscent, os2.usWinDescent = ascent, -descent
+
+
 def normalize(path, keep=None):
     """Scale to TARGET_DIGIT_EM and square up the digits, in a single pass.
 
@@ -128,6 +154,8 @@ def normalize(path, keep=None):
     for name in digits:
         font["hmtx"][name] = (box, font["hmtx"][name][1])
 
+    set_vertical_metrics(font)
+
     if keep:
         options = subset.Options()
         options.desubroutinize = True
@@ -143,10 +171,28 @@ def normalize(path, keep=None):
 
 def verify(path):
     font = TTFont(path)
+    upm = font["head"].unitsPerEm
     cmap = font.getBestCmap()
     advances = {font["hmtx"][cmap[ord(d)]][0] for d in string.digits}
     tabular = "TABULAR" if len(advances) == 1 else "RAGGED"
+
+    # Ink must fit inside the stamped ascent/descent on EVERY glyph, or the line
+    # box clips it — the exact bug pass 3 exists to prevent.
+    glyphs = font.getGlyphSet()
+    ymax, ymin = 0, 0
+    for name in font.getGlyphOrder():
+        pen = BoundsPen(glyphs)
+        glyphs[name].draw(pen)
+        if pen.bounds:
+            ymax = max(ymax, pen.bounds[3])
+            ymin = min(ymin, pen.bounds[1])
+    fits = ymax <= font["hhea"].ascent and ymin >= font["hhea"].descent
     print(f"  VERIFY height {digit_height_em(font):.3f}em | advances {advances} -> {tabular}")
+    print(
+        f"  VERIFY ink {ymin/upm:+.3f}em..{ymax/upm:.3f}em inside "
+        f"{font['hhea'].descent/upm:+.3f}em..{font['hhea'].ascent/upm:.3f}em -> "
+        f"{'FITS' if fits else 'CLIPS'}"
+    )
     font.close()
 
 

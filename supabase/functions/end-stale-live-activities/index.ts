@@ -73,9 +73,14 @@ Deno.serve(async (req: Request) => {
       .from("game_schedule")
       .select("status, game_time_utc")
       .eq("game_date", today);
-    const hasUnfinishedToday = (todayGames ?? []).some((g) => g.status !== "Final");
+    // Lowercase 'final' — both writers (poll-live-stats' mirror and
+    // sync-game-schedule) store lowercase statuses. This comparison used
+    // capital-F "Final" for months, which never matched: hasUnfinishedToday
+    // was always true and activities were only ever ended by the 3am-ET
+    // day-boundary net below.
+    const hasUnfinishedToday = (todayGames ?? []).some((g) => g.status !== "final");
     const lastFinalMs = (todayGames ?? [])
-      .filter((g) => g.status === "Final" && g.game_time_utc)
+      .filter((g) => g.status === "final" && g.game_time_utc)
       .map((g) => Date.parse(g.game_time_utc!))
       .filter((ms) => Number.isFinite(ms))
       .reduce((max, ms) => Math.max(max, ms), 0);

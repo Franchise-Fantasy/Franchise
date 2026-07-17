@@ -1,4 +1,5 @@
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CompareColumn } from '@/components/player/CompareColumn';
 import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
@@ -11,7 +12,10 @@ import type { CompareGroup, CompareRow } from '@/utils/scoring/compareStats';
 
 const LABEL_W = s(92);
 const COL_W = s(116);
-const HEADER_H = s(122);
+// Tall enough to hold portrait + name + position/injury row + the category
+// "Wins N" badge without clipping (fonts scale slower than heights on small
+// screens, so the bottom badge needs slack).
+const HEADER_H = s(144);
 const EYEBROW_H = s(40);
 const ROW_H = s(36);
 
@@ -55,10 +59,15 @@ export function CompareStatTable({
   onRemove,
 }: CompareStatTableProps) {
   const c = useColors();
+  const insets = useSafeAreaInsets();
   const lines = flattenGroups(groups);
 
   return (
-    <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+    <ScrollView
+      style={styles.container}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: insets.bottom + s(16) }}
+    >
       <View style={styles.tableRow}>
         {/* Frozen label rail */}
         <View style={{ width: LABEL_W }}>

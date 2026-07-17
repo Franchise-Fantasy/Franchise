@@ -1,17 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { pushActivityUpdate } from "../_shared/apns.ts";
+import { getArchivedLeagueIds } from "../_shared/archivedLeagues.ts";
+import { deferWork } from "../_shared/background.ts";
 import { bdlFetch, bdlGameSlateDate, mapGameStatus, toIsoDuration, type Sport } from "../_shared/bdl.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
-import { buildPointsContentState } from "../_shared/liveActivityContent.ts";
 import { createLogger } from "../_shared/log.ts";
 import { mapDstGameStats, mapNflGameStats } from "../_shared/nflStats.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 import { getSportToday } from "../../../utils/leagueTime.ts";
 import { deriveNflEvents, nflStatLine } from "../../../utils/scoring/nflStatLine.ts";
 import { getSportModule } from "../../../utils/sports/registry.ts";
-import { getArchivedLeagueIds } from "../_shared/archivedLeagues.ts";
+import {
+  buildPrevGameStatusByGameId,
+  collectSnapshotDates,
+  GAME_ROW_IGNORE,
+  LIVE_ROW_IGNORE,
+  rowChanged,
+  shouldWritePlayerGame,
+  type DbRow,
+} from "./pure.ts";
 
 const Body = z.object({
   sport: z.enum(['nba', 'wnba', 'nfl']).optional(),
@@ -408,13 +416,6 @@ async function dispatchPlayerTickerUpdates(
   await Promise.all(pushTasks);
 }
 
-// Stat key mapping (matches get-week-scores)
-const STAT_TO_GAME: Record<string, string> = {
-  PTS: "pts", REB: "reb", AST: "ast", STL: "stl", BLK: "blk",
-  TO: "tov", "3PM": "3pm", "3PA": "3pa", FGM: "fgm", FGA: "fga",
-  FTM: "ftm", FTA: "fta", PF: "pf",
-};
-
 function ordinal(period: number): string {
   if (period === 1) return '1st';
   if (period === 2) return '2nd';
@@ -560,6 +561,9 @@ Deno.serve(async (req: Request) => {
     const activeStats = allStats;
 
     if (activeStats.length === 0) {
+      // Heartbeat here too — every other early exit records one, and without
+      // it a BDL /stats outage during live games reads as a stale cron.
+      await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
       return jsonResponse({ ok: true, games: activeGames.length, players: 0 });
     }
 
@@ -615,53 +619,70 @@ Deno.serve(async (req: Request) => {
       log.warn("Players not in DB", { missing_bdl_ids: missingBdlIds });
     }
 
-    // Fetch previous snapshot for oncourt derivation AND scoring-event diffs.
-    // Without a previous row, we can't tell whether a stat moved between polls,
-    // so the first poll for a player today is silent on event emission.
-    // NFL diffs a different column set (the event tape's TD/turnover/kick
-    // columns), so the snapshot select is sport-conditional. Each branch is a
-    // single string literal, never a concatenation — supabase-js can't
-    // type-parse a built-up select and the rows degrade to GenericStringError.
+    // Fetch previous snapshot for oncourt derivation, scoring-event diffs, AND
+    // the skip-unchanged write filter. Without a previous row, we can't tell
+    // whether a stat moved between polls, so the first poll for a player today
+    // is silent on event emission (and every row counts as changed → written).
+    //
+    // The date window is the union of datesToCheck and the slate dates of the
+    // games BDL actually returned. BDL files evening games under the next UTC
+    // day while their rows are stored under the ET slate date — with the old
+    // datesToCheck-only window, a daytime poll fetched yesterday-evening finals
+    // whose stored rows were invisible to this query, so every one re-counted
+    // as "newly final" every 30s and re-triggered the full matview refresh all
+    // day (~30% of total DB time before the fix; see pure.ts).
+    //
+    // Selects cover EVERY column the upsert writes (minus updated_at) so the
+    // skip-unchanged comparison is complete — a column missing here reads as
+    // "changed" and the row is written anyway (fails open, see rowChanged).
+    // NFL diffs a different column set, so the snapshot select is
+    // sport-conditional. Each branch is a single string literal, never a
+    // concatenation — supabase-js can't type-parse a built-up select and the
+    // rows degrade to GenericStringError.
     // D/ST ids aren't in bdlIdToPlayerId (they're synthetic, no BDL id), so the
     // NFL query has to be keyed by game_date alone for them; simplest correct
     // thing is to drop the player filter for NFL and scope by date + sport,
     // which is bounded by the day's slate anyway.
+    const snapshotDates = collectSnapshotDates(
+      datesToCheck,
+      activeGames.map((g: any) => g.date),
+      bdlGameSlateDate,
+      gameDate,
+    );
     const existingLiveQuery = sport === 'nfl'
       ? supabase
           .from("live_player_stats")
           .select(
-            'player_id, game_id, game_date, game_status, min, pass_td, rush_td, rec_td, ret_td, dst_td, pass_int, fum_lost, fg_made, xp_made, dst_sacks, dst_int, dst_fum_rec',
+            'player_id, game_id, game_date, game_status, period, game_clock, matchup, oncourt, home_score, away_score, min, pass_att, pass_cmp, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, fg_long, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts',
           )
           .eq("sport", "nfl")
-          .in("game_date", datesToCheck)
+          .in("game_date", snapshotDates)
       : supabase
           .from("live_player_stats")
           .select(
-            'player_id, game_id, game_date, game_status, min, pts, reb, ast, stl, blk, tov, fgm, ftm, "3pm", fga, fta, "3pa", pf',
+            'player_id, game_id, game_date, game_status, period, game_clock, matchup, oncourt, home_score, away_score, min, pts, reb, ast, stl, blk, tov, fgm, ftm, "3pm", fga, fta, "3pa", pf',
           )
           .in("player_id", [...bdlIdToPlayerId.values()])
-          .in("game_date", datesToCheck);
+          .in("game_date", snapshotDates);
     const { data: existingLive, error: existingLiveErr } = await existingLiveQuery;
     if (existingLiveErr) {
+      // Throw, don't limp on: with an empty baseline every row counts as
+      // changed AND every final counts as newly final — a persistent failure
+      // here (e.g. a column rename breaking the select literal) would
+      // silently revive the 30s write/matview storm and mute the event tape.
+      // Failing the tick records an error heartbeat and retries in 30s.
       log.error("existingLive query error", existingLiveErr);
+      throw existingLiveErr;
     }
 
     // Track the max prior status seen for each game_id. Used below to detect
-    // games that flip from <3 (scheduled/live) → 3 (final) during this poll —
-    // those transitions are the only signal we have that today's `player_games`
-    // rows just gained new finalized stat lines, which is when the
-    // `player_season_stats` matview needs a refresh so user-facing averages
-    // pick up the new game. Without this gate the matview would only refresh
-    // once a day via sync-players-{sport}, leaving overnight games stale for
-    // up to ~24 hours.
-    const prevGameStatusByGameId = new Map<string, number>();
-    for (const r of existingLive ?? []) {
-      const gid = String((r as any).game_id ?? "");
-      if (!gid) continue;
-      const status = Number((r as any).game_status ?? 0);
-      const prior = prevGameStatusByGameId.get(gid) ?? 0;
-      if (status > prior) prevGameStatusByGameId.set(gid, status);
-    }
+    // games that flip from <3 (scheduled/live) → 3 (final) during this poll.
+    // Kept for logging/response visibility; the matview refresh itself is now
+    // gated on player_games rows actually being written (see below), which the
+    // skip-unchanged filter makes equivalent to "something really changed".
+    const prevGameStatusByGameId = buildPrevGameStatusByGameId(
+      (existingLive ?? []) as DbRow[],
+    );
     const prevSnapshotMap = new Map<string, StatSnapshot>(
       (existingLive ?? []).map((r: any) => [
         `${r.player_id}:${r.game_date}`,
@@ -682,9 +703,13 @@ Deno.serve(async (req: Request) => {
         },
       ]),
     );
-    // NFL prior snapshot, keyed the same way — the raw row IS the shape
-    // deriveNflEvents diffs (it reads columns by name), so no field mapping.
-    const prevNflMap = new Map<string, Record<string, unknown>>(
+    // Raw prior row keyed the same way. Two consumers: (1) NFL event diffs —
+    // the raw row IS the shape deriveNflEvents reads (columns by name), so no
+    // field mapping; (2) the skip-unchanged write filter for BOTH sports —
+    // rows whose payload matches the stored row byte-for-byte are dropped
+    // from the upsert (a final game still in the BDL window used to be
+    // rewritten every 30s: ~6.2M no-op updates on a 20k-row table).
+    const prevLiveRowMap = new Map<string, DbRow>(
       (existingLive ?? []).map((r: any) => [`${r.player_id}:${r.game_date}`, r]),
     );
 
@@ -758,7 +783,10 @@ Deno.serve(async (req: Request) => {
         // Live tape: emit the plays that moved this player's fantasy score
         // since the last poll. No prior row = first poll of the day for them,
         // so we stay silent rather than replay their whole stat line as events.
-        const prevNfl = prevNflMap.get(`${playerId}:${actualGameDate}`);
+        // Known quirk (accepted): the >= 2 gate means a BDL stat CORRECTION to
+        // an already-final game emits its delta as a late ticker event — rare,
+        // and the tape is a UX nice-to-have.
+        const prevNfl = prevLiveRowMap.get(`${playerId}:${actualGameDate}`);
         if (prevNfl && gameStatus >= 2) {
           for (const e of deriveNflEvents(prevNfl, nflCols)) {
             allEventRows.push({
@@ -774,11 +802,7 @@ Deno.serve(async (req: Request) => {
           }
         }
 
-        if (
-          gameStatus === 3 &&
-          !game.postseason &&
-          (!regularSeasonEnd || actualGameDate <= regularSeasonEnd)
-        ) {
+        if (shouldWritePlayerGame(gameStatus, !!game.postseason, actualGameDate, regularSeasonEnd)) {
           allGameRows.push({
             player_id: playerId,
             game_id: gameId,
@@ -868,7 +892,7 @@ Deno.serve(async (req: Request) => {
           // Sacks / picks / fumble recoveries / defensive TDs as they happen.
           // Points-allowed is deliberately NOT an event — it changes every time
           // the opponent scores, which is the inverse of a highlight.
-          const prevDst = prevNflMap.get(`${dstId}:${actualGameDate}`);
+          const prevDst = prevLiveRowMap.get(`${dstId}:${actualGameDate}`);
           if (prevDst) {
             for (const e of deriveNflEvents(prevDst, dstCols)) {
               allEventRows.push({
@@ -884,11 +908,7 @@ Deno.serve(async (req: Request) => {
             }
           }
 
-          if (
-            gameStatus === 3 &&
-            !game.postseason &&
-            (!regularSeasonEnd || actualGameDate <= regularSeasonEnd)
-          ) {
+          if (shouldWritePlayerGame(gameStatus, !!game.postseason, actualGameDate, regularSeasonEnd)) {
             allGameRows.push({
               player_id: dstId,
               game_id: gameId,
@@ -999,11 +1019,7 @@ Deno.serve(async (req: Request) => {
 
       if (ownTricode) proTeamByPlayerId.set(playerId, ownTricode);
 
-      if (
-        gameStatus === 3 &&
-        !game.postseason &&
-        (!regularSeasonEnd || actualGameDate <= regularSeasonEnd)
-      ) {
+      if (shouldWritePlayerGame(gameStatus, !!game.postseason, actualGameDate, regularSeasonEnd)) {
         const { double_double, triple_double } = computeDoubles({ pts, reb, ast, stl, blk });
         allGameRows.push({
           player_id: playerId,
@@ -1017,44 +1033,115 @@ Deno.serve(async (req: Request) => {
           double_double,
           triple_double,
         });
-        // Detect the scheduled/live → final transition for this game. Recovery
-        // calls (overrideGameIds) have no prior live snapshot, so treat them as
-        // transitions too — that's the recovery path's job: backfill missed
-        // refreshes. Without this, an overnight final would only land in the
-        // matview at the next daily sync-players run.
+        // Detect the scheduled/live → final transition for this game (kept
+        // for logging/response; the matview refresh is gated on rows actually
+        // written — recovery calls bypass the skip filter, so their replays
+        // always write and always refresh).
         const prior = prevGameStatusByGameId.get(gameId) ?? 0;
         if (prior < 3) newlyFinalGameIds.add(gameId);
       }
     }
     } // end basketball branch
 
+    // ── Skip-unchanged write filtering ────────────────────────────────────
+    // Final games stay in the BDL response window all day; before this filter
+    // every poll re-upserted their identical rows (real Postgres UPDATEs —
+    // ~6.2M/6wk on live_player_stats, ~5.4M on player_games — the main WAL
+    // feed behind realtime-decode load). Rows are dropped only when the
+    // stored row matches the payload on every written column; comparisons
+    // fail OPEN (missing stored row / missing select column ⇒ write).
+    // Recovery calls bypass all skipping: their job is force-rewriting rows
+    // (and re-triggering the matview refresh) for games we may have missed.
+    // Built through a Map keyed by the upsert conflict key (last write wins):
+    // PostgREST rejects a batch containing two rows for the same conflict key
+    // ("ON CONFLICT DO UPDATE ... cannot affect row a second time"), and a
+    // same-slate doubleheader produces exactly that duplicate.
+    const changedLiveByKey = new Map<string, any>();
+    for (const row of allLiveRows) {
+      const key = `${row.player_id}:${row.game_date}`;
+      if (
+        overrideGameIds ||
+        rowChanged(prevLiveRowMap.get(key), row, LIVE_ROW_IGNORE)
+      ) {
+        changedLiveByKey.set(key, row);
+      }
+    }
+    const changedLiveRows = [...changedLiveByKey.values()];
+
+    // player_games needs its own baseline — its rows live under a different
+    // conflict key (player_id, game_id) and could be missing even when the
+    // live row says final (e.g. a previously failed batch write), so the live
+    // row is not a safe witness for it.
+    const finalGameIds = [...new Set(allGameRows.map((r) => r.game_id))];
+    const prevGameRowMap = new Map<string, DbRow>();
+    if (finalGameIds.length > 0 && !overrideGameIds) {
+      const prevGamesQuery = sport === 'nfl'
+        ? supabase
+            .from("player_games")
+            .select(
+              'player_id, game_id, game_date, matchup, min, pass_att, pass_cmp, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, fg_long, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts',
+            )
+            .eq("sport", sport)
+            .in("game_id", finalGameIds)
+        : supabase
+            .from("player_games")
+            .select(
+              'player_id, game_id, game_date, matchup, min, pts, reb, ast, blk, stl, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double',
+            )
+            .eq("sport", sport)
+            .in("game_id", finalGameIds);
+      const { data: prevGameRows, error: prevGamesErr } = await prevGamesQuery;
+      if (prevGamesErr) {
+        // Same rationale as the existingLive throw above: an empty baseline
+        // makes every final row "changed" every tick — a persistent failure
+        // would quietly restore the storm. Fail the tick loudly instead.
+        log.error("player_games baseline query error", prevGamesErr);
+        throw prevGamesErr;
+      }
+      for (const r of prevGameRows ?? []) {
+        prevGameRowMap.set(`${(r as any).player_id}:${(r as any).game_id}`, r as DbRow);
+      }
+    }
+    // Same Map-by-conflict-key construction as changedLiveRows above.
+    const changedGameByKey = new Map<string, any>();
+    for (const row of allGameRows) {
+      const key = `${row.player_id}:${row.game_id}`;
+      if (
+        overrideGameIds ||
+        rowChanged(prevGameRowMap.get(key), row, GAME_ROW_IGNORE)
+      ) {
+        changedGameByKey.set(key, row);
+      }
+    }
+    const changedGameRows = [...changedGameByKey.values()];
+
     let totalLiveRows = 0;
     let totalGameRows = 0;
 
     const upsertPromises: PromiseLike<void>[] = [];
 
-    if (allLiveRows.length > 0) {
+    if (changedLiveRows.length > 0) {
       upsertPromises.push(
         // sport-scope: payload rows carry sport; conflict key is player-scoped
         supabase
           .from("live_player_stats")
-          .upsert(allLiveRows, { onConflict: "player_id,game_date" })
+          .upsert(changedLiveRows, { onConflict: "player_id,game_date" })
           .then(({ error }) => {
             if (error) log.error("live_player_stats batch upsert error", error);
-            else totalLiveRows = allLiveRows.length;
+            else totalLiveRows = changedLiveRows.length;
           }),
       );
     }
 
-    if (allGameRows.length > 0) {
+    if (changedGameRows.length > 0) {
       upsertPromises.push(
         // sport-scope: payload rows carry sport; conflict key is player-scoped
         supabase
           .from("player_games")
-          .upsert(allGameRows, { onConflict: "player_id,game_id", ignoreDuplicates: false })
+          .upsert(changedGameRows, { onConflict: "player_id,game_id", ignoreDuplicates: false })
           .then(({ error }) => {
             if (error) log.error("player_games batch upsert error", error);
-            else totalGameRows = allGameRows.length;
+            else totalGameRows = changedGameRows.length;
           }),
       );
     }
@@ -1076,6 +1163,29 @@ Deno.serve(async (req: Request) => {
     // anything else keying off the schedule row) reflects live games. Only
     // touches `status` for live/final transitions — leaves it alone otherwise
     // so a stale recovery call can't downgrade a row back to 'scheduled'.
+    //
+    // Rows already matching the desired values are skipped: an already-final
+    // game used to get an identical UPDATE every 30s all day (~270k no-op
+    // writes/6wk). The baseline is a FRESH read each tick — never an
+    // in-memory cache — so an outside writer (e.g. a sync-game-schedule run)
+    // that changes a row still gets corrected on the next poll. A failed
+    // baseline read leaves the map empty and every game falls through to the
+    // UPDATE (fail open, matching prior behavior).
+    const schedRowByGameId = new Map<string, DbRow>();
+    {
+      // sport-scope: scoped by sport + the poll's explicit game ids
+      const { data: schedRows, error: schedErr } = await supabase
+        .from("game_schedule")
+        .select("game_id, status, home_score, away_score")
+        .eq("sport", sport)
+        .in("game_id", activeGames.map((g: any) => String(g.id)));
+      if (schedErr) {
+        log.warn("game_schedule baseline query error", { error: schedErr.message });
+      }
+      for (const r of schedRows ?? []) {
+        schedRowByGameId.set(String((r as any).game_id), r as DbRow);
+      }
+    }
     upsertPromises.push(
       Promise.all(
         activeGames.map(async (game: any) => {
@@ -1086,6 +1196,13 @@ Deno.serve(async (req: Request) => {
           };
           if (gs === 3) updates.status = "final";
           else if (gs === 2) updates.status = "live";
+          const stored = schedRowByGameId.get(String(game.id));
+          const unchanged =
+            stored !== undefined &&
+            (updates.status === undefined || stored.status === updates.status) &&
+            Number(stored.home_score ?? NaN) === updates.home_score &&
+            Number(stored.away_score ?? NaN) === updates.away_score;
+          if (unchanged) return;
           const { error } = await supabase
             .from("game_schedule")
             .update(updates)
@@ -1122,16 +1239,31 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    // Refresh player_season_stats matview whenever a game finalized this poll
-    // and its rows were successfully written to player_games. `totalGameRows`
+    // Refresh player_season_stats matview whenever player_games rows were
+    // ACTUALLY written this poll. With the skip-unchanged filter above, a
+    // write happens exactly when a game newly finalizes, a final box score
+    // gets a late correction (refreshes once — the base advances, so the next
+    // tick skips), or a recovery call force-replays a game. `totalGameRows`
     // is only set inside the `.then` callback on a successful upsert, so this
     // implicitly skips the refresh if the player_games write failed (we don't
     // want a refresh to "succeed" against stale source data). The matview is
     // refreshed CONCURRENTLY (see migration 20260510210000), so readers don't
-    // block during the refresh.
+    // block during the refresh. Before the skip filter existed this gate was
+    // `newlyFinalGameIds.size > 0 && totalGameRows > 0` — and a slate-date
+    // window miss in the snapshot query made "newly final" spuriously true on
+    // every daytime tick, refreshing the matview every 30s (~30% of all DB
+    // time). The write-driven gate cannot spin like that: a no-change tick
+    // writes nothing.
     let matviewRefreshed = false;
-    if (newlyFinalGameIds.size > 0 && totalGameRows > 0) {
-      const { error: refreshErr } = await supabase.rpc('refresh_player_season_stats');
+    if (totalGameRows > 0) {
+      // One inline retry: under the write-driven gate a failed refresh isn't
+      // re-attempted next tick (nothing left to write), so a transient
+      // failure (CONCURRENTLY lock contention) would otherwise wait for the
+      // daily sync-players backstop.
+      let { error: refreshErr } = await supabase.rpc('refresh_player_season_stats');
+      if (refreshErr) {
+        ({ error: refreshErr } = await supabase.rpc('refresh_player_season_stats'));
+      }
       if (refreshErr) {
         log.error('player_season_stats matview refresh failed', refreshErr, {
           sport,
@@ -1147,8 +1279,15 @@ Deno.serve(async (req: Request) => {
     }
 
     // ── Dispatch Live Activity player ticker updates (non-blocking) ──
-    dispatchPlayerTickerUpdates(allLiveRows).catch((err) =>
-      log.warn('Live activity ticker dispatch error (non-fatal)', { error: String(err) }),
+    // deferWork (EdgeRuntime.waitUntil) keeps the isolate alive until the
+    // dispatch settles — a bare unawaited call raced worker teardown and
+    // silently dropped ticker updates on some ticks. Deliberately receives
+    // ALL rows, not just the written ones: the ticker renders from this
+    // in-memory array, and a skipped (unchanged) row is still a valid,
+    // current stat line the widget needs.
+    deferWork(
+      dispatchPlayerTickerUpdates(allLiveRows),
+      'poll-live-stats player ticker dispatch',
     );
 
     await recordHeartbeat(supabase, `poll-live-stats:${sport}`, 'ok');
@@ -1159,7 +1298,9 @@ Deno.serve(async (req: Request) => {
       activeGames: activeGames.length,
       matchedPlayers: bdlIdToPlayerId.size,
       liveRowsUpserted: totalLiveRows,
+      liveRowsSkipped: allLiveRows.length - changedLiveRows.length,
       gameRowsUpserted: totalGameRows,
+      gameRowsSkipped: allGameRows.length - changedGameRows.length,
       eventsDerived: allEventRows.length,
       newlyFinalGameIds: [...newlyFinalGameIds],
       matviewRefreshed,

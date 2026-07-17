@@ -57,6 +57,14 @@ describe('execute-trade with draft picks', () => {
     pickA = picksByTeam.get(teamA.id)!;
     pickB = picksByTeam.get(teamB.id)!;
     if (!pickA || !pickB) throw new Error('Expected one 2027-28 R1 pick per team');
+
+    // The protection test leaves a protection on pickA; clear both picks so
+    // re-runs don't trip execute-trade's "already protected" guard.
+    const { error: clearErr } = await admin
+      .from('draft_picks')
+      .update({ protection_threshold: null, protection_owner_id: null })
+      .in('id', [pickA, pickB]);
+    if (clearErr) throw new Error(`Failed to clear pick protections: ${clearErr.message}`);
   }, TIMEOUT);
 
   beforeEach(async () => {
@@ -122,7 +130,9 @@ describe('execute-trade with draft picks', () => {
         leagueId: league.leagueId,
         proposedByTeamId: teamA.id,
         items: [
-          { fromTeamId: teamA.id, toTeamId: teamB.id, draftPickId: pickA, protectionThreshold: 5 },
+          // Threshold must be within 1..teams-1 (execute-trade rejects wider
+          // protections as never-conveying), so use 3 in this 5-team league.
+          { fromTeamId: teamA.id, toTeamId: teamB.id, draftPickId: pickA, protectionThreshold: 3 },
           { fromTeamId: teamB.id, toTeamId: teamA.id, draftPickId: pickB },
         ],
       });
@@ -140,7 +150,7 @@ describe('execute-trade with draft picks', () => {
         .eq('id', pickA)
         .single();
       expect(pickARow?.current_team_id).toBe(teamB.id);
-      expect(pickARow?.protection_threshold).toBe(5);
+      expect(pickARow?.protection_threshold).toBe(3);
       // protection_owner_id should point at the original team (teamA) so if the
       // pick lands in the protected range it reverts to them.
       expect(pickARow?.protection_owner_id).toBe(teamA.id);

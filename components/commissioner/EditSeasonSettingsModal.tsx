@@ -22,6 +22,7 @@ import { type Sport, getCurrentSeason, getMaxPlayoffWeeks, getSchedulableSeasonE
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { TablesUpdate } from '@/types/database.types';
 import { getPlayoffTeamOptions, maxPlayoffWeeksForTeams, snapPlayoffTeams } from '@/utils/league/lottery';
 import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
 import { computeMaxWeeks, defaultSeasonStart } from '@/utils/league/seasonWeeks';
@@ -172,7 +173,7 @@ export function EditSeasonSettingsModal({
     const safePlayoffWeeks = Math.min(cappedPlayoffWeeks, Math.max(1, maxTotalWeeks - safeRegWeeks));
     const safePlayoffTeams = snapPlayoffTeams(playoffTeams, safePlayoffWeeks, bracketSize);
 
-    const update: Record<string, unknown> = {
+    const update: TablesUpdate<'leagues'> = {
       regular_season_weeks: safeRegWeeks,
       playoff_weeks: safePlayoffWeeks,
       playoff_teams: safePlayoffTeams,

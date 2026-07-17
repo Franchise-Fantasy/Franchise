@@ -42,6 +42,7 @@ import { useWatchlist } from "@/hooks/useWatchlist";
 import { sendNotification } from "@/lib/notifications";
 import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
+import { TablesUpdate } from "@/types/database.types";
 import { PlayerSeasonStats } from "@/types/player";
 import {
   getSportToday,
@@ -1350,7 +1351,7 @@ export function PlayerDetailModal({
     if (!teamId || !player) return;
     setIsProcessing(true);
     try {
-      const updatePayload: Record<string, any> = {
+      const updatePayload: TablesUpdate<'league_players'> = {
         on_trade_block: newValue,
         trade_block_note: note,
       };

@@ -16,7 +16,7 @@ import { type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { buildDraftPicks, buildFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
-import { Json } from '@/types/database.types';
+import { Json, TablesUpdate } from '@/types/database.types';
 import { sanitizeHandle } from '@/utils/league/paymentLinks';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
@@ -65,7 +65,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
       return;
     }
     setSaving(true);
-    const updates: Record<string, any> = {
+    const updates: TablesUpdate<'leagues'> = {
       name: name.trim(),
       private: isPrivate,
       buy_in_amount: buyIn || null,

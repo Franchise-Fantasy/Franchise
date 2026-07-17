@@ -144,7 +144,9 @@ const styles = StyleSheet.create({
   hintWrap: { flex: 1 },
   hint: { fontSize: ms(13) },
   chipsScroll: { flex: 1 },
-  chips: { alignItems: 'center', gap: s(8), paddingRight: s(4) },
+  // Pad the content so the remove badges (which poke out at top/right of each
+  // chip) stay inside the ScrollView's frame instead of being clipped.
+  chips: { alignItems: 'center', gap: s(8), paddingTop: s(6), paddingBottom: s(2), paddingLeft: s(2), paddingRight: s(8) },
   chip: { width: s(40), height: s(40) },
   chipCircle: {
     width: s(40),
