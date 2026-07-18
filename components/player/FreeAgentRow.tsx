@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { memo } from 'react';
 import { TouchableOpacity, View } from 'react-native';
 
 import { PlayerName } from '@/components/player/PlayerName';
@@ -34,11 +35,14 @@ interface FreeAgentRowProps {
   ownerTeamName: string | null;
   sport: Sport;
   isDisabled: boolean;
-  onPress: () => void;
-  onAddOrClaimPress: () => void;
-  /** Present only when the player is rostered by another team — taps open a
+  /** Stable callbacks that receive the row's player — required so React.memo
+   *  can actually skip re-renders (per-row closures would defeat it). */
+  onPress: (player: PlayerSeasonStats) => void;
+  onAddOrClaimPress: (player: PlayerSeasonStats) => void;
+  /** True only when the player is rostered by another team — taps open a
    *  trade proposal pre-seeded with this player on that team's side. */
-  onTradePress?: () => void;
+  canTrade?: boolean;
+  onTradePress: (player: PlayerSeasonStats) => void;
   /** When true, the row is in compare-pick mode: tapping selects rather than
    *  opening detail, and the add/trade CTA is replaced by a selection toggle. */
   compareMode?: boolean;
@@ -51,7 +55,7 @@ interface FreeAgentRowProps {
  * game-today badges, slash-line stats, add or claim CTA. Stateless;
  * spinner / disabled state is driven by parent.
  */
-export function FreeAgentRow({
+export const FreeAgentRow = memo(function FreeAgentRow({
   player,
   index,
   isLast,
@@ -68,6 +72,7 @@ export function FreeAgentRow({
   isDisabled,
   onPress,
   onAddOrClaimPress,
+  canTrade,
   onTradePress,
   compareMode,
   compareSelected,
@@ -114,7 +119,7 @@ export function FreeAgentRow({
         isLast && { borderBottomWidth: 0 },
         compareSelected && { backgroundColor: c.activeCard },
       ]}
-      onPress={onPress}
+      onPress={() => onPress(player)}
       activeOpacity={0.7}
       accessibilityRole="button"
       accessibilityLabel={a11yLabel}
@@ -215,7 +220,7 @@ export function FreeAgentRow({
             <>
               <ThemedText
                 type="mono"
-                style={[styles.statLine, { color: c.secondaryText }]}
+                style={[styles.statLine, { color: c.text }]}
               >
                 {player.avg_pts.toFixed(1)}/{player.avg_reb.toFixed(1)}/{player.avg_ast.toFixed(1)}/{player.avg_stl.toFixed(1)}/{player.avg_blk.toFixed(1)}
               </ThemedText>
@@ -234,10 +239,10 @@ export function FreeAgentRow({
             <>
               <ThemedText
                 type="mono"
-                style={[styles.statLine, { color: c.secondaryText }]}
+                style={[styles.statLine, { color: c.text }]}
               >
                 {nflLine ??
-                  `${player.avg_pts.toFixed(1)}/${player.avg_reb.toFixed(1)}/${player.avg_ast.toFixed(1)}`}
+                  `${player.avg_pts.toFixed(1)}P/${player.avg_reb.toFixed(1)}R/${player.avg_ast.toFixed(1)}A`}
               </ThemedText>
               {fpts !== undefined && (
                 <ThemedText
@@ -260,7 +265,7 @@ export function FreeAgentRow({
                 : [styles.addButton, { backgroundColor: c.success }],
               (isAdding || isDisabled) && styles.addButtonDisabled,
             ]}
-            onPress={onAddOrClaimPress}
+            onPress={() => onAddOrClaimPress(player)}
             disabled={isAdding || isDisabled}
             accessibilityRole="button"
             accessibilityLabel={needsClaim ? `Claim ${player.name}` : `Add ${player.name}`}
@@ -269,10 +274,10 @@ export function FreeAgentRow({
               {'+'}
             </ThemedText>
           </TouchableOpacity>
-        ) : onTradePress ? (
+        ) : canTrade ? (
           <TouchableOpacity
             style={[styles.tradeButton, { borderColor: c.link }]}
-            onPress={onTradePress}
+            onPress={() => onTradePress(player)}
             accessibilityRole="button"
             accessibilityLabel={
               `Propose a trade for ${player.name}` +
@@ -285,5 +290,5 @@ export function FreeAgentRow({
       </View>
     </TouchableOpacity>
   );
-}
+});
 

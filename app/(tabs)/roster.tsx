@@ -1087,7 +1087,9 @@ export default function RosterScreen() {
     const autoLineupActions: ModalAction[] = [
       {
         id: "today",
-        label: "Today Only",
+        // Label the action with the viewed day so it's clear which day gets
+        // optimized when swiped away from today.
+        label: isToday ? "Today Only" : `${formatDayLabel(selectedDate)} Only`,
         icon: "today-outline",
         onPress: () => runAutoLineup("today"),
       },
@@ -1142,7 +1144,12 @@ export default function RosterScreen() {
       // 1. Build date range based on mode
       const dates: string[] = [];
       if (mode === "today") {
-        dates.push(today);
+        // Optimize the day the user is *viewing* (the date pill), not the
+        // literal calendar today — when swiped forward to a future day of the
+        // week, "Today Only" should fix that day's lineup. `canAutoLineup`
+        // already gates selectedDate to [today, week end], so this is always a
+        // present-or-future day whose lineup is editable.
+        dates.push(selectedDate);
       } else {
         const startDate = currentWeek?.start_date ?? today;
         const endDate = currentWeek?.end_date ?? today;
@@ -1258,7 +1265,7 @@ export default function RosterScreen() {
         rosterPlayers.map((p) => [p.player_id, p.roster_slot ?? "BE"]),
       );
       let totalMoves = 0;
-      let daysChanged = 0;
+      const changedDates: string[] = [];
 
       // The roster's stat-window selector (L5/L10/L15/Season) doubles as the
       // ranking basis for auto-lineup: optimizing while looking at "Last 10"
@@ -1345,13 +1352,17 @@ export default function RosterScreen() {
 
         const assignments = optimizeLineup(lineupPlayers, rosterConfig);
 
-        // Track actual changes vs previous day's state
+        // Track actual changes vs previous day's state. Compare by *base* slot
+        // (UTIL1/UTIL2 → UTIL) so a cosmetic reshuffle between interchangeable
+        // seats — which the optimizer reassigns fresh each run — doesn't get
+        // reported as a move the user can't see.
         let dayMoves = 0;
         for (const a of assignments) {
-          if (a.slot !== prevSlots.get(a.player_id)) dayMoves++;
+          const prev = prevSlots.get(a.player_id);
+          if (baseSlotName(a.slot) !== baseSlotName(prev ?? "BE")) dayMoves++;
         }
         totalMoves += dayMoves;
-        if (dayMoves > 0) daysChanged++;
+        if (dayMoves > 0) changedDates.push(date);
 
         // Write every player's slot for this date — overwrites any stale entries
         for (const a of assignments) {
@@ -1388,10 +1399,14 @@ export default function RosterScreen() {
       if (error) throw error;
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      Alert.alert(
-        "Lineup Optimized",
-        `${totalMoves} move${totalMoves === 1 ? "" : "s"} across ${daysChanged} day${daysChanged === 1 ? "" : "s"}.`,
-      );
+      const movesLabel = `${totalMoves} move${totalMoves === 1 ? "" : "s"}`;
+      const message =
+        changedDates.length === 1
+          ? `${movesLabel} to your ${formatDayLabel(changedDates[0])} lineup.`
+          : `${movesLabel} across ${changedDates.length} days: ${changedDates
+              .map(formatShortDate)
+              .join(", ")}.`;
+      Alert.alert("Lineup Optimized", message);
       queryClient.invalidateQueries({ queryKey: ["teamRoster", teamId] });
       queryClient.invalidateQueries({ queryKey: ["weekMatchup", leagueId] });
     } catch (err) {
@@ -1794,7 +1809,7 @@ export default function RosterScreen() {
               {/* Mono detail line — actual game stats on played days. */}
               {statLine ? (
                 <ThemedText
-                  style={[styles.slotStatLine, { color: c.secondaryText }]}
+                  style={[styles.slotStatLine, { color: c.text }]}
                   numberOfLines={1}
                 >
                   {statLine}

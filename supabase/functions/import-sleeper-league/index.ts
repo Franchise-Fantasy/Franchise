@@ -12,7 +12,7 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { floorAtSeasonOpening } from '../_shared/seasonStartFloor.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
-// Body has two shapes by `action`. We validate the top-level discriminator +
+// Body has three shapes by `action`. We validate the top-level discriminator +
 // the keys checked at the handler entrypoint; the deeply nested execute
 // payload (settings, historical_seasons, etc.) flows through and is consumed
 // by the handler functions whose types it already matches.
@@ -26,7 +26,19 @@ const ExecuteBody = z.object({
   league_name: z.string().min(1, 'league_name is required'),
   teams: z.array(z.unknown()).min(1, 'teams is required'),
 }).passthrough();
-const Body = z.discriminatedUnion('action', [PreviewBody, ExecuteBody]);
+// Create a player that isn't in our pool. Dynasty rosters carry free agents /
+// released veterans who never appear in BDL's active feed (the only thing
+// sync-players ingests), so a Sleeper import must be able to add them or it
+// strands the roster spot. Mirrors import-screenshot-league's
+// `search_or_create_player`, but sport-aware.
+const CreatePlayerBody = z.object({
+  action: z.literal('create_player'),
+  name: z.string().trim().min(1, 'name is required').max(80),
+  position: z.string().trim().min(1).max(10),
+  pro_team: z.string().trim().max(10).optional(),
+  sport: z.enum(['nba', 'wnba', 'nfl']),
+});
+const Body = z.discriminatedUnion('action', [PreviewBody, ExecuteBody, CreatePlayerBody]);
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -106,6 +118,22 @@ function positionMap(sport: ImportSport): Record<string, string> {
   return sport === 'nfl' ? NFL_POSITION_MAP : NBA_POSITION_MAP;
 }
 
+// NFL is admin-gated during internal testing (mirrors the create-league
+// `leagues_nfl_admin_gate` DB trigger). Throws 403 for non-admins; no-op for
+// other sports. Called before any NFL-specific work so the user gets a clear
+// reason instead of a late generic 500 at the leagues insert.
+async function assertNflAllowed(supabaseAdmin: any, userId: string, sport: string) {
+  if (sport !== 'nfl') return;
+  const { data: profile } = await supabaseAdmin
+    .from('profiles')
+    .select('is_admin')
+    .eq('id', userId)
+    .single();
+  if (!profile?.is_admin) {
+    throw new HttpError('NFL leagues are in internal testing and not yet available.', 403);
+  }
+}
+
 // Tricodes must be unique per league (the `teams_tricode_unique_per_league`
 // index). Two Sleeper team names sharing their first 3 letters (e.g. "Yogis
 // Balls" -> YOG and "Yogi's Revenge" -> YOG) otherwise trip an unhandled unique
@@ -146,6 +174,10 @@ Deno.serve(async (req) => {
 
     if (body.action === 'preview') {
       return await handlePreview(body, supabaseAdmin, user.id);
+    }
+
+    if (body.action === 'create_player') {
+      return await handleCreatePlayer(body, supabaseAdmin, user.id);
     }
 
     // An import is ~10 sequential write phases (league → roster config →
@@ -206,19 +238,7 @@ async function handlePreview(
     throw new HttpError(`This is a ${league.sport} league. Only NBA and NFL leagues are supported.`);
   }
 
-  // NFL is admin-gated during internal testing (mirrors the create-league
-  // `leagues_nfl_admin_gate` DB trigger, which would otherwise reject the
-  // execute insert with a late generic 500). Fail fast here with a clear reason.
-  if (sport === 'nfl') {
-    const { data: profile } = await supabaseAdmin
-      .from('profiles')
-      .select('is_admin')
-      .eq('id', userId)
-      .single();
-    if (!profile?.is_admin) {
-      throw new HttpError('NFL leagues are in internal testing and not yet available.', 403);
-    }
-  }
+  await assertNflAllowed(supabaseAdmin, userId, sport);
 
   // Collect all player IDs from rosters
   const allPlayerIds = new Set<string>();
@@ -252,11 +272,23 @@ async function handlePreview(
   }
 
   // Fetch our players for matching, sport-scoped — without the filter a
-  // same-name player in another sport could hijack a match.
-  const { data: ourPlayers } = await supabaseAdmin
-    .from('players')
-    .select('id, name, pro_team, position')
-    .eq('sport', sport);
+  // same-name player in another sport could hijack a match. Paginate: the NFL
+  // pool is >1000 rows and PostgREST silently caps a single select at 1000, so
+  // a plain query would drop the tail and leave real rostered players unmatched.
+  const ourPlayers: Array<{ id: string; name: string; pro_team: string | null; position: string }> = [];
+  const PLAYER_PAGE = 1000;
+  for (let from = 0; ; from += PLAYER_PAGE) {
+    const { data, error } = await supabaseAdmin
+      .from('players')
+      .select('id, name, pro_team, position')
+      .eq('sport', sport)
+      .order('id')
+      .range(from, from + PLAYER_PAGE - 1);
+    if (error) throw error;
+    if (!data || data.length === 0) break;
+    ourPlayers.push(...data);
+    if (data.length < PLAYER_PAGE) break;
+  }
 
   // Match players
   const byNameAndTeam = new Map<string, any>();
@@ -265,7 +297,7 @@ async function handlePreview(
   // references them by bare team code (position "DEF"), so name matching can't
   // reach them — match those by team abbreviation instead.
   const byTeamDst = new Map<string, any>();
-  for (const p of (ourPlayers ?? [])) {
+  for (const p of ourPlayers) {
     const norm = normalizeName(p.name);
     byNameAndTeam.set(`${norm}|${(p.pro_team ?? '').toUpperCase()}`, p);
     if (!byNameOnly.has(norm)) byNameOnly.set(norm, []);
@@ -393,6 +425,49 @@ async function handlePreview(
     unmatched_players: unmatchedPlayers,
     historical_seasons: historicalSeasons,
   });
+}
+
+// =============================================================================
+// CREATE PLAYER — add a rostered player that isn't in our pool
+// =============================================================================
+
+async function handleCreatePlayer(
+  body: { name: string; position: string; pro_team?: string; sport: ImportSport },
+  supabaseAdmin: any,
+  userId: string,
+) {
+  const { name, sport } = body;
+  await assertNflAllowed(supabaseAdmin, userId, sport);
+
+  // NFL defenses come through as position "DEF"; store our token "DST".
+  const position = sport === 'nfl' && body.position.toUpperCase() === 'DEF' ? 'DST' : body.position;
+  const proTeam = body.pro_team ? body.pro_team.toUpperCase() : null;
+
+  // Dedup: preview already found no name match in the sport pool, but guard
+  // against a double-tap creating two rows. Case-insensitive exact match on the
+  // full name, sport-scoped.
+  const { data: existing } = await supabaseAdmin
+    .from('players')
+    .select('id, name, pro_team, position')
+    .eq('sport', sport)
+    .ilike('name', name)
+    .limit(1)
+    .maybeSingle();
+  if (existing) {
+    return jsonResponse({ ...existing, created: false });
+  }
+
+  // sport is set explicitly (the column DEFAULT is 'nba'); no external id — a
+  // later sync-players run can back-fill it by name if the player rejoins an
+  // active roster.
+  const { data: created, error } = await supabaseAdmin
+    .from('players')
+    .insert({ name, position, pro_team: proTeam, status: 'active', sport })
+    .select('id, name, pro_team, position')
+    .single();
+  if (error) throw error;
+
+  return jsonResponse({ ...created, created: true });
 }
 
 // --- Fetch historical seasons by walking previous_league_id chain ---

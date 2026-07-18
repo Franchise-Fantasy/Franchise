@@ -534,7 +534,7 @@ export const PlayerCell = React.memo(function PlayerCell({
             <View style={[pStyles.statsRow, { flexDirection: rowDir }, centerPad]}>
               <StatBlocks
                 stats={liveLog as Record<string, number | boolean>}
-                color={c.secondaryText}
+                color={c.text}
                 fields={
                   sport === "nfl"
                     ? nflStatFields(liveLog as Record<string, unknown>)
@@ -659,7 +659,7 @@ export const PlayerCell = React.memo(function PlayerCell({
           <View style={[pStyles.statsRow, { flexDirection: rowDir }, centerPad]}>
             <StatBlocks
               stats={player.dayGameStats}
-              color={c.secondaryText}
+              color={c.text}
               fields={
                 sport === "nfl"
                   ? nflStatFields(player.dayGameStats ?? {})
@@ -748,10 +748,10 @@ export const pStyles = StyleSheet.create({
   statBlocks: { flexDirection: "row", gap: s(3) },
   statBlock: {
     fontFamily: Fonts.mono,
-    fontSize: ms(10),
-    lineHeight: ms(13),
+    fontSize: ms(11),
+    lineHeight: ms(14),
     letterSpacing: 0.3,
-    minWidth: s(18),
+    minWidth: s(19),
     textAlign: "center",
   },
   // FPTS gets its own fixed-width slot too, so its (varying) width never drags

@@ -3,10 +3,10 @@ import { useState } from 'react';
 import {
   Alert,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -108,7 +108,7 @@ export function SendAnnouncementModal({ visible, leagueId, teamId, onClose }: Pr
         This will push-notify all league members and appear as an in-app banner.
       </ThemedText>
 
-      <TextInput
+      <AppTextInput
         accessibilityLabel="Announcement message"
         style={[styles.input, { color: c.text, backgroundColor: c.cardAlt, borderColor: c.border }]}
         placeholder="Type your announcement..."

@@ -1044,9 +1044,14 @@ Deno.serve(async (req: Request) => {
     // games gate below AND excludes archived leagues (service-role bypasses
     // the leagues_select RLS that hides them from clients — without the
     // filter this cron kept scoring soft-deleted leagues forever).
+    // The FK must be NAMED: league_schedule reaches leagues two ways (its own
+    // league_id FK, and a many-to-many PostgREST infers through week_scores),
+    // so a bare `leagues!inner` fails with PGRST201 ambiguity — which took
+    // down every cron tick until named, while client mode (which skips this
+    // query) kept passing.
     const { data: liveWeeksRaw, error: weekErr } = await supabase
       .from("league_schedule")
-      .select("id, league_id, start_date, end_date, leagues!inner(sport, archived_at)")
+      .select("id, league_id, start_date, end_date, leagues!league_schedule_league_id_fkey!inner(sport, archived_at)")
       .lte("start_date", today)
       .gte("end_date", today)
       .is("leagues.archived_at", null);

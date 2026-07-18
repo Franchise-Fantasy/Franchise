@@ -1043,6 +1043,7 @@ export default function ImportLeague() {
                       p => !state.resolvedMappings.has(p.sleeper_id) && !state.skippedPlayers.has(p.sleeper_id),
                     )}
                     overrides={state.resolvedMappings}
+                    sport={state.wizardState.sport}
                     onResolve={handleResolve}
                     onSkip={handleSkip}
                   />

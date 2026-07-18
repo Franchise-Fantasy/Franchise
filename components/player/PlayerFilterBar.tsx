@@ -8,11 +8,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -327,7 +327,7 @@ export function PlayerFilterBar({
             style={styles.searchFieldIcon}
             accessible={false}
           />
-          <TextInput
+          <AppTextInput
             accessibilityLabel="Search players"
             style={[styles.searchFieldInput, { color: c.text }]}
             placeholder="Search players..."

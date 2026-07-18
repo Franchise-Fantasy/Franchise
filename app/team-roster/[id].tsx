@@ -761,7 +761,7 @@ export default function TeamRosterScreen() {
               {/* Mono detail line — actual game stats on played days. */}
               {statLine ? (
                 <ThemedText
-                  style={[styles.slotStatLine, { color: c.secondaryText }]}
+                  style={[styles.slotStatLine, { color: c.text }]}
                   numberOfLines={1}
                 >
                   {statLine}

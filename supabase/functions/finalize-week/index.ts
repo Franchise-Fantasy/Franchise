@@ -21,7 +21,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import type { Database, Json } from '../../../types/database.types.ts';
 import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
-import { notifyTeams, notifyLeague } from '../_shared/push.ts';
+import { notifyLeague, notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 
 import {
@@ -44,44 +44,64 @@ import {
 
 const log = createLogger('finalize-week');
 
+// Split an id list for `.in()` queries whose result size scales with the list —
+// PostgREST caps responses at max-rows (1000) and truncates SILENTLY beyond it.
+function chunked<T>(ids: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < ids.length; i += size) out.push(ids.slice(i, i + size));
+  return out;
+}
+
 const supabase = createClient<Database>(
   Deno.env.get('SUPABASE_URL')!,
   Deno.env.get('SB_SECRET_KEY')!,
 );
 
-// Recompute teams.streak by walking the most recent finalized matchups and
-// counting consecutive wins/losses/ties from newest-first. Mirrors the
-// previous in-file implementation.
-async function computeStreak(teamId: string, leagueId: string): Promise<string> {
-  const { data: matchups } = await supabase
-    .from('league_matchups')
-    .select('home_team_id, away_team_id, winner_team_id, week_number')
-    .eq('league_id', leagueId)
-    .eq('is_finalized', true)
-    .is('playoff_round', null)
-    .or(`home_team_id.eq.${teamId},away_team_id.eq.${teamId}`)
-    .order('week_number', { ascending: false })
-    .limit(20);
+// Recompute teams.streak for a batch of teams by walking finalized
+// regular-season matchups newest-first and counting consecutive W/L/T.
+// One matchups query per LEAGUE (the walk per team happens in memory)
+// instead of the old one-query-per-team N+1. Kept per-league rather than one
+// cross-league `.in(...)` on purpose: a single query across many leagues can
+// exceed PostgREST's row cap and silently truncate, which would wrongly
+// reset streaks for any league whose rows got cut.
+async function updateStreaks(teamLeague: Map<string, string>): Promise<void> {
+  if (teamLeague.size === 0) return;
+  const leagueIds = [...new Set(teamLeague.values())];
 
-  if (!matchups || matchups.length === 0) return '';
+  type StreakMatchup = { home_team_id: string; away_team_id: string | null; winner_team_id: string | null };
+  const byLeague = new Map<string, StreakMatchup[]>();
+  await Promise.all(leagueIds.map(async (lid) => {
+    const { data: matchups } = await supabase
+      .from('league_matchups')
+      .select('home_team_id, away_team_id, winner_team_id, week_number')
+      .eq('league_id', lid)
+      .eq('is_finalized', true)
+      .is('playoff_round', null)
+      .order('week_number', { ascending: false });
+    byLeague.set(lid, matchups ?? []);
+  }));
 
-  let result: 'W' | 'L' | 'T' | null = null;
-  let count = 0;
-  for (const m of matchups) {
-    let r: 'W' | 'L' | 'T';
-    if (m.winner_team_id === null) r = 'T';
-    else if (m.winner_team_id === teamId) r = 'W';
-    else r = 'L';
-    if (result === null) {
-      result = r;
-      count = 1;
-    } else if (r === result) {
-      count++;
-    } else {
-      break;
+  await Promise.all([...teamLeague.entries()].map(async ([teamId, leagueId]) => {
+    let result: 'W' | 'L' | 'T' | null = null;
+    let count = 0;
+    for (const m of byLeague.get(leagueId) ?? []) {
+      if (m.home_team_id !== teamId && m.away_team_id !== teamId) continue;
+      let r: 'W' | 'L' | 'T';
+      if (m.winner_team_id === null) r = 'T';
+      else if (m.winner_team_id === teamId) r = 'W';
+      else r = 'L';
+      if (result === null) {
+        result = r;
+        count = 1;
+      } else if (r === result) {
+        count++;
+      } else {
+        break;
+      }
     }
-  }
-  return result ? `${result}${count}` : '';
+    const streak = result ? `${result}${count}` : '';
+    await supabase.from('teams').update({ streak }).eq('id', teamId);
+  }));
 }
 
 Deno.serve(async (req: Request) => {
@@ -138,7 +158,6 @@ Deno.serve(async (req: Request) => {
     if (orphaned && orphaned.length > 0) {
       const recoveryStats: Array<{ p_team_id: string; p_wins: number; p_losses: number; p_ties: number; p_pf: number; p_pa: number }> = [];
       const recoveryScores: Array<{ league_id: string; schedule_id: string; team_id: string; score: number; updated_at: string }> = [];
-      const recoveryTeams = new Set<string>();
       const recoveryTeamLeague = new Map<string, string>();
       const now = new Date().toISOString();
 
@@ -167,8 +186,6 @@ Deno.serve(async (req: Request) => {
             { p_team_id: m.away_team_id, p_wins: 0, p_losses: 0, p_ties: 1, p_pf: 0, p_pa: 0 },
           );
         }
-        recoveryTeams.add(m.home_team_id);
-        recoveryTeams.add(m.away_team_id);
         recoveryTeamLeague.set(m.home_team_id, m.league_id);
         recoveryTeamLeague.set(m.away_team_id, m.league_id);
       }
@@ -178,11 +195,7 @@ Deno.serve(async (req: Request) => {
       }
       if (recoveryStats.length > 0) {
         await Promise.all(recoveryStats.map((params) => supabase.rpc('increment_team_stats', params)));
-        await Promise.all([...recoveryTeams].map(async (teamId) => {
-          const lid = recoveryTeamLeague.get(teamId)!;
-          const streak = await computeStreak(teamId, lid);
-          await supabase.from('teams').update({ streak }).eq('id', teamId);
-        }));
+        await updateStreaks(recoveryTeamLeague);
       }
       await supabase.from('league_matchups').update({ stats_flushed: true }).in('id', orphaned.map((m) => m.id));
       log.info('Recovery: flushed stats for orphaned matchups', { orphaned_count: orphaned.length });
@@ -258,20 +271,42 @@ Deno.serve(async (req: Request) => {
       if (dedupErr) log.warn('dedup_active_lineup_slots failed; scoring may include a duplicate seat', { error: dedupErr.message });
     }
 
-    // ── Bulk-load per-league scoring config in parallel (1 round-trip per league). ──
+    // ── Bulk-load per-league config in ~2 round-trips (was 2 per league):
+    // one leagues query wide enough to also serve the notification + playoff
+    // post-processing blocks below, and one grouped scoring-settings query.
+    // Both are CHUNKED so no single response can hit PostgREST's max-rows cap
+    // (1000) and silently truncate — a truncated scoring-settings response
+    // would score matchups with partial weights and commit wrong results
+    // permanently. Chunk sizes keep worst-case rows per response well under
+    // the cap (leagues: 1 row/id; scoring: ≤ ~30 rows/league). ──
     const leagueIds = [...new Set(unfinalizedMatchups.map((m) => m.league_id))];
+    const [leagueRows, scoringRows] = await Promise.all([
+      Promise.all(chunked(leagueIds, 500).map(async (ids) => {
+        const { data, error } = await supabase
+          .from('leagues').select('id, name, sport, scoring_type, season, playoff_teams').in('id', ids);
+        if (error) throw error;
+        return data ?? [];
+      })).then((r) => r.flat()),
+      Promise.all(chunked(leagueIds, 25).map(async (ids) => {
+        const { data, error } = await supabase
+          .from('league_scoring_settings').select('league_id, stat_name, point_value, is_enabled, inverse').in('league_id', ids);
+        if (error) throw error;
+        return data ?? [];
+      })).then((r) => r.flat()),
+    ]);
+    const leagueById = new Map(leagueRows.map((l) => [l.id, l]));
     const scoringByLeague = new Map<string, ScoringWeight[]>();
-    const scoringTypeByLeague = new Map<string, string>();
-    const sportByLeague = new Map<string, string>();
-    await Promise.all(leagueIds.map(async (lid) => {
-      const [{ data: scoring }, { data: leagueRow }] = await Promise.all([
-        supabase.from('league_scoring_settings').select('stat_name, point_value, is_enabled, inverse').eq('league_id', lid),
-        supabase.from('leagues').select('scoring_type, sport').eq('id', lid).single(),
-      ]);
-      scoringByLeague.set(lid, (scoring ?? []) as ScoringWeight[]);
-      scoringTypeByLeague.set(lid, leagueRow?.scoring_type ?? 'points');
-      sportByLeague.set(lid, leagueRow?.sport ?? 'nba');
-    }));
+    for (const { league_id, ...weight } of scoringRows) {
+      const arr = scoringByLeague.get(league_id) ?? [];
+      arr.push(weight as ScoringWeight);
+      scoringByLeague.set(league_id, arr);
+    }
+    const scoringTypeByLeague = new Map<string, string>(
+      leagueIds.map((lid) => [lid, leagueById.get(lid)?.scoring_type ?? 'points']),
+    );
+    const sportByLeague = new Map<string, string>(
+      leagueIds.map((lid) => [lid, leagueById.get(lid)?.sport ?? 'nba']),
+    );
 
     // ── BULK-LOAD all team data up front (PR 10's N+1 fix). ──
     // Build (team, league, week) refs for every team in every matchup; load
@@ -463,13 +498,7 @@ Deno.serve(async (req: Request) => {
       }
     }
 
-    if (affectedTeams.size > 0) {
-      await Promise.all([...affectedTeams].map(async (teamId) => {
-        const lid = teamLeagueMap.get(teamId)!;
-        const streak = await computeStreak(teamId, lid);
-        await supabase.from('teams').update({ streak }).eq('id', teamId);
-      }));
-    }
+    await updateStreaks(teamLeagueMap);
 
     // ── Refresh PF/PA from league_matchups (self-healing, mirrors update-standings step 2). ──
     if (leagueIds.length > 0) {
@@ -540,13 +569,13 @@ Deno.serve(async (req: Request) => {
         allTeamIds.add(r.homeTeamId);
         allTeamIds.add(r.awayTeamId);
       }
-      const [{ data: teamRows }, { data: leagueRows }] = await Promise.all([
-        supabase.from('teams').select('id, name').in('id', [...allTeamIds]),
-        supabase.from('leagues').select('id, name, playoff_teams').in('id', leagueIds),
-      ]);
-      const teamName = new Map<string, string>((teamRows ?? []).map((t) => [t.id, t.name]));
-      const leagueName = new Map<string, string>((leagueRows ?? []).map((l) => [l.id, l.name]));
-      const leaguePlayoffTeams = new Map<string, number>((leagueRows ?? []).map((l) => [l.id, l.playoff_teams ?? 8]));
+      const teamRows = (await Promise.all(chunked([...allTeamIds], 500).map(async (ids) => {
+        const { data } = await supabase.from('teams').select('id, name').in('id', ids);
+        return data ?? [];
+      }))).flat();
+      const teamName = new Map<string, string>(teamRows.map((t) => [t.id, t.name]));
+      const leagueName = new Map<string, string>(leagueRows.map((l) => [l.id, l.name]));
+      const leaguePlayoffTeams = new Map<string, number>(leagueRows.map((l) => [l.id, l.playoff_teams ?? 8]));
 
       function playoffRoundLabel(round: number, totalRounds: number): string {
         if (round >= totalRounds) return 'Championship';
@@ -555,10 +584,18 @@ Deno.serve(async (req: Request) => {
         return `Playoff Round ${round}`;
       }
 
-      await Promise.all(matchupResults.map(async (r) => {
+      // Build every per-team message up front, then send in a few bulk calls
+      // (grouped by notification category) — 2×N notifyTeams round-trip chains
+      // become a handful of DB queries + batched Expo posts.
+      const playoffNotifs: BulkTeamsNotification[] = [];
+      // A matchup in a playoff-flagged week with no bracket round gets the
+      // regular "Matchup Final" copy but must keep the 'playoffs' category
+      // (prefs gate + Android channel), matching the old per-matchup sends.
+      const playoffWeekMatchupNotifs: BulkTeamsNotification[] = [];
+      const matchupNotifs: BulkTeamsNotification[] = [];
+      for (const r of matchupResults) {
         const homeName = teamName.get(r.homeTeamId) ?? 'Home';
         const awayName = teamName.get(r.awayTeamId) ?? 'Away';
-        const category = r.isPlayoff ? 'playoffs' : 'matchups';
         const ln = leagueName.get(r.leagueId) ?? 'Your League';
         const homeWon = r.winnerId === r.homeTeamId;
         const awayWon = r.winnerId === r.awayTeamId;
@@ -588,15 +625,12 @@ Deno.serve(async (req: Request) => {
             return `${opponentName} wins ${scoreLine}. Season over.`;
           }
 
-          const homeBody = buildPlayoffBody(homeWon, awayName, tied);
-          const awayBody = buildPlayoffBody(awayWon, homeName, tied);
           const icon = isChampionship ? '🏆' : '🏀';
           const title = `${icon} ${ln} — ${roundName}`;
-
-          await Promise.all([
-            notifyTeams(supabase, [r.homeTeamId], category, title, homeBody, { screen: 'playoff-bracket' }, undefined, { subtitle: roundName, priority: 'high' }),
-            notifyTeams(supabase, [r.awayTeamId], category, title, awayBody, { screen: 'playoff-bracket' }, undefined, { subtitle: roundName, priority: 'high' }),
-          ]);
+          playoffNotifs.push(
+            { teamIds: [r.homeTeamId], title, body: buildPlayoffBody(homeWon, awayName, tied), data: { screen: 'playoff-bracket' }, subtitle: roundName, priority: 'high' },
+            { teamIds: [r.awayTeamId], title, body: buildPlayoffBody(awayWon, homeName, tied), data: { screen: 'playoff-bracket' }, subtitle: roundName, priority: 'high' },
+          );
         } else {
           const scoreLine = r.scoringType === 'h2h_categories'
             ? `${homeName} ${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''} ${awayName}`
@@ -604,24 +638,24 @@ Deno.serve(async (req: Request) => {
           const homeResult = homeWon ? '🔥 You won!' : awayWon ? 'You lost.' : 'It\'s a tie.';
           const awayResult = awayWon ? '🔥 You won!' : homeWon ? 'You lost.' : 'It\'s a tie.';
           const title = `${ln} — Matchup Final`;
-
-          await Promise.all([
-            notifyTeams(supabase, [r.homeTeamId], category, title, `${scoreLine} — ${homeResult}`, { screen: 'matchup' }),
-            notifyTeams(supabase, [r.awayTeamId], category, title, `${scoreLine} — ${awayResult}`, { screen: 'matchup' }),
-          ]);
+          (r.isPlayoff ? playoffWeekMatchupNotifs : matchupNotifs).push(
+            { teamIds: [r.homeTeamId], title, body: `${scoreLine} — ${homeResult}`, data: { screen: 'matchup' } },
+            { teamIds: [r.awayTeamId], title, body: `${scoreLine} — ${awayResult}`, data: { screen: 'matchup' } },
+          );
         }
-      }));
+      }
+      await Promise.all([
+        notifyTeamsBulk(supabase, 'playoffs', playoffNotifs),
+        notifyTeamsBulk(supabase, 'playoffs', playoffWeekMatchupNotifs),
+        notifyTeamsBulk(supabase, 'matchups', matchupNotifs),
+      ]);
     } catch (notifyErr) {
       log.warn('Matchup notification failed (non-fatal)', { error: String(notifyErr) });
     }
 
     // ── Post-processing: detect regular-season-complete → kick generate-playoff-round; advance playoff bracket. ──
     for (const lid of leagueIds) {
-      const { data: league } = await supabase
-        .from('leagues')
-        .select('name, season, scoring_type, playoff_teams, playoff_seeding_format, reseed_each_round, regular_season_weeks')
-        .eq('id', lid)
-        .single();
+      const league = leagueById.get(lid);
       if (!league) continue;
 
       const { data: unfinalizedReg } = await supabase

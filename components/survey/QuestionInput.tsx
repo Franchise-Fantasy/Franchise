@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
-import { StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -43,7 +44,7 @@ export function QuestionInput({ question, value, onChange }: Props) {
     case 'free_text':
       return (
         <View>
-          <TextInput
+          <AppTextInput
             accessibilityLabel={`Answer for: ${question.prompt}`}
             style={[styles.textArea, { color: c.text, backgroundColor: c.cardAlt, borderColor: c.border }]}
             placeholder="Type your answer…"

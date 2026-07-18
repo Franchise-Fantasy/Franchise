@@ -26,6 +26,9 @@ const ExtractRosterBody = z.object({
   action: z.literal('extract_roster'),
   images: z.array(ImageSchema).min(1, 'At least one image is required').max(5, 'Maximum 5 images per team'),
   team_name: z.string().optional(),
+  // Sport of the league being imported — scopes player matching. Defaults to
+  // nba for older clients that don't send it.
+  sport: z.enum(['nba', 'wnba', 'nfl']).default('nba'),
 });
 
 const ExtractSettingsBody = z.object({
@@ -51,6 +54,9 @@ const SearchOrCreatePlayerBody = z.object({
   action: z.literal('search_or_create_player'),
   name: z.string().trim().min(1, 'Player name is required'),
   position: z.string().optional(),
+  // Sport of the league being imported — scopes the fuzzy search and stamps a
+  // created player. Defaults to nba for older clients that don't send it.
+  sport: z.enum(['nba', 'wnba', 'nfl']).default('nba'),
 });
 
 // Imported playoff bracket schema lives in _shared/importBracket.ts (shared with
@@ -309,16 +315,14 @@ function toMatch(i: number, ep: ExtractedPlayer, hit: MatchablePlayer, confidenc
 async function matchPlayers(
   extractedPlayers: ExtractedPlayer[],
   supabaseAdmin: any,
+  sport: 'nba' | 'wnba' | 'nfl',
 ): Promise<{ matched: any[]; unmatched: any[] }> {
-  // Screenshot import is a basketball feature (the extraction prompts are
-  // basketball-specific); keep NFL names out of the match pool. The extract
-  // body doesn't carry the league sport, so this matches across nba+wnba —
-  // per-sport scoping needs the client to send sport (screenshot-import
-  // Phase 2).
+  // Scope the match pool to the league's sport so a WNBA roster can't resolve
+  // to a same-name NBA player (and vice versa).
   const { data: ourPlayers } = await supabaseAdmin
     .from('players')
     .select('id, name, pro_team, position')
-    .in('sport', ['nba', 'wnba']);
+    .eq('sport', sport);
 
   // Index by compact full name (spacing/hyphen-insensitive) for exact hits,
   // and by compact surname for abbreviation + OCR-slip fallbacks.
@@ -622,10 +626,13 @@ Only include picks that have actually changed hands. Skip picks a team still own
 }
 
 async function handleExtractRoster(
-  body: z.infer<typeof ExtractRosterBody>,
+  // z.input (not z.infer): `sport` has a Zod default, so the pre-parse union
+  // member the dispatcher passes still types it optional; we coalesce below.
+  body: z.input<typeof ExtractRosterBody>,
   supabaseAdmin: any,
 ) {
   const { images, team_name } = body;
+  const sport = body.sport ?? 'nba';
 
   const teamContext = team_name ? ` for the team "${team_name}"` : '';
   const prompt = `You are extracting fantasy basketball roster data from ${images.length > 1 ? 'these screenshots' : 'this screenshot'} of a fantasy sports app${teamContext}.
@@ -641,7 +648,7 @@ Important: Only extract actual NBA player names. Ignore empty roster slots, head
   const extractedPlayers = result.players ?? [];
 
   // Match against our database
-  const { matched, unmatched } = await matchPlayers(extractedPlayers, supabaseAdmin);
+  const { matched, unmatched } = await matchPlayers(extractedPlayers, supabaseAdmin, sport);
 
   return jsonResponse({
     extracted_count: extractedPlayers.length,
@@ -732,17 +739,20 @@ Extract the season identifier if visible (e.g. "2024-25", "2023-24").`;
 }
 
 async function handleSearchOrCreatePlayer(
-  body: { name: string; position?: string },
+  body: { name: string; position?: string; sport?: 'nba' | 'wnba' | 'nfl' },
   supabaseAdmin: any,
 ) {
   const { name, position } = body;
+  const sport = body.sport ?? 'nba';
   if (!name?.trim()) throw new HttpError('Player name is required');
 
   // Accent/typo-tolerant fuzzy match via the shared search_players_fuzzy RPC
   // (unaccent + trigram) — a raw ILIKE couldn't match accented names like
-  // "Jokić" against a de-accented query.
+  // "Jokić" against a de-accented query. Sport-scoped so a WNBA import doesn't
+  // surface (or dedup against) same-name NBA players.
   const { data: hits } = await supabaseAdmin.rpc('search_players_fuzzy', {
     p_query: name,
+    p_sport: sport,
     p_limit: 5,
   });
 
@@ -751,8 +761,7 @@ async function handleSearchOrCreatePlayer(
   }
 
   // Not found — create a new player record. sport is explicit (never rely on
-  // the column DEFAULT): this endpoint is part of the basketball screenshot
-  // import, so manually-created players are NBA.
+  // the column DEFAULT), taken from the league being imported.
   const { data: newPlayer, error } = await supabaseAdmin
     .from('players')
     .insert({
@@ -760,7 +769,7 @@ async function handleSearchOrCreatePlayer(
       position: position ?? null,
       pro_team: null,
       status: 'active',
-      sport: 'nba',
+      sport,
     })
     .select('id, name, pro_team, position')
     .single();
@@ -955,6 +964,9 @@ async function handleExecute(
   const leagueInsert: any = {
     name: league_name,
     created_by: userId,
+    // leagues.sport column-defaults to 'nba' and is immutable post-insert, so
+    // a WNBA import must set it explicitly or the league is silently stamped NBA.
+    sport,
     teams: teams.length,
     current_teams: 0,
     roster_size: rosterSize,

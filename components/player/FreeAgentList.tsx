@@ -1,5 +1,5 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   FlatList,
@@ -42,6 +42,7 @@ import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { usePlayerProjections } from "@/hooks/usePlayerProjections";
 import { useProjectionToggle } from "@/hooks/useProjectionToggle";
+import { useRosterNeeds } from "@/hooks/useRosterNeeds";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
@@ -50,6 +51,7 @@ import {
   buildAdjustedPlayers,
   deriveMinutesUpPlayerIds,
 } from "@/utils/freeAgent/freeAgentStats";
+import { fetchSeasonPool } from "@/utils/freeAgent/seasonPool";
 import {
   getWaiverBadgeLabel,
   isOnWaivers,
@@ -62,21 +64,10 @@ import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
 import { fetchActiveRosterCount } from "@/utils/roster/rosterCounts";
-import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { countWeeklyAdds } from "@/utils/roster/weeklyAdds";
 import { calculateAvgFantasyPoints, projAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
 
 import { freeAgentListStyles as styles } from "./freeAgentListStyles";
-
-
-// Constrained starter positions the roster-needs strip will chip. UTIL/BE/IR
-// are intentionally absent: UTIL has no eligibility constraint (anyone fits),
-// and bench/IR aren't starters. NFL FLEX/SFLX are likewise absent — they're
-// multi-position seats, so the single-position chips carry the signal.
-const KNOWN_CHIP_POSITIONS = new Set([
-  'PG', 'SG', 'SF', 'PF', 'C', 'G', 'F',
-  'QB', 'RB', 'WR', 'TE', 'K', 'DST',
-]);
 
 interface FreeAgentListProps {
   leagueId: string;
@@ -106,10 +97,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const [infoKey, setInfoKey] = useState<"acq" | null>(null);
 
-  // FAAB bid modal state
+  // FAAB bid modal state. The bid amount itself lives inside FaabBidModal —
+  // keystrokes there must not re-render this whole list tree.
   const [faabModalPlayer, setFaabModalPlayer] =
     useState<PlayerSeasonStats | null>(null);
-  const [bidAmount, setBidAmount] = useState("0");
   const [faabDropPlayerId, setFaabDropPlayerId] = useState<string | null>(null);
   // Set when the FAAB modal is editing an existing pending bid (vs. placing a
   // new one). Drives an UPDATE of the claim's bid_amount instead of an INSERT.
@@ -386,59 +377,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const { watchlistedIds } = useWatchlist();
 
+  // Sport-scoped column select + null-coalescing live in fetchSeasonPool —
+  // roughly half the payload of the old `select('*')` on ~93 columns.
   const { data: allPlayers, isLoading } = useQuery<PlayerSeasonStats[]>({
     queryKey: [...queryKeys.allPlayers(leagueId), sport],
-    queryFn: async () => {
-      // `pro_team IS NOT NULL` = currently on a real team's roster, which is
-      // the correct "available in fantasy" filter year-round. Filtering on
-      // `games_played > 0` instead would hide every player during the
-      // offseason (WNBA April–May, NBA June–September).
-      const { data, error } = await supabase
-        .from("player_season_stats")
-        .select("*")
-        .eq("sport", sport)
-        .not("pro_team", "is", null)
-        .order("avg_pts", { ascending: false });
-      if (error) throw error;
-      // The DB row types every numeric stat as `number | null` (a player with
-      // no games played yet has NULL averages). PlayerSeasonStats claims they
-      // are `number`, so downstream call sites like
-      // `player.avg_pts.toFixed(1)` crash when the row is fresh / unscored —
-      // typically in test leagues. Coalesce here so the type matches reality.
-      return (data ?? []).map((r) => ({
-        ...r,
-        games_played: r.games_played ?? 0,
-        avg_min: r.avg_min ?? 0,
-        avg_pts: r.avg_pts ?? 0,
-        avg_reb: r.avg_reb ?? 0,
-        avg_ast: r.avg_ast ?? 0,
-        avg_stl: r.avg_stl ?? 0,
-        avg_blk: r.avg_blk ?? 0,
-        avg_tov: r.avg_tov ?? 0,
-        avg_fgm: r.avg_fgm ?? 0,
-        avg_fga: r.avg_fga ?? 0,
-        avg_3pm: r.avg_3pm ?? 0,
-        avg_3pa: r.avg_3pa ?? 0,
-        avg_ftm: r.avg_ftm ?? 0,
-        avg_fta: r.avg_fta ?? 0,
-        avg_pf: r.avg_pf ?? 0,
-        total_pts: r.total_pts ?? 0,
-        total_reb: r.total_reb ?? 0,
-        total_ast: r.total_ast ?? 0,
-        total_stl: r.total_stl ?? 0,
-        total_blk: r.total_blk ?? 0,
-        total_tov: r.total_tov ?? 0,
-        total_fgm: r.total_fgm ?? 0,
-        total_fga: r.total_fga ?? 0,
-        total_3pm: r.total_3pm ?? 0,
-        total_3pa: r.total_3pa ?? 0,
-        total_ftm: r.total_ftm ?? 0,
-        total_fta: r.total_fta ?? 0,
-        total_pf: r.total_pf ?? 0,
-        total_dd: r.total_dd ?? 0,
-        total_td: r.total_td ?? 0,
-      })) as PlayerSeasonStats[];
-    },
+    queryFn: () => fetchSeasonPool(sport),
     enabled: !!leagueId,
     staleTime: 1000 * 60 * 5,
   });
@@ -489,78 +432,25 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   // Drives both the chip set and the per-position demand floor used to
   // flag "needs" / "thin" states in the roster-needs strip.
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId);
+  const { chipPositions, myTeamCounts, positionStates } = useRosterNeeds(
+    sport,
+    rosterConfig,
+    ownershipRows,
+    teamId,
+  );
 
-  // Chip positions — for WNBA we hardcode G/F/C (the canonical WNBA
-  // basketball positions, which gives a stable 3-chip layout regardless
-  // of the league's slot config). For other sports we derive from the
-  // league config: every constrained starter position the league
-  // actually uses, in roster-config order, UTIL/BE/IR excluded, capped
-  // at 5. Returns empty for all-UTIL leagues so the strip hides.
-  const chipPositions = useMemo<string[]>(() => {
-    if (sport === 'wnba') return ['G', 'F', 'C'];
-    const seen = new Set<string>();
-    const ordered: string[] = [];
-    for (const slot of rosterConfig ?? []) {
-      const p = slot.position;
-      if (!KNOWN_CHIP_POSITIONS.has(p)) continue;
-      if (seen.has(p)) continue;
-      seen.add(p);
-      ordered.push(p);
-    }
-    return ordered.slice(0, 5);
-  }, [sport, rosterConfig]);
-
-  // Per-position eligibility counts for the user's active roster (excluding
-  // IR). A player is counted in every chip position they can fill — so a
-  // PG-SG player counts toward both a PG chip and an SG chip, and toward a
-  // G chip if the league has G slots.
-  const myTeamCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const p of chipPositions) counts[p] = 0;
-    if (!ownershipRows) return counts;
-    for (const row of ownershipRows) {
-      if (row.teamId !== teamId) continue;
-      if (row.rosterSlot === 'IR') continue;
-      if (!row.position) continue;
-      for (const p of chipPositions) {
-        if (isEligibleForSlot(row.position, p)) counts[p] += 1;
-      }
-    }
-    return counts;
-  }, [ownershipRows, teamId, chipPositions]);
-
-  // Supply vs. demand state per chip position. Demand = total dedicated
-  // slot_count for that position (so a WNBA league with G,G needs 2
-  // G-eligible players to start; a 1-PG-slot league needs 1).
-  const positionStates = useMemo(() => {
-    type State = 'set' | 'thin' | 'needs';
-    const states: Record<string, { state: State; deficit: number; demand: number }> = {};
-    const dedicated = new Map<string, number>();
-    for (const slot of rosterConfig ?? []) {
-      dedicated.set(slot.position, (dedicated.get(slot.position) ?? 0) + slot.slot_count);
-    }
-    for (const p of chipPositions) {
-      const demand = Math.max(1, dedicated.get(p) ?? 0);
-      const supply = myTeamCounts[p] ?? 0;
-      const deficit = Math.max(0, demand - supply);
-      let state: State;
-      if (supply < demand) state = 'needs';
-      else if (supply === demand) state = 'thin';
-      else state = 'set';
-      states[p] = { state, deficit, demand };
-    }
-    return states;
-  }, [rosterConfig, myTeamCounts, chipPositions]);
-
-  // Fetch the recent game logs that power the L5/L10/L15 windows and the
-  // "Minutes Rising" filter. 45 days comfortably contains 15 played games for
-  // an everyday player; the DESC-ordered `limit` keeps the most-recent rows, so
-  // the last-N window is never starved. Must include rostered players so they
-  // stay visible when the user toggles off the "free agents only" pill.
+  // Fetch the recent game logs that power the L5/L10/L15 windows. 45 days
+  // comfortably contains 15 played games for an everyday player; the
+  // DESC-ordered `limit` keeps the most-recent rows, so the last-N window is
+  // never starved. Must include rostered players so they stay visible when the
+  // user toggles off the "free agents only" pill. Gated to the game-window
+  // ranges (same as the draft board) — the default season view doesn't read
+  // these, and this was the single heaviest fetch on the screen.
   const allPlayerIds = useMemo(() => {
     if (!allPlayers) return [];
     return allPlayers.map((p) => p.player_id);
   }, [allPlayers]);
+  const timeRangeNeedsLogs = timeRange !== "season" && timeRange !== "lastSeason";
   const { data: recentGameLogs } = useQuery({
     queryKey: queryKeys.recentGameLogs(leagueId),
     queryFn: async () => {
@@ -578,6 +468,35 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           .select(
             'player_id, game_date, min, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double',
           )
+          .in("player_id", chunk)
+          .gte("game_date", cutoffStr)
+          .order("game_date", { ascending: false })
+          .limit(5000);
+        if (error) throw error;
+        if (data) allRows.push(...data);
+      }
+      return allRows;
+    },
+    enabled: !!leagueId && allPlayerIds.length > 0 && timeRangeNeedsLogs,
+    staleTime: 1000 * 60 * 15,
+  });
+
+  // Lightweight minutes-only feed for the "Minutes Up" chip, so the chip
+  // keeps working in the default season view without the 18-column stat logs
+  // above (~6× less payload; same 45-day window and per-player 5-game walk).
+  const { data: recentMinuteLogs } = useQuery({
+    queryKey: [...queryKeys.recentGameLogs(leagueId), "minutes"],
+    queryFn: async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - 45);
+      const cutoffStr = cutoff.toISOString().split("T")[0];
+      const CHUNK = 200;
+      const allRows: any[] = [];
+      for (let i = 0; i < allPlayerIds.length; i += CHUNK) {
+        const chunk = allPlayerIds.slice(i, i + CHUNK);
+        const { data, error } = await supabase
+          .from("player_games")
+          .select("player_id, min")
           .in("player_id", chunk)
           .gte("game_date", cutoffStr)
           .order("game_date", { ascending: false })
@@ -611,10 +530,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     staleTime: 1000 * 60 * 30,
   });
 
-  // Derive minutesUpPlayerIds from game logs (for "Minutes Up" filter)
+  // Derive minutesUpPlayerIds from the light minutes feed (always loaded, so
+  // the chip doesn't depend on which time range is selected)
   const minutesUpPlayerIds = useMemo(
-    () => deriveMinutesUpPlayerIds(recentGameLogs, allPlayers),
-    [recentGameLogs, allPlayers],
+    () => deriveMinutesUpPlayerIds(recentMinuteLogs, allPlayers),
+    [recentMinuteLogs, allPlayers],
   );
 
   // Build time-range-adjusted player stats when a non-season range is selected
@@ -671,9 +591,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     onToggleCompareMode: () => setCompareMode(!isCompareMode),
   };
 
-  const selectPlayer = (player: PlayerSeasonStats) => {
-    setSelectedPlayer(seasonStatsMap.get(player.player_id) ?? player);
-  };
+  const selectPlayer = useCallback(
+    (player: PlayerSeasonStats) => {
+      setSelectedPlayer(seasonStatsMap.get(player.player_id) ?? player);
+    },
+    [seasonStatsMap],
+  );
 
   // Instant add (free agent, no waivers)
   const handleAddPlayer = async (player: PlayerSeasonStats) => {
@@ -1067,7 +990,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     dropPlayerId?: string,
   ) => {
     if (waiverType === "faab") {
-      setBidAmount("0");
       setFaabModalPlayer(player);
       // Store drop player id for when bid is submitted
       if (dropPlayerId) setFaabDropPlayerId(dropPlayerId);
@@ -1115,85 +1037,108 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     }
   };
 
-  const renderPlayer = ({
-    item,
-    index,
-  }: {
-    item: PlayerSeasonStats;
-    index: number;
-  }) => {
-    const fpts =
-      scoringWeights && !isCategories
-        ? calculateAvgFantasyPoints(item, scoringWeights, sport)
-        : undefined;
-    const needsClaim = isOnWaivers(item.player_id, waiverType, waiverPlayerMap);
-    const waiverLabel = needsClaim
-      ? getWaiverBadgeLabel(item.player_id, waiverType, waiverPlayerMap)
-      : null;
-    const schedEntry = todaySchedule?.get(item.pro_team) ?? null;
-    const gameToday = schedEntry?.matchup ?? null;
-    // The next-game projection only makes sense when the player actually plays
-    // on the selected day — gate on the schedule entry so it sits beside the
-    // matchup chip instead of floating on no-game rows.
-    const projRow =
-      projectionsActive && gameToday ? projections?.get(item.player_id) : null;
-    const projFpts =
-      projRow && scoringWeights
-        ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights, sport)
-        : null;
-    const owner = ownershipMap?.get(item.player_id) ?? null;
-    // Only offer a trade when another team owns the player — never for the
-    // user's own roster or unrostered free agents.
-    const canTradeFor = owner != null && owner.teamId !== teamId;
-
-    // In compare mode a tap toggles selection; otherwise it opens the detail
-    // modal. The snapshot carries the full (non-time-range-adjusted) season row
-    // so the compare screen has real stats even for deep / non-top-600 players.
-    const handleRowPress = () => {
-      if (isCompareMode) {
-        toggleCompare({
-          player_id: item.player_id,
-          name: item.name,
-          position: item.position,
-          pro_team: item.pro_team,
-          external_id_nba: item.external_id_nba,
-          seasonStats: seasonStatsMap.get(item.player_id) ?? item,
-          ownerTag: owner?.teamName ?? null,
-        });
-      } else {
-        selectPlayer(item);
-      }
-    };
-
-    return (
-      <FreeAgentRow
-        player={item}
-        index={index}
-        isLast={index === (filteredPlayers ?? []).length - 1}
-        fpts={fpts}
-        projFpts={projFpts}
-        isCategories={isCategories}
-        isAdding={addingPlayerId === item.player_id}
-        needsClaim={needsClaim}
-        waiverLabel={waiverLabel}
-        gameToday={gameToday}
-        isRostered={rosteredPlayerIds?.has(item.player_id) ?? false}
-        ownerTeamName={owner?.teamName ?? null}
-        sport={sport}
-        isDisabled={draftInProgress || isOffseason || weeklyLimitReached}
-        compareMode={isCompareMode}
-        compareSelected={compareSelectedIds.has(item.player_id)}
-        onPress={handleRowPress}
-        onAddOrClaimPress={() => handleButtonPress(item)}
-        onTradePress={
-          canTradeFor
-            ? () =>
-                setTradeTarget({ player: item, ownerTeamId: owner!.teamId })
-            : undefined
-        }
-      />
-    );
+  // In compare mode a tap toggles selection; otherwise it opens the detail
+  // modal. The snapshot carries the full (non-time-range-adjusted) season row
+  // so the compare screen has real stats even for deep / non-top-600 players.
+  const handleRowPress = (player: PlayerSeasonStats) => {
+    if (isCompareMode) {
+      const owner = ownershipMap?.get(player.player_id) ?? null;
+      toggleCompare({
+        player_id: player.player_id,
+        name: player.name,
+        position: player.position,
+        pro_team: player.pro_team,
+        external_id_nba: player.external_id_nba,
+        seasonStats: seasonStatsMap.get(player.player_id) ?? player,
+        ownerTag: owner?.teamName ?? null,
+      });
+    } else {
+      selectPlayer(player);
+    }
   };
+
+  const handleTradePress = (player: PlayerSeasonStats) => {
+    const owner = ownershipMap?.get(player.player_id);
+    if (owner && owner.teamId !== teamId) {
+      setTradeTarget({ player, ownerTeamId: owner.teamId });
+    }
+  };
+
+  // Identity-stable dispatchers (latest-ref pattern) so the memo'd
+  // FreeAgentRow isn't defeated by fresh closures on every list re-render.
+  // The ref is refreshed post-commit (every render); handlers only fire on
+  // user events, which always happen after commit.
+  const rowHandlers = useRef({ handleRowPress, handleButtonPress, handleTradePress });
+  useEffect(() => {
+    rowHandlers.current = { handleRowPress, handleButtonPress, handleTradePress };
+  });
+  const onRowPress = useCallback(
+    (p: PlayerSeasonStats) => rowHandlers.current.handleRowPress(p), []);
+  const onRowAddOrClaim = useCallback(
+    (p: PlayerSeasonStats) => rowHandlers.current.handleButtonPress(p), []);
+  const onRowTrade = useCallback(
+    (p: PlayerSeasonStats) => rowHandlers.current.handleTradePress(p), []);
+
+  const listLength = filteredPlayers?.length ?? 0;
+  const rowsDisabled = draftInProgress || isOffseason || weeklyLimitReached;
+  const renderPlayer = useCallback(
+    ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
+      const fpts =
+        scoringWeights && !isCategories
+          ? calculateAvgFantasyPoints(item, scoringWeights, sport)
+          : undefined;
+      const needsClaim = isOnWaivers(item.player_id, waiverType, waiverPlayerMap);
+      const waiverLabel = needsClaim
+        ? getWaiverBadgeLabel(item.player_id, waiverType, waiverPlayerMap)
+        : null;
+      const schedEntry = todaySchedule?.get(item.pro_team) ?? null;
+      const gameToday = schedEntry?.matchup ?? null;
+      // The next-game projection only makes sense when the player actually
+      // plays on the selected day — gate on the schedule entry so it sits
+      // beside the matchup chip instead of floating on no-game rows.
+      const projRow =
+        projectionsActive && gameToday ? projections?.get(item.player_id) : null;
+      const projFpts =
+        projRow && scoringWeights
+          ? projAvgRowToFpts(projRow as Record<string, unknown>, scoringWeights, sport)
+          : null;
+      const owner = ownershipMap?.get(item.player_id) ?? null;
+      // Only offer a trade when another team owns the player — never for the
+      // user's own roster or unrostered free agents.
+      const canTradeFor = owner != null && owner.teamId !== teamId;
+
+      return (
+        <FreeAgentRow
+          player={item}
+          index={index}
+          isLast={index === listLength - 1}
+          fpts={fpts}
+          projFpts={projFpts}
+          isCategories={isCategories}
+          isAdding={addingPlayerId === item.player_id}
+          needsClaim={needsClaim}
+          waiverLabel={waiverLabel}
+          gameToday={gameToday}
+          isRostered={rosteredPlayerIds?.has(item.player_id) ?? false}
+          ownerTeamName={owner?.teamName ?? null}
+          sport={sport}
+          isDisabled={rowsDisabled}
+          compareMode={isCompareMode}
+          compareSelected={compareSelectedIds.has(item.player_id)}
+          onPress={onRowPress}
+          onAddOrClaimPress={onRowAddOrClaim}
+          canTrade={canTradeFor}
+          onTradePress={onRowTrade}
+        />
+      );
+    },
+    [
+      scoringWeights, isCategories, sport, waiverType, waiverPlayerMap,
+      todaySchedule, projectionsActive, projections, ownershipMap,
+      rosteredPlayerIds, teamId, addingPlayerId, rowsDisabled, listLength,
+      isCompareMode, compareSelectedIds, onRowPress, onRowAddOrClaim, onRowTrade,
+    ],
+  );
 
   const openSlots = rosterInfo
     ? Math.max(0, rosterInfo.maxSize - rosterInfo.activeCount)
@@ -1260,7 +1205,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           }
           onEditClaimBid={(claim) => {
             setEditingBidClaim(claim);
-            setBidAmount(String(claim.bid_amount ?? 0));
             setFaabModalPlayer(seasonStatsMap.get(claim.player_id) ?? null);
           }}
           onEditClaimDrop={(claim) => {
@@ -1338,9 +1282,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       <FaabBidModal
         player={faabModalPlayer}
         isEditing={editingBidClaim != null}
-        bidAmount={bidAmount}
+        initialBid={editingBidClaim?.bid_amount ?? 0}
         faabRemaining={faabRemaining}
-        onBidAmountChange={setBidAmount}
         onCancel={() => {
           setFaabModalPlayer(null);
           setFaabDropPlayerId(null);

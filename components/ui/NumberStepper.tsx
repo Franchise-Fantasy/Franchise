@@ -5,7 +5,6 @@ import {
   Pressable,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
   type NativeSyntheticEvent,
@@ -16,6 +15,7 @@ import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
+import { AppTextInput } from './AppTextInput';
 import { SheetRow, useFormSheet } from './formSheet';
 import { ThemedText } from './ThemedText';
 
@@ -132,7 +132,7 @@ export function NumberStepper({
               { backgroundColor: c.input, borderColor: focused ? c.accent : c.border },
             ]}
           >
-            <TextInput
+            <AppTextInput
               value={editing ? draft : `${displayValue}${suffix ?? ''}`}
               onChangeText={setDraft}
               onFocus={() => {
@@ -222,7 +222,7 @@ export function NumberStepper({
         </TouchableOpacity>
 
         {editing ? (
-          <TextInput
+          <AppTextInput
             style={[
               styles.valueBox,
               styles.valueText,

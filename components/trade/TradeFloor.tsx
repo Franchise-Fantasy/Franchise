@@ -5,7 +5,6 @@ import {
   Pressable,
   ScrollView,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
   useWindowDimensions,
@@ -18,6 +17,7 @@ import {
 
 import { TradeFairnessBar } from '@/components/trade/TradeFairnessBar';
 import { TradeLane } from '@/components/trade/TradeLane';
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { Badge } from '@/components/ui/Badge';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand } from '@/constants/Colors';
@@ -269,7 +269,7 @@ export function TradeFloor({
           />
         </TouchableOpacity>
         {notesExpanded && (
-          <TextInput
+          <AppTextInput
             accessibilityLabel="Trade note"
             style={[styles.notesInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
             placeholder="Add a note (optional)"

@@ -124,6 +124,34 @@ export function useSleeperPreview() {
   });
 }
 
+export interface CreatedPlayer {
+  id: string;
+  name: string;
+  pro_team: string | null;
+  position: string | null;
+  /** false when an existing row was returned (dedup), true when inserted. */
+  created: boolean;
+}
+
+/** Create (or find) a player missing from our pool — dynasty rosters carry
+ *  free agents/veterans that BDL's active feed (all sync-players ingests)
+ *  never provides, so the import must be able to add them. */
+export function useCreateSleeperPlayer() {
+  return useMutation<
+    CreatedPlayer,
+    Error,
+    { name: string; position: string; pro_team?: string | null; sport: Sport }
+  >({
+    mutationFn: async ({ name, position, pro_team, sport }) => {
+      const res = await supabase.functions.invoke('import-sleeper-league', {
+        body: { action: 'create_player', name, position, pro_team: pro_team ?? undefined, sport },
+      });
+      if (res.error) throw new Error(await edgeErrorMessage(res.error, 'Could not add player'));
+      return res.data as CreatedPlayer;
+    },
+  });
+}
+
 export function useSleeperImport() {
   return useMutation<SleeperImportResult, Error, any>({
     mutationFn: async (payload: any) => {

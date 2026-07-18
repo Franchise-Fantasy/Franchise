@@ -7,14 +7,18 @@
  *  - WNBA portraits → a.espncdn.com/i/headshots/wnba/players/full/{espnId}.png
  *    (ESPN is the only working WNBA portrait source; we touch it once per
  *    new player at sync time and never at app runtime.)
+ *  - NFL portraits → static.www.nfl.com/image/{upload|private}/…/league/{cloudinaryId}
+ *    (the league's own CDN; the opaque cloudinary id is seeded into
+ *    external_id_nba by backend/seed_nfl_headshots.py. The id belongs to exactly
+ *    one delivery namespace, so we try both and keep the one that resolves.)
  *
  * Strategy: for each player with `external_id_nba`, check whether the
  * Storage object already exists; if not, fetch from the source CDN and
  * upload. Idempotent — safe to re-run anytime.
  *
  * Body params:
- *   { sport?: 'nba' | 'wnba'   default: process both
- *     force?: boolean          re-upload even if Storage object exists }
+ *   { sport?: 'nba' | 'wnba' | 'nfl'   default: process all with a source
+ *     force?: boolean                  re-upload even if Storage object exists }
  */
 
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
@@ -36,14 +40,25 @@ const supabase = createClient(
 const HEADSHOT_W = 256;
 const HEADSHOT_H = 192;
 
-// NFL has no headshot source (initials avatars by design), so this function is
-// basketball-only end to end — the body parse below never admits 'nfl'.
-type BasketballSport = Exclude<Sport, "nfl">;
+// Per-sport portrait source. `urls` yields the candidate CDN URLs tried in order
+// until one fetches (NFL ids live in one of two Cloudinary namespaces). `preSized`
+// marks a source that already returns the target 256x192 — we then upload its bytes
+// as-is and SKIP the imagescript decode/resize/encode, whose CPU cost across a full
+// cold-start batch (NFL's ~900 players) trips the edge worker's resource limit.
+// HeadshotSport is derived from the map keys, so a sport is supported iff listed.
+const HEADSHOT_SOURCES = {
+  nba:  { urls: (id: string) => [`https://cdn.nba.com/headshots/nba/latest/1040x760/${id}.png`] },
+  wnba: { urls: (id: string) => [`https://a.espncdn.com/i/headshots/wnba/players/full/${id}.png`] },
+  nfl:  {
+    preSized: true,
+    urls: (id: string) => [
+      `https://static.www.nfl.com/image/upload/c_fill,w_${HEADSHOT_W},h_${HEADSHOT_H}/f_png/league/${id}`,
+      `https://static.www.nfl.com/image/private/c_fill,w_${HEADSHOT_W},h_${HEADSHOT_H}/f_png/league/${id}`,
+    ],
+  },
+} satisfies Partial<Record<Sport, { urls: (id: string) => string[]; preSized?: boolean }>>;
 
-const HEADSHOT_SOURCES: Record<BasketballSport, (id: string) => string> = {
-  nba:  (id) => `https://cdn.nba.com/headshots/nba/latest/1040x760/${id}.png`,
-  wnba: (id) => `https://a.espncdn.com/i/headshots/wnba/players/full/${id}.png`,
-};
+type HeadshotSport = keyof typeof HEADSHOT_SOURCES;
 
 async function resizeHeadshot(buf: Uint8Array): Promise<Uint8Array> {
   const decoded = await ImgScript.decode(buf);
@@ -55,7 +70,7 @@ async function resizeHeadshot(buf: Uint8Array): Promise<Uint8Array> {
  * Pulls every existing object name in a given sport's headshot subdir.
  * Storage list() pages 1000 entries; loop until exhausted.
  */
-async function listExisting(sport: BasketballSport): Promise<Set<string>> {
+async function listExisting(sport: HeadshotSport): Promise<Set<string>> {
   const seen = new Set<string>();
   let offset = 0;
   const PAGE = 1000;
@@ -74,7 +89,7 @@ async function listExisting(sport: BasketballSport): Promise<Set<string>> {
   return seen;
 }
 
-async function syncSport(sport: BasketballSport, force: boolean): Promise<{
+async function syncSport(sport: HeadshotSport, force: boolean): Promise<{
   total: number; uploaded: number; skipped: number; failed: { name: string; id: string; err: string }[];
 }> {
   const { data: players, error } = await supabase
@@ -85,7 +100,7 @@ async function syncSport(sport: BasketballSport, force: boolean): Promise<{
   if (error) throw new Error(`players query: ${error.message}`);
 
   const existing = force ? new Set<string>() : await listExisting(sport);
-  const sourceUrl = HEADSHOT_SOURCES[sport];
+  const sourceUrls = HEADSHOT_SOURCES[sport];
   const failed: { name: string; id: string; err: string }[] = [];
   let uploaded = 0;
   let skipped = 0;
@@ -102,8 +117,14 @@ async function syncSport(sport: BasketballSport, force: boolean): Promise<{
       const p = queue[i];
       const id = String(p.external_id_nba);
       try {
-        const res = await fetch(sourceUrl(id));
-        if (!res.ok) throw new Error(`${res.status} ${sourceUrl(id)}`);
+        const urls = sourceUrls(id);
+        let res: Response | null = null;
+        for (const url of urls) {
+          const r = await fetch(url);
+          if (r.ok) { res = r; break; }
+          await r.body?.cancel();
+        }
+        if (!res) throw new Error(`no source resolved: ${urls.join(", ")}`);
         const buf = new Uint8Array(await res.arrayBuffer());
         if (buf.byteLength === 0) throw new Error("empty body");
         const resized = await resizeHeadshot(buf);
@@ -138,18 +159,20 @@ Deno.serve(async (req: Request) => {
     return errorResponse("Unauthorized", 401);
   }
 
-  let sportFilter: BasketballSport | null = null;
+  let sportFilter: HeadshotSport | null = null;
   let force = false;
   try {
     const body = await req.json();
-    if (body?.sport === "nba" || body?.sport === "wnba") sportFilter = body.sport;
+    if (body?.sport && body.sport in HEADSHOT_SOURCES) sportFilter = body.sport as HeadshotSport;
     if (body?.force === true) force = true;
   } catch {
     // No body — defaults apply.
   }
 
   try {
-    const sports: BasketballSport[] = sportFilter ? [sportFilter] : ["nba", "wnba"];
+    const sports = sportFilter
+      ? [sportFilter]
+      : (Object.keys(HEADSHOT_SOURCES) as HeadshotSport[]);
     const results: Record<string, unknown> = {};
     for (const s of sports) {
       results[s] = await syncSport(s, force);

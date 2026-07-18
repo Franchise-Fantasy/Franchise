@@ -3,7 +3,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { errorResponse, jsonResponse } from '../_shared/http.ts';
 import { createLogger } from '../_shared/log.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
-import { notifyTeams, notifyLeague, notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
+import { notifyLeague, notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
 import { snapshotBeforeDrop } from '../_shared/snapshotBeforeDrop.ts';
 
 const log = createLogger('process-waivers');
@@ -53,6 +53,12 @@ Deno.serve(async (req: Request) => {
   let failed = 0;
   const errors: string[] = [];
 
+  // Team-targeted pushes accumulate across the whole run and flush once via
+  // notifyTeamsBulk after the loop (league-wide award announcements still go
+  // out per award — they need league-wide token resolution). Declared out here
+  // so a mid-run error can't swallow pushes for already-committed awards.
+  const teamNotifs: BulkTeamsNotification[] = [];
+
   // Resolve expired waivers for BOTH standard and FAAB leagues. Every dropped
   // player sits on its own per-player clock (`on_waivers_until`); when it
   // expires we resolve that player's pending claims by the league's waiver
@@ -74,8 +80,10 @@ Deno.serve(async (req: Request) => {
       // Archived leagues bypass RLS here (service role); a deleted league must
       // not have its waivers processed. Filtered out → `if (!league) continue`
       // below clears the expired row to free agency without notifying.
+      // roster_size + position_limits ride along here so checkAndProcessClaim
+      // doesn't refetch the league for every claim.
       const { data: leaguesData } = await supabase
-        .from('leagues').select('id, name, waiver_type, faab_tiebreak')
+        .from('leagues').select('id, name, waiver_type, faab_tiebreak, roster_size, position_limits')
         .in('id', leagueIds)
         .is('archived_at', null);
       const leagueMap = new Map((leaguesData ?? []).map(l => [l.id, l]));
@@ -116,21 +124,30 @@ Deno.serve(async (req: Request) => {
         }
         const { data: claims } = await orderedQuery;
 
-        // Pre-fetch player + team names for all claims in this batch
+        // Pre-fetch player + team names for all claims in this batch, plus the
+        // claimed player's position (fetched fresh each run — unlike names it
+        // feeds the position-limit check and the award, so no module cache).
         const claimPlayerIds = (claims ?? []).flatMap(c =>
           [c.player_id, c.drop_player_id].filter(Boolean) as string[]
         );
         const claimTeamIds = (claims ?? []).map(c => c.team_id);
+        let claimedPosition: string | null = null;
         await Promise.all([
           resolvePlayerNames(claimPlayerIds),
           resolveTeamNames(claimTeamIds),
+          (async () => {
+            if (!claims || claims.length === 0) return;
+            const { data } = await supabase
+              .from('players').select('position').eq('id', waiver.player_id).single();
+            claimedPosition = data?.position ?? null;
+          })(),
         ]);
 
         let awarded = false;
 
         for (const claim of claims ?? []) {
           try {
-            const result = await checkAndProcessClaim(claim, waiver.league_id, isFaab);
+            const result = await checkAndProcessClaim(claim, league, isFaab, claimedPosition);
             if (result.ok) {
               awarded = true;
               // The award, the cost (FAAB debit / waiver-priority rotation), and
@@ -150,31 +167,28 @@ Deno.serve(async (req: Request) => {
                   claimBody,
                   { screen: 'activity' }
                 );
-                // Also notify the winning team directly
-                await notifyTeams(supabase, [claim.team_id], 'waivers',
-                  `${ln} — ${isFaab ? 'FAAB Bid Won' : 'Waiver Claim Successful'}`,
-                  isFaab
+                // The winning team's direct push joins the end-of-run bulk flush
+                teamNotifs.push({
+                  teamIds: [claim.team_id],
+                  title: `${ln} — ${isFaab ? 'FAAB Bid Won' : 'Waiver Claim Successful'}`,
+                  body: isFaab
                     ? `You won ${playerName(claim.player_id)} for $${claim.bid_amount}!`
                     : `You claimed ${playerName(claim.player_id)} off waivers!`,
-                  { screen: 'roster' }
-                );
+                  data: { screen: 'roster' },
+                });
               } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
 
               // Losing claims for this player were marked 'failed' inside
-              // award_waiver_claim; the notification list is derived in-memory below.
-
-              // Notify losers (bulk — single round trip rather than N sequential)
+              // award_waiver_claim; the notification list is derived in-memory.
               const failedClaims = (claims ?? []).filter(c => c.id !== claim.id);
-              if (failedClaims.length > 0) {
-                try {
-                  const lnLost = league.name ?? 'Your League';
-                  await notifyTeamsBulk(supabase, 'waivers', failedClaims.map(fc => ({
-                    teamIds: [fc.team_id],
-                    title: `${lnLost} — ${isFaab ? 'FAAB Bid Lost' : 'Waiver Claim Lost'}`,
-                    body: isFaab ? 'Your bid did not win.' : 'Your waiver claim was not awarded.',
-                    data: { screen: 'free-agents' },
-                  })));
-                } catch (err) { log.warn('Bulk notification failed (non-fatal)', { error: String(err) }); }
+              const lnLost = league.name ?? 'Your League';
+              for (const fc of failedClaims) {
+                teamNotifs.push({
+                  teamIds: [fc.team_id],
+                  title: `${lnLost} — ${isFaab ? 'FAAB Bid Lost' : 'Waiver Claim Lost'}`,
+                  body: isFaab ? 'Your bid did not win.' : 'Your waiver claim was not awarded.',
+                  data: { screen: 'free-agents' },
+                });
               }
 
               processed++;
@@ -192,11 +206,12 @@ Deno.serve(async (req: Request) => {
                   : result.reason === 'position_limit'
                   ? `Your ${word} for ${playerName(claim.player_id)} failed: adding this player would exceed a position limit.`
                   : `Your ${word} for ${playerName(claim.player_id)} failed: roster is full. Select a player to drop when placing ${isFaab ? 'bids' : 'claims'}.`;
-                try {
-                  await notifyTeams(supabase, [claim.team_id], 'waivers',
-                    `${ln} — ${isFaab ? 'FAAB Bid Failed' : 'Waiver Claim Failed'}`, msg, { screen: 'free-agents' }
-                  );
-                } catch (err) { log.warn('Notification failed (non-fatal)', { error: String(err) }); }
+                teamNotifs.push({
+                  teamIds: [claim.team_id],
+                  title: `${ln} — ${isFaab ? 'FAAB Bid Failed' : 'Waiver Claim Failed'}`,
+                  body: msg,
+                  data: { screen: 'free-agents' },
+                });
                 failed++;
               }
               // 'already_owned' — skip silently, next claim may still succeed
@@ -217,32 +232,43 @@ Deno.serve(async (req: Request) => {
     errors.push(`Waiver resolution error: ${err.message}`);
   }
 
+  if (teamNotifs.length > 0) {
+    try {
+      await notifyTeamsBulk(supabase, 'waivers', teamNotifs);
+    } catch (err) { log.warn('Bulk notification failed (non-fatal)', { error: String(err) }); }
+  }
+
   return jsonResponse({ ok: true, processed, failed, errors });
 });
 
 type ClaimResult = { ok: true } | { ok: false; reason: 'already_owned' | 'roster_full' | 'drop_player_unavailable' | 'position_limit' };
 
-async function checkAndProcessClaim(claim: any, leagueId: string, isFaab: boolean): Promise<ClaimResult> {
+async function checkAndProcessClaim(
+  claim: any,
+  league: { id: string; roster_size: number | null; position_limits: unknown },
+  isFaab: boolean,
+  claimedPosition: string | null,
+): Promise<ClaimResult> {
   const now = new Date();
+  const leagueId = league.id;
 
-  const { data: existing } = await supabase
-    .from('league_players').select('id')
-    .eq('league_id', leagueId).eq('player_id', claim.player_id).limit(1);
+  // First roster snapshot: one row-fetch replaces the old 3 head-count queries
+  // AND the separate drop-presence check (active count = not IR/TAXI, computed
+  // in JS so NULL roster_slot still counts as active, matching the old math).
+  const [{ data: existing }, { data: roster1 }] = await Promise.all([
+    supabase.from('league_players').select('id')
+      .eq('league_id', leagueId).eq('player_id', claim.player_id).limit(1),
+    supabase.from('league_players').select('player_id, roster_slot')
+      .eq('league_id', leagueId).eq('team_id', claim.team_id),
+  ]);
   if (existing && existing.length > 0) return { ok: false, reason: 'already_owned' };
 
-  const [allRes, irRes, taxiRes, leagueRes] = await Promise.all([
-    supabase.from('league_players').select('id', { count: 'exact', head: true })
-      .eq('league_id', leagueId).eq('team_id', claim.team_id),
-    supabase.from('league_players').select('id', { count: 'exact', head: true })
-      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'IR'),
-    supabase.from('league_players').select('id', { count: 'exact', head: true })
-      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'TAXI'),
-    supabase.from('leagues').select('roster_size, position_limits').eq('id', leagueId).single(),
-  ]);
+  const countActive = (rows: Array<{ roster_slot: string | null }>) =>
+    rows.filter(r => r.roster_slot !== 'IR' && r.roster_slot !== 'TAXI').length;
 
-  const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0) - (taxiRes.count ?? 0);
-  const maxSize = leagueRes.data?.roster_size ?? 13;
-  const positionLimits = leagueRes.data?.position_limits as Record<string, number> | null;
+  const activeCount = countActive(roster1 ?? []);
+  const maxSize = league.roster_size ?? 13;
+  const positionLimits = league.position_limits as Record<string, number> | null;
   const rosterFull = activeCount >= maxSize;
 
   if (rosterFull && !claim.drop_player_id) return { ok: false, reason: 'roster_full' };
@@ -253,9 +279,7 @@ async function checkAndProcessClaim(claim: any, leagueId: string, isFaab: boolea
   // player is already gone while the roster is full the claim fails.
   let executeDrop = false;
   if (claim.drop_player_id) {
-    const { data: dropCheck } = await supabase.from('league_players').select('id')
-      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('player_id', claim.drop_player_id).limit(1);
-    const dropPresent = !!dropCheck && dropCheck.length > 0;
+    const dropPresent = (roster1 ?? []).some(r => r.player_id === claim.drop_player_id);
     if (dropPresent && rosterFull) {
       executeDrop = true;
     } else if (!dropPresent && rosterFull) {
@@ -264,39 +288,29 @@ async function checkAndProcessClaim(claim: any, leagueId: string, isFaab: boolea
     // dropPresent && !rosterFull → add without dropping (executeDrop stays false)
   }
 
-  // Re-count before the award to guard against overflow from concurrent adds. The
-  // drop (when executed) happens inside the RPC, so subtract it here to reflect
-  // the post-drop active count the original checked against.
-  const [reAll, reIr, reTaxi] = await Promise.all([
-    supabase.from('league_players').select('id', { count: 'exact', head: true })
-      .eq('league_id', leagueId).eq('team_id', claim.team_id),
-    supabase.from('league_players').select('id', { count: 'exact', head: true })
-      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'IR'),
-    supabase.from('league_players').select('id', { count: 'exact', head: true })
-      .eq('league_id', leagueId).eq('team_id', claim.team_id).eq('roster_slot', 'TAXI'),
-  ]);
-  let reActive = (reAll.count ?? 0) - (reIr.count ?? 0) - (reTaxi.count ?? 0);
+  // Second, fresh snapshot right before the award: guards against overflow from
+  // concurrent adds (the old re-count) and doubles as the position-limit roster.
+  // The drop (when executed) happens inside the RPC, so subtract it here to
+  // reflect the post-drop active count.
+  const { data: roster2 } = await supabase
+    .from('league_players')
+    .select('player_id, position, roster_slot')
+    .eq('league_id', leagueId)
+    .eq('team_id', claim.team_id);
+  let reActive = countActive(roster2 ?? []);
   if (executeDrop) reActive -= 1;
   if (reActive >= maxSize) return { ok: false, reason: 'roster_full' };
 
   const pName = playerName(claim.player_id);
-  const { data: playerData } = await supabase
-    .from('players').select('position').eq('id', claim.player_id).single();
 
-  // Position limit check. The drop (when executed) now happens inside the RPC, so
-  // the roster we read here still contains the dropped player — exclude them, or a
-  // legitimate same-position drop-and-add would be falsely rejected. This mirrors
-  // the original ordering, where the drop landed before this check ran.
-  if (positionLimits && Object.keys(positionLimits).length > 0 && playerData?.position) {
-    const { data: rosterForLimits } = await supabase
-      .from('league_players')
-      .select('position, roster_slot, player_id')
-      .eq('league_id', leagueId)
-      .eq('team_id', claim.team_id);
-    const effectiveRoster = (rosterForLimits ?? []).filter(
+  // Position limit check. The drop (when executed) happens inside the RPC, so the
+  // roster read here still contains the dropped player — exclude them, or a
+  // legitimate same-position drop-and-add would be falsely rejected.
+  if (positionLimits && Object.keys(positionLimits).length > 0 && claimedPosition) {
+    const effectiveRoster = (roster2 ?? []).filter(
       (r: { player_id: string }) => !executeDrop || r.player_id !== claim.drop_player_id,
     );
-    const violation = checkPositionLimits(positionLimits, effectiveRoster, playerData.position);
+    const violation = checkPositionLimits(positionLimits, effectiveRoster, claimedPosition);
     if (violation) return { ok: false, reason: 'position_limit' };
   }
 
@@ -329,7 +343,7 @@ async function checkAndProcessClaim(claim: any, leagueId: string, isFaab: boolea
     p_league_id: leagueId,
     p_player_id: claim.player_id,
     p_team_id: claim.team_id,
-    p_position: playerData?.position ?? 'UTIL',
+    p_position: claimedPosition ?? 'UTIL',
     p_bid_amount: claim.bid_amount ?? 0,
     p_is_faab: isFaab,
     p_drop_player_id: claim.drop_player_id ?? null,

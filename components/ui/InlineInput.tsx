@@ -15,7 +15,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
   type KeyboardTypeOptions,
@@ -27,6 +26,8 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
+
+import { AppTextInput } from './AppTextInput';
 
 export type InputAction = {
   label: string;
@@ -102,7 +103,7 @@ export function InlineInput({ config, onClose }: Props) {
         style={styles.center}
       >
         <BrandDialogCard title={title} message={message}>
-          <TextInput
+          <AppTextInput
             value={value}
             onChangeText={setValue}
             placeholder={placeholder}

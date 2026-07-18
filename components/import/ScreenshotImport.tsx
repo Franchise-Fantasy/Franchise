@@ -289,6 +289,7 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
       const result = await extractRosterMutation.mutateAsync({
         images: team.images,
         team_name: team.team_name,
+        sport: state.wizardState.sport,
       });
       dispatch({
         type: 'SET_TEAM_EXTRACTION',
@@ -299,7 +300,7 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
     } catch (err: any) {
       Alert.alert('Extraction failed', err.message ?? 'Could not extract roster from screenshot.');
     }
-  }, [state.teams, state.currentTeamIndex, extractRosterMutation]);
+  }, [state.teams, state.currentTeamIndex, state.wizardState.sport, extractRosterMutation]);
 
   const handleResolvePlayer = useCallback(
     (index: number, playerId: string, name: string, position: string) => {
@@ -746,6 +747,7 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
                 <StepRosters
                   teams={state.teams}
                   currentTeamIndex={state.currentTeamIndex}
+                  sport={state.wizardState.sport}
                   dispatch={dispatch}
                   onExtractRoster={handleExtractRoster}
                   onResolvePlayer={handleResolvePlayer}

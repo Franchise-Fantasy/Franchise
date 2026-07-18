@@ -213,6 +213,10 @@ async function applyInjuries(
   const changes: InjuryChange[] = [];
   let updateCount = 0;
 
+  // Collect transitions first, then write one grouped UPDATE per distinct
+  // target status (≤6 statuses) instead of one round-trip per player — a big
+  // BDL report used to fire hundreds of sequential single-row updates.
+  const updatesByStatus = new Map<string, InjuryChange[]>();
   for (const inj of injuries) {
     const player = findPlayer(inj.bdl_id, inj.player_name);
     if (player) {
@@ -222,14 +226,21 @@ async function applyInjuries(
       if (matchedPlayerIds.has(player.id)) continue;
       matchedPlayerIds.add(player.id);
       if (player.status !== inj.status) {
-        const { error } = await supabase.from('players').update({ status: inj.status }).eq('id', player.id);
-        if (error) console.error(`Update error for ${inj.player_name}:`, error.message);
-        else { updateCount++; changes.push({ playerId: player.id, from: player.status, to: inj.status }); }
+        const arr = updatesByStatus.get(inj.status) ?? [];
+        arr.push({ playerId: player.id, from: player.status, to: inj.status });
+        updatesByStatus.set(inj.status, arr);
       }
     } else {
       unmatchedNames.push(inj.player_name);
     }
   }
+
+  await Promise.all([...updatesByStatus.entries()].map(async ([status, groupChanges]) => {
+    const { error } = await supabase
+      .from('players').update({ status }).in('id', groupChanges.map(c => c.playerId));
+    if (error) console.error(`Update error for status '${status}' (${groupChanges.length} players):`, error.message);
+    else { updateCount += groupChanges.length; changes.push(...groupChanges); }
+  }));
 
   // BDL `/player_injuries` is the league-wide master list — any player not
   // in it is not injured, so reset every stale injury status (OUT/SUSP

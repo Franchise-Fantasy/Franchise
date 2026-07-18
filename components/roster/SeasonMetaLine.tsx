@@ -61,7 +61,7 @@ export function SeasonMetaLine({
           <ThemedText
             style={[
               rosterStyles.slotStatLine,
-              { color: c.secondaryText, marginTop: 0 },
+              { color: c.text, marginTop: 0 },
             ]}
             numberOfLines={1}
           >

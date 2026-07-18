@@ -7,6 +7,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Colors } from '@/constants/Colors';
+import type { Sport } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
@@ -15,6 +16,7 @@ import type { Action, TeamRosterData } from './state';
 interface StepRostersProps {
   teams: TeamRosterData[];
   currentTeamIndex: number;
+  sport: Sport;
   dispatch: React.Dispatch<Action>;
   onExtractRoster: () => void;
   onResolvePlayer: (index: number, playerId: string, name: string, position: string) => void;
@@ -26,6 +28,7 @@ interface StepRostersProps {
 export function StepRosters({
   teams,
   currentTeamIndex,
+  sport,
   dispatch,
   onExtractRoster,
   onResolvePlayer,
@@ -147,6 +150,7 @@ export function StepRosters({
           resolvedCount={resolvedPlayers.length}
           skippedCount={currentTeam.skippedPlayers.size}
           overrides={currentTeam.resolvedMappings}
+          sport={sport}
           onResolve={onResolvePlayer}
           onSkip={onSkipPlayer}
         />

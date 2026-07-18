@@ -1,14 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useState } from "react";
 import {
   Modal,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
+import { AppTextInput } from "@/components/ui/AppTextInput";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { cardShadowMedium, Fonts } from "@/constants/Colors";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
@@ -22,9 +23,9 @@ interface FaabBidModalProps {
   /** When true, the modal is changing an existing pending bid rather than
    *  placing a new one — swaps the eyebrow/submit copy accordingly. */
   isEditing?: boolean;
-  bidAmount: string;
+  /** Starting bid when the modal opens (the existing bid when editing). */
+  initialBid?: number;
   faabRemaining: number | null | undefined;
-  onBidAmountChange: (v: string) => void;
   onCancel: () => void;
   onSubmit: (player: PlayerSeasonStats, bid: number) => void;
 }
@@ -32,14 +33,23 @@ interface FaabBidModalProps {
 export function FaabBidModal({
   player,
   isEditing = false,
-  bidAmount,
+  initialBid = 0,
   faabRemaining,
-  onBidAmountChange,
   onCancel,
   onSubmit,
 }: FaabBidModalProps) {
   const c = useColors();
   const sport = useActiveLeagueSport();
+  // Bid keystrokes are modal-local state so typing doesn't re-render the
+  // owning list screen. Re-seeded from initialBid whenever a new bid session
+  // opens (player/edit-mode changes), via the adjust-during-render pattern.
+  const sessionKey = player ? `${player.player_id}:${isEditing}` : null;
+  const [bidState, setBidState] = useState({ key: sessionKey, value: String(initialBid ?? 0) });
+  if (bidState.key !== sessionKey) {
+    setBidState({ key: sessionKey, value: String(initialBid ?? 0) });
+  }
+  const bidAmount = bidState.value;
+  const setBidAmount = (v: string) => setBidState({ key: sessionKey, value: v });
   const budget = faabRemaining ?? 0;
   const parsedBid = parseInt(bidAmount) || 0;
   const overBudget = parsedBid > budget;
@@ -152,10 +162,10 @@ export function FaabBidModal({
               <Text style={[styles.dollarSign, { color: c.secondaryText }]}>
                 $
               </Text>
-              <TextInput
+              <AppTextInput
                 style={[styles.bidInput, { color: c.text }]}
                 value={bidAmount}
-                onChangeText={onBidAmountChange}
+                onChangeText={setBidAmount}
                 keyboardType="number-pad"
                 selectTextOnFocus
                 maxLength={4}
@@ -176,7 +186,7 @@ export function FaabBidModal({
               </ThemedText>
               {budget > 0 && (
                 <TouchableOpacity
-                  onPress={() => onBidAmountChange(String(budget))}
+                  onPress={() => setBidAmount(String(budget))}
                   accessibilityRole="button"
                   accessibilityLabel="Bid maximum"
                   hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}

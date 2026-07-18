@@ -4,11 +4,11 @@ import { useState } from 'react';
 import {
   Alert,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -150,7 +150,7 @@ export function TransferOwnershipModal({ visible, onClose, leagueId, teams }: Tr
       {selectedTeamId && (
         <View style={styles.emailSection}>
           <ThemedText style={[styles.label, { color: c.secondaryText }]}>New Owner Email</ThemedText>
-          <TextInput
+          <AppTextInput
             accessibilityLabel="New owner email address"
             style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
             value={email}

@@ -7,6 +7,7 @@ import { TeamRosterReview } from '@/components/import/TeamRosterReview';
 import type { ResolvedRosterPlayer } from '@/components/import/TeamRosterReview';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
+import type { Sport } from '@/constants/LeagueDefaults';
 import { useToast } from '@/context/ToastProvider';
 import type { ImageData, ScreenshotPlayerMatch, ScreenshotUnmatched } from '@/hooks/useImportScreenshot';
 import { useExtractRoster, useImportTeamRoster } from '@/hooks/useImportScreenshot';
@@ -18,6 +19,8 @@ interface ImportTeamRosterModalProps {
   leagueId: string;
   teamId: string;
   teamName: string;
+  /** Sport of the league — scopes player matching/search to it. */
+  sport: Sport;
   /** Called after a successful import so the caller can refetch team/league data. */
   onImported: () => void;
 }
@@ -30,6 +33,7 @@ export function ImportTeamRosterModal({
   leagueId,
   teamId,
   teamName,
+  sport,
   onImported,
 }: ImportTeamRosterModalProps) {
   const { showToast } = useToast();
@@ -59,7 +63,7 @@ export function ImportTeamRosterModal({
 
   const handleExtract = useCallback(() => {
     extractRosterMutation.mutate(
-      { images, team_name: teamName },
+      { images, team_name: teamName, sport },
       {
         onSuccess: (result) => {
           setMatched(result.matched);
@@ -69,7 +73,7 @@ export function ImportTeamRosterModal({
         onError: (err) => Alert.alert('Extraction failed', err.message ?? 'Could not extract roster from screenshots.'),
       },
     );
-  }, [extractRosterMutation, images, teamName]);
+  }, [extractRosterMutation, images, teamName, sport]);
 
   const handleResolve = useCallback((index: number, playerId: string, name: string, position: string) => {
     setResolvedMappings((prev) => {
@@ -174,6 +178,7 @@ export function ImportTeamRosterModal({
             resolvedCount={resolvedPlayers.length}
             skippedCount={skippedPlayers.size}
             overrides={resolvedMappings}
+            sport={sport}
             onResolve={handleResolve}
             onSkip={handleSkip}
           />

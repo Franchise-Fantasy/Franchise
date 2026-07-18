@@ -243,6 +243,9 @@ export interface BulkTeamsNotification {
   body: string;
   data?: Record<string, unknown>;
   excludeUserIds?: string[];
+  /** Per-notification overrides; fall back to the call-level `opts`. */
+  subtitle?: string;
+  priority?: 'default' | 'normal' | 'high';
 }
 
 // Fan-out helper for sending many distinct notifications to overlapping
@@ -326,14 +329,16 @@ export async function notifyTeamsBulk(
         if (!globalEnabled) continue;
         if (leagueOverride === false) continue;
 
+        const subtitle = notif.subtitle ?? opts?.subtitle;
+        const priority = notif.priority ?? opts?.priority;
         messages.push({
           to: tk.token,
           title: notif.title,
           body: notif.body,
           data: { ...notif.data, league_id: team.league_id, channelId },
           channelId,
-          ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
-          ...(opts?.priority ? { priority: opts.priority } : {}),
+          ...(subtitle ? { subtitle } : {}),
+          ...(priority ? { priority } : {}),
         });
       }
     }

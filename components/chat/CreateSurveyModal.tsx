@@ -6,11 +6,11 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -272,7 +272,7 @@ export function CreateSurveyModal({
       <ThemedText type="varsitySmall" style={[styles.label, { color: c.secondaryText }]}>
         TITLE
       </ThemedText>
-      <TextInput
+      <AppTextInput
         accessibilityLabel="Survey title"
         style={[styles.input, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
         placeholder="What's this survey about?"
@@ -292,7 +292,7 @@ export function CreateSurveyModal({
       >
         DESCRIPTION (OPTIONAL)
       </ThemedText>
-      <TextInput
+      <AppTextInput
         accessibilityLabel="Survey description"
         style={[styles.input, styles.multiline, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
         placeholder="Add context or instructions…"
@@ -409,7 +409,7 @@ export function CreateSurveyModal({
           </ScrollView>
 
           {/* Prompt */}
-          <TextInput
+          <AppTextInput
             accessibilityLabel={`Question ${qIdx + 1} prompt`}
             style={[styles.qInput, { color: c.text, backgroundColor: c.card, borderColor: c.border }]}
             placeholder="Ask a question…"
@@ -426,7 +426,7 @@ export function CreateSurveyModal({
             <View style={styles.optionsSection}>
               {q.options.map((opt, oIdx) => (
                 <View key={oIdx} style={styles.optionInputRow}>
-                  <TextInput
+                  <AppTextInput
                     accessibilityLabel={`Question ${qIdx + 1}, option ${oIdx + 1}`}
                     style={[
                       styles.optionInput,

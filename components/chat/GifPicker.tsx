@@ -4,11 +4,11 @@ import {
   Dimensions,
   FlatList,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -137,7 +137,7 @@ export function GifPicker({ visible, onSelect, onClose }: Props) {
       scrollableBody={false}
     >
       <View style={styles.body}>
-        <TextInput
+        <AppTextInput
           style={[
             styles.searchInput,
             {

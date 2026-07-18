@@ -16,6 +16,7 @@ import { Section } from '@/components/ui/Section';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import type { Sport } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ScreenshotPlayerMatch, ScreenshotUnmatched } from '@/hooks/useImportScreenshot';
 import { useSearchOrCreatePlayer } from '@/hooks/useImportScreenshot';
@@ -43,6 +44,8 @@ interface TeamRosterReviewProps {
   skippedCount: number;
   /** Manual corrections of auto-matches, keyed by extracted-player index. */
   overrides: Map<number, Override>;
+  /** Sport of the league being imported — scopes search + created players. */
+  sport: Sport;
   onResolve: (index: number, playerId: string, name: string, position: string) => void;
   onSkip: (index: number) => void;
 }
@@ -55,6 +58,7 @@ export function TeamRosterReview({
   resolvedCount,
   skippedCount,
   overrides,
+  sport,
   onResolve,
   onSkip,
 }: TeamRosterReviewProps) {
@@ -76,6 +80,7 @@ export function TeamRosterReview({
               <UnmatchedRow
                 key={`unmatched-${p.index}`}
                 player={p}
+                sport={sport}
                 onResolve={onResolve}
                 onSkip={onSkip}
               />
@@ -98,6 +103,7 @@ export function TeamRosterReview({
                 match={item}
                 isLast={index === matched.length - 1 && resolved.length === 0}
                 override={overrides.get(item.index)}
+                sport={sport}
                 onResolve={onResolve}
               />
             )}
@@ -157,11 +163,13 @@ function MatchedRow({
   match,
   isLast,
   override,
+  sport,
   onResolve,
 }: {
   match: ScreenshotPlayerMatch;
   isLast: boolean;
   override?: Override;
+  sport: Sport;
   onResolve: (index: number, playerId: string, name: string, position: string) => void;
 }) {
   const scheme = useColorScheme() ?? 'light';
@@ -216,6 +224,7 @@ function MatchedRow({
       {editing && (
         <View style={styles.matchedSearchWrap}>
           <PlayerSearchInline
+            sport={sport}
             onSelect={(r) => {
               onResolve(match.index, r.id, r.name, r.position ?? '');
               setEditing(false);
@@ -235,9 +244,11 @@ type PlayerResult = { id: string; name: string; pro_team: string | null; positio
 /** Name search against `players` used to correct a wrong auto-match.
  *  Search-only (the right player almost always already exists). */
 function PlayerSearchInline({
+  sport,
   onSelect,
   onCancel,
 }: {
+  sport: Sport;
   onSelect: (player: PlayerResult) => void;
   onCancel: () => void;
 }) {
@@ -254,13 +265,15 @@ function PlayerSearchInline({
       return;
     }
     setLoading(true);
+    // Scope to the league's sport so a WNBA import doesn't surface NBA players.
     const { data } = await supabase.rpc('search_players_fuzzy', {
       p_query: text,
+      p_sport: sport,
       p_limit: 10,
     });
     setResults(data ?? []);
     setLoading(false);
-  }, []);
+  }, [sport]);
 
   return (
     <View style={styles.searchArea}>
@@ -319,10 +332,12 @@ const POSITIONS = ['PG', 'SG', 'SF', 'PF', 'C'];
 
 function UnmatchedRow({
   player,
+  sport,
   onResolve,
   onSkip,
 }: {
   player: ScreenshotUnmatched;
+  sport: Sport;
   onResolve: (index: number, playerId: string, name: string, position: string) => void;
   onSkip: (index: number) => void;
 }) {
@@ -348,19 +363,21 @@ function UnmatchedRow({
       return;
     }
     setLoading(true);
+    // Scope to the league's sport so a WNBA import doesn't surface NBA players.
     const { data } = await supabase.rpc('search_players_fuzzy', {
       p_query: text,
+      p_sport: sport,
       p_limit: 10,
     });
     setResults(data ?? []);
     setHasSearched(true);
     setLoading(false);
-  }, []);
+  }, [sport]);
 
   const handleAddPlayer = useCallback(() => {
     if (!addName.trim()) return;
     searchOrCreate.mutate(
-      { name: addName.trim(), position: addPosition },
+      { name: addName.trim(), position: addPosition, sport },
       {
         onSuccess: (result) => {
           if (result.players.length === 1) {
@@ -377,7 +394,7 @@ function UnmatchedRow({
         },
       },
     );
-  }, [addName, addPosition, player.index, onResolve, searchOrCreate]);
+  }, [addName, addPosition, sport, player.index, onResolve, searchOrCreate]);
 
   if (resolved) return null;
 

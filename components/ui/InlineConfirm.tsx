@@ -18,7 +18,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
@@ -29,6 +28,8 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
+
+import { AppTextInput } from './AppTextInput';
 
 export type ConfirmAction = {
   label: string;
@@ -100,7 +101,7 @@ export function InlineConfirm({ config, onClose }: Props) {
           >
             TYPE “{requireTypedConfirmation!.toUpperCase()}” TO CONFIRM
           </ThemedText>
-          <TextInput
+          <AppTextInput
             value={typed}
             onChangeText={setTyped}
             autoCapitalize="none"

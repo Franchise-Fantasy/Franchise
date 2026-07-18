@@ -76,7 +76,7 @@ export const freeAgentListStyles = StyleSheet.create({
     alignItems: "flex-end",
   },
   colKeyText: {
-    fontSize: ms(9),
+    fontSize: ms(10),
     letterSpacing: 1.2,
     textAlign: "right" as const,
   },
@@ -192,17 +192,19 @@ export const freeAgentListStyles = StyleSheet.create({
     alignItems: "flex-end",
   },
   statsPoints: {
-    // Sized for the longest realistic slash line — `40.5/12.4/10.5`
-    // (14 chars) in mono ms(10) — across device scales. The slash
-    // line is intentionally subordinate; FPTS is the headline.
-    width: s(100),
+    // Sized for the longest realistic suffixed line — `40.5P/12.4R/10.5A`
+    // (17 chars) in mono ms(11) — across device scales. The stat line is
+    // subordinate to the gold FPTS headline stacked below it.
+    width: s(116),
   },
   statsCategories: {
-    // 5-stat slash line — `35.5/12.4/10.5/2.1/1.8` (22 chars) in mono ms(10).
-    width: s(150),
+    // 5-stat slash line — `35.5/12.4/10.5/2.9/2.8` (22 chars) in mono ms(11).
+    // Kept as bare slashes (not suffixed like points mode) so the dense line
+    // stays on one row; the column key above labels PTS·REB·AST·STL·BLK.
+    width: s(160),
   },
   statLine: {
-    fontSize: ms(10),
+    fontSize: ms(11),
     textAlign: "right" as const,
   },
   fptsValue: {

@@ -701,7 +701,17 @@
       "Bash(node log-headers.mjs)",
       "Bash(env)",
       "Read(//Users/joe/**)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Skill(run)",
+      "Skill(run:*)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts',{}\\), indent=2\\)\\)\")",
+      "Bash(lsof -nP -iTCP -sTCP:LISTEN)",
+      "Bash(awk '/players: \\\\{/{f=1} f&&/Row: \\\\{/{r=1} r&&/position|sport|^ *name/{print NR\": \"$0} r&&/\\\\}/{c++; if\\(c>1\\){f=0;r=0;c=0}}' types/database.types.ts)",
+      "Bash(curl -s -o /dev/null -w \"HTTP %{http_code}\\\\n\" \"http://localhost:8081\")",
+      "Bash(curl -s \"http://localhost:8081\")",
+      "Bash(open \"http://localhost:8081\")",
+      "Bash(command -v deno)",
+      "Read(//Users/joe/.deno/bin/**)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

@@ -1026,6 +1026,7 @@ export default function LeagueInfoScreen() {
             leagueId={leagueId}
             teamId={importRosterTeam?.id ?? ''}
             teamName={importRosterTeam?.name ?? ''}
+            sport={(league?.sport as Sport) ?? 'nba'}
             onClose={() => setImportRosterTeam(null)}
             onImported={() => {
               queryClient.invalidateQueries({ queryKey: ['league'] });

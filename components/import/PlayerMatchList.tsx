@@ -16,8 +16,9 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
+import type { Sport } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import type { SleeperPlayerMatch, SleeperUnmatched } from '@/hooks/useImportSleeper';
+import { useCreateSleeperPlayer, type SleeperPlayerMatch, type SleeperUnmatched } from '@/hooks/useImportSleeper';
 import { supabase } from '@/lib/supabase';
 import { ms, s } from '@/utils/scale';
 
@@ -30,6 +31,8 @@ interface PlayerMatchListProps {
   unmatched: SleeperUnmatched[];
   /** Manual corrections of auto-matches, keyed by sleeper_id. */
   overrides: Map<string, Override>;
+  /** Detected sport — created players are inserted under it. */
+  sport: Sport;
   onResolve: (sleeperId: string, playerId: string, playerName: string, position: string) => void;
   onSkip: (sleeperId: string) => void;
 }
@@ -38,6 +41,7 @@ export function PlayerMatchList({
   matched,
   unmatched,
   overrides,
+  sport,
   onResolve,
   onSkip,
 }: PlayerMatchListProps) {
@@ -51,13 +55,14 @@ export function PlayerMatchList({
       {unmatched.length > 0 && (
         <Section title={`Unmatched Players (${unmatched.length})`}>
           <ThemedText style={[styles.sectionDesc, { color: c.secondaryText }]}>
-            Search for each player or skip them.
+            Search for each player, add them if they're missing from our database, or skip them.
           </ThemedText>
           <View style={styles.unmatchedList}>
             {unmatched.map((p) => (
               <UnmatchedRow
                 key={p.sleeper_id}
                 player={p}
+                sport={sport}
                 onResolve={onResolve}
                 onSkip={onSkip}
               />
@@ -82,6 +87,7 @@ export function PlayerMatchList({
               match={item}
               isLast={index === matched.length - 1}
               override={overrides.get(item.sleeper_id)}
+              sport={sport}
               onResolve={onResolve}
             />
           )}
@@ -97,11 +103,13 @@ function MatchedRow({
   match,
   isLast,
   override,
+  sport,
   onResolve,
 }: {
   match: SleeperPlayerMatch;
   isLast: boolean;
   override?: Override;
+  sport: Sport;
   onResolve: (sleeperId: string, playerId: string, playerName: string, position: string) => void;
 }) {
   const scheme = useColorScheme() ?? 'light';
@@ -158,6 +166,7 @@ function MatchedRow({
       {editing && (
         <View style={styles.matchedSearchWrap}>
           <PlayerSearchInline
+            sport={sport}
             onSelect={(r) => {
               onResolve(match.sleeper_id, r.id, r.name, r.position ?? '');
               setEditing(false);
@@ -174,10 +183,12 @@ function MatchedRow({
 
 function UnmatchedRow({
   player,
+  sport,
   onResolve,
   onSkip,
 }: {
   player: SleeperUnmatched;
+  sport: Sport;
   onResolve: (sleeperId: string, playerId: string, playerName: string, position: string) => void;
   onSkip: (sleeperId: string) => void;
 }) {
@@ -185,8 +196,30 @@ function UnmatchedRow({
   const c = Colors[scheme];
   const [searching, setSearching] = useState(false);
   const [resolved, setResolved] = useState(false);
+  const createPlayer = useCreateSleeperPlayer();
+
+  const handleCreate = useCallback(() => {
+    createPlayer.mutate(
+      {
+        name: player.name,
+        position: player.position ?? '',
+        pro_team: player.team,
+        sport,
+      },
+      {
+        onSuccess: (created) => {
+          onResolve(player.sleeper_id, created.id, created.name, created.position ?? player.position ?? '');
+          setResolved(true);
+        },
+      },
+    );
+  }, [createPlayer, player, sport, onResolve]);
 
   if (resolved) return null;
+
+  // Only skill players can be created from Sleeper data (name + team +
+  // position); a defense with no position would produce a malformed row.
+  const canCreate = !!player.position;
 
   return (
     <View style={[styles.unmatchedCard, { backgroundColor: c.input, borderColor: c.border }]}>
@@ -198,7 +231,14 @@ function UnmatchedRow({
           containerStyle={{ flexShrink: 1 }}
         />
         {player.team && <Badge label={player.team} variant="neutral" size="small" />}
+        {player.position && <Badge label={player.position} variant="neutral" size="small" />}
       </View>
+
+      {createPlayer.isError && (
+        <ThemedText style={[styles.createError, { color: c.danger }]}>
+          {createPlayer.error?.message ?? 'Could not add player.'}
+        </ThemedText>
+      )}
 
       {!searching ? (
         <View style={styles.unmatchedActions}>
@@ -209,9 +249,19 @@ function UnmatchedRow({
             onPress={() => setSearching(true)}
             accessibilityLabel={`Search for ${player.name}`}
           />
+          {canCreate && (
+            <BrandButton
+              label="Add"
+              variant="secondary"
+              size="small"
+              loading={createPlayer.isPending}
+              onPress={handleCreate}
+              accessibilityLabel={`Add ${player.name} to the player database`}
+            />
+          )}
           <BrandButton
             label="Skip"
-            variant="secondary"
+            variant="ghost"
             size="small"
             onPress={() => {
               onSkip(player.sleeper_id);
@@ -222,6 +272,7 @@ function UnmatchedRow({
         </View>
       ) : (
         <PlayerSearchInline
+          sport={sport}
           onSelect={(r) => {
             onResolve(player.sleeper_id, r.id, r.name, r.position ?? '');
             setResolved(true);
@@ -241,9 +292,11 @@ type PlayerResult = { id: string; name: string; pro_team: string | null; positio
  *  resolver and the matched-row corrector. Renders a text input, a results
  *  list, and a Cancel affordance. */
 function PlayerSearchInline({
+  sport,
   onSelect,
   onCancel,
 }: {
+  sport: Sport;
   onSelect: (player: PlayerResult) => void;
   onCancel: () => void;
 }) {
@@ -260,13 +313,16 @@ function PlayerSearchInline({
       return;
     }
     setLoading(true);
+    // Scope the search to the imported league's sport — otherwise a same-name
+    // player in another sport pollutes the results (and could be mis-mapped).
     const { data } = await supabase.rpc('search_players_fuzzy', {
       p_query: text,
+      p_sport: sport,
       p_limit: 10,
     });
     setResults(data ?? []);
     setLoading(false);
-  }, []);
+  }, [sport]);
 
   return (
     <View style={styles.searchArea}>
@@ -350,6 +406,10 @@ const styles = StyleSheet.create({
   unmatchedActions: {
     flexDirection: 'row',
     gap: s(8),
+  },
+  createError: {
+    fontSize: ms(12),
+    lineHeight: ms(16),
   },
   searchArea: {
     gap: s(8),

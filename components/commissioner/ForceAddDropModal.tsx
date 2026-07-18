@@ -6,11 +6,11 @@ import {
   FlatList,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
@@ -232,7 +232,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
 
       {step === 'player' && (
         <>
-          <TextInput
+          <AppTextInput
             accessibilityLabel="Search players"
             style={[styles.searchInput, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
             placeholder="Search players..."

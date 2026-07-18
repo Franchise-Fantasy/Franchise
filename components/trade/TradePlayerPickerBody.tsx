@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
-import { FlatList, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { FlatList, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { PlayerName } from '@/components/player/PlayerName';
 import { PlayerPortrait } from '@/components/player/PlayerPortrait';
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -156,7 +157,7 @@ export function TradePlayerPickerBody({
 
   return (
     <View style={styles.container}>
-      <TextInput
+      <AppTextInput
         accessibilityLabel="Search players"
         style={[styles.search, { backgroundColor: c.cardAlt, color: c.text, borderColor: c.border }]}
         placeholder="Search players..."

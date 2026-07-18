@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 
 import { getCurrentSeason, parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
@@ -88,6 +88,10 @@ export function usePlayerFilter(
   // to PPG. Points leagues keep FPTS as the default.
   const defaultSort: SortKey = isCategories ? 'PPG' : 'FPTS';
   const [searchText, setSearchText] = useState('');
+  // Filtering runs against the deferred value so fast typing doesn't re-filter
+  // and re-render the whole list on every keystroke — the TextInput itself
+  // stays synchronous via filterBarProps.searchText.
+  const deferredSearchText = useDeferredValue(searchText);
   const [selectedPosition, setSelectedPosition] = useState<string>('All');
   const [selectedProTeam, setSelectedProTeam] = useState<string>('All');
   const [sortBy, setSortBy] = useState<SortKey>(defaultSort);
@@ -140,8 +144,8 @@ export function usePlayerFilter(
     let result = players;
 
     // Filter by name (accent-blind: "doncic" matches "Dončić")
-    if (searchText.trim()) {
-      const query = foldSearchText(searchText.trim());
+    if (deferredSearchText.trim()) {
+      const query = foldSearchText(deferredSearchText.trim());
       result = result.filter(p => foldSearchText(p.name).includes(query));
     }
 
@@ -216,7 +220,7 @@ export function usePlayerFilter(
     }
 
     return result;
-  }, [players, searchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
+  }, [players, deferredSearchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,

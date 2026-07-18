@@ -401,19 +401,22 @@ Deno.serve(async (req) => {
 
         // Clean up any stale drop ids on trade_proposal_teams so the UI and
         // any follow-up re-prompt show an accurate picture. Only update rows
-        // that actually changed.
-        for (const t of proposalTeams ?? []) {
-          const original = (t.drop_player_ids as string[] | null) ?? [];
-          if (original.length === 0) continue;
-          const kept = dropsByTeam.get(t.team_id) ?? [];
-          if (kept.length !== original.length) {
-            await supabaseAdmin
-              .from('trade_proposal_teams')
-              .update({ drop_player_ids: kept })
-              .eq('proposal_id', proposal_id)
-              .eq('team_id', t.team_id);
-          }
-        }
+        // that actually changed; the updates are independent per team.
+        await Promise.all(
+          (proposalTeams ?? []).flatMap((t) => {
+            const original = (t.drop_player_ids as string[] | null) ?? [];
+            if (original.length === 0) return [];
+            const kept = dropsByTeam.get(t.team_id) ?? [];
+            if (kept.length === original.length) return [];
+            return [
+              supabaseAdmin
+                .from('trade_proposal_teams')
+                .update({ drop_player_ids: kept })
+                .eq('proposal_id', proposal_id)
+                .eq('team_id', t.team_id),
+            ];
+          }),
+        );
       }
 
       const teamsNeedingDrops: string[] = [];
@@ -425,18 +428,30 @@ Deno.serve(async (req) => {
         ...netPlayersByTeam.keys(),
         ...dropsByTeam.keys(),
       ]);
+      // One grouped fetch for every team's roster slots — replaces two
+      // head-count queries per team run serially (up to 6 round trips for a
+      // 3-team trade). Rosters are ~15-20 rows each; counting in JS is free.
+      const slotRowsByTeam = new Map<string, string[]>();
+      if (teamsToCheck.size > 0) {
+        const { data: slotRows } = await supabaseAdmin
+          .from('league_players')
+          .select('team_id, roster_slot')
+          .eq('league_id', proposal.league_id)
+          .in('team_id', [...teamsToCheck]);
+        for (const r of slotRows ?? []) {
+          const arr = slotRowsByTeam.get(r.team_id) ?? [];
+          arr.push(r.roster_slot ?? 'BE');
+          slotRowsByTeam.set(r.team_id, arr);
+        }
+      }
+
       for (const tid of teamsToCheck) {
         const netGain = netPlayersByTeam.get(tid) ?? 0;
         const queued = dropsByTeam.get(tid) ?? [];
         if (netGain <= 0 && queued.length === 0) continue;
 
-        const [allRes, irRes] = await Promise.all([
-          supabaseAdmin.from('league_players').select('id', { count: 'exact', head: true })
-            .eq('league_id', proposal.league_id).eq('team_id', tid),
-          supabaseAdmin.from('league_players').select('id', { count: 'exact', head: true })
-            .eq('league_id', proposal.league_id).eq('team_id', tid).eq('roster_slot', 'IR'),
-        ]);
-        const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0);
+        const slots = slotRowsByTeam.get(tid) ?? [];
+        const activeCount = slots.length - slots.filter((s) => s === 'IR').length;
 
         // How many drops the team actually needs to fit the trade.
         const requiredDrops = Math.max(0, activeCount + netGain - rosterSize);
@@ -464,13 +479,15 @@ Deno.serve(async (req) => {
       // trade_proposal_teams so the post-trade history reflects what
       // actually happened.
       if (skippedDropsByTeam.size > 0) {
-        for (const tid of skippedDropsByTeam.keys()) {
-          await supabaseAdmin
-            .from('trade_proposal_teams')
-            .update({ drop_player_ids: dropsByTeam.get(tid) ?? [] })
-            .eq('proposal_id', proposal_id)
-            .eq('team_id', tid);
-        }
+        await Promise.all(
+          [...skippedDropsByTeam.keys()].map((tid) =>
+            supabaseAdmin
+              .from('trade_proposal_teams')
+              .update({ drop_player_ids: dropsByTeam.get(tid) ?? [] })
+              .eq('proposal_id', proposal_id)
+              .eq('team_id', tid),
+          ),
+        );
       }
 
       if (teamsNeedingDrops.length > 0) {
@@ -611,29 +628,35 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Pre-compute taxi counts per receiving team for taxi-to-taxi trades
+    // Pre-compute taxi counts per receiving team for taxi-to-taxi trades —
+    // one grouped query instead of a head-count per team.
     const taxiCountByTeam = new Map<string, number>();
     if (league?.taxi_slots && league.taxi_slots > 0) {
       const receivingTeamIds = [...new Set(playerItems.map((i: any) => i.to_team_id))];
-      for (const tid of receivingTeamIds) {
-        const { count } = await supabaseAdmin
+      if (receivingTeamIds.length > 0) {
+        const { data: taxiRows } = await supabaseAdmin
           .from('league_players')
-          .select('id', { count: 'exact', head: true })
+          .select('team_id')
           .eq('league_id', proposal.league_id)
-          .eq('team_id', tid)
+          .in('team_id', receivingTeamIds)
           .eq('roster_slot', 'TAXI');
-        taxiCountByTeam.set(tid, count ?? 0);
+        for (const r of taxiRows ?? []) {
+          taxiCountByTeam.set(r.team_id, (taxiCountByTeam.get(r.team_id) ?? 0) + 1);
+        }
       }
     }
 
-    // Get current roster slots and draft years for traded players
+    // Get current roster slot + owning team + draft years for traded players.
+    // team_id rides along so the ownership re-validation below reuses this
+    // fetch (the same rows used to be fetched a second time for it).
     const [slotRes, draftYearRes] = await Promise.all([
-      supabaseAdmin.from('league_players').select('player_id, roster_slot')
+      supabaseAdmin.from('league_players').select('player_id, team_id, roster_slot')
         .eq('league_id', proposal.league_id).in('player_id', tradedPlayerIds),
       supabaseAdmin.from('players').select('id, draft_year')
         .in('id', tradedPlayerIds),
     ]);
     const currentSlotMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.roster_slot]));
+    const ownershipMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.team_id]));
     const draftYearMap = new Map((draftYearRes.data ?? []).map((p) => [p.id, p.draft_year]));
 
     // Block trading players currently on IR
@@ -648,9 +671,18 @@ Deno.serve(async (req) => {
     // that player as exempt — the trade itself resolves the lockout.
     if (!isServerCall) {
       const teamsInTrade = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
-      for (const tid of teamsInTrade) {
-        const exempt = dropsByTeam.get(tid as string) ?? [];
-        const illegal = await fetchIllegalIRPlayers(supabaseAdmin, proposal.league_id, tid as string, exempt);
+      // Per-team checks are independent — run them together (they were serial).
+      // Results are inspected in the original team order so which team's
+      // lockout error surfaces first is unchanged.
+      const illegalResults = await Promise.all(
+        teamsInTrade.map(async (tid) => ({
+          tid,
+          illegal: await fetchIllegalIRPlayers(
+            supabaseAdmin, proposal.league_id, tid as string, dropsByTeam.get(tid as string) ?? [],
+          ),
+        })),
+      );
+      for (const { tid, illegal } of illegalResults) {
         if (illegal.length > 0) {
           const { data: teamInfo } = await supabaseAdmin.from('teams').select('name').eq('id', tid).single();
           const who = teamInfo?.name ?? 'A team';
@@ -668,13 +700,8 @@ Deno.serve(async (req) => {
       .gte('end_date', todayDate)
       .maybeSingle();
 
-    // Re-validate ownership: ensure every traded player is still on the expected team
-    const { data: currentOwnership } = await supabaseAdmin
-      .from('league_players')
-      .select('player_id, team_id')
-      .eq('league_id', proposal.league_id)
-      .in('player_id', tradedPlayerIds);
-    const ownershipMap = new Map((currentOwnership ?? []).map((r) => [r.player_id, r.team_id]));
+    // Re-validate ownership: ensure every traded player is still on the
+    // expected team (ownershipMap comes from the traded-players fetch above).
     for (const item of playerItems) {
       // playerItems was filtered for non-null player_id above; the supabase row type still surfaces it as nullable.
       if (item.player_id == null) continue;
@@ -784,6 +811,15 @@ Deno.serve(async (req) => {
     });
     if (rpcError) throw rpcError;
 
+    // Everything past the commit is presentation-layer: hype scoring, the
+    // chat announcements, and the push fan-out. None of it feeds the
+    // response, but it used to run synchronously — ~6-12 round trips
+    // (a top-150 stats fetch, chat lookups, an up-to-20-query
+    // counteroffer-chain walk) before "Trade completed!" could return.
+    // Deferred as ONE background task: deferWork keeps the isolate alive
+    // until it settles and logs any failure (all of it is non-fatal — the
+    // trade itself is already committed).
+    deferWork((async () => {
     // Build trade summary for chat announcement
     let hypeTier: 'minor' | 'major' | 'blockbuster' = 'minor';
     try {
@@ -943,34 +979,25 @@ Deno.serve(async (req) => {
     }
 
     // Notify all teams involved in the trade with hype-tiered messaging.
-    // Deferred so the "Trade completed!" response returns before the push
-    // fan-out round-trips (deferWork logs any failure, non-fatal).
     const ln = league?.name ?? 'Your League';
     const tierTitle = hypeTier === 'blockbuster'
       ? `${ln} — BLOCKBUSTER TRADE`
       : hypeTier === 'major'
         ? `${ln} — MAJOR TRADE`
         : `${ln} — Trade Completed`;
-    deferWork(
-      notifyTeams(supabaseAdmin, allTeamIds, 'trades', tierTitle, notes, { screen: 'trades', proposal_id }),
-      'execute-trade trade-completed push',
-    );
+    await notifyTeams(supabaseAdmin, allTeamIds, 'trades', tierTitle, notes, { screen: 'trades', proposal_id });
 
     // Targeted push to any team whose queued drop was unnecessary, so
     // the spared player isn't a surprise on their roster afterwards.
-    // Deferred as one background task off the response path.
-    if (skippedDropsByTeam.size > 0) {
-      deferWork((async () => {
-        for (const [tid, pids] of skippedDropsByTeam) {
-          const names = pids.map((pid) => playerNameMap[pid] ?? 'a player').join(', ');
-          await notifyTeams(supabaseAdmin, [tid], 'trades',
-            'Trade Drop Skipped',
-            `Your trade went through without dropping ${names} — your roster already had room.`,
-            { screen: 'trades', proposal_id }
-          );
-        }
-      })(), 'execute-trade skipped-drop push');
+    for (const [tid, pids] of skippedDropsByTeam) {
+      const names = pids.map((pid) => playerNameMap[pid] ?? 'a player').join(', ');
+      await notifyTeams(supabaseAdmin, [tid], 'trades',
+        'Trade Drop Skipped',
+        `Your trade went through without dropping ${names} — your roster already had room.`,
+        { screen: 'trades', proposal_id }
+      );
     }
+    })(), 'execute-trade post-commit summary/chat/push');
 
     return jsonResponse({ message: 'Trade completed!', transaction_id: txnId });
   } catch (error) {

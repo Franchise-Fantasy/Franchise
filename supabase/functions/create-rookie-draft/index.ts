@@ -9,6 +9,9 @@ import { parseBody, z } from '../_shared/validate.ts';
 
 const Body = z.object({
   league_id: z.string().uuid(),
+  // In-app stays the default; the commissioner can create the draft directly in
+  // offline mode (they can also toggle it later from the rookie-draft hero).
+  is_offline: z.boolean().optional(),
 });
 
 Deno.serve(async (req) => {
@@ -25,7 +28,7 @@ Deno.serve(async (req) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'create-rookie-draft');
     if (rateLimited) return rateLimited;
 
-    const { league_id } = parseBody(Body, await req.json());
+    const { league_id, is_offline } = parseBody(Body, await req.json());
 
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
@@ -157,6 +160,7 @@ Deno.serve(async (req) => {
           time_limit: timeLimit,
           draft_type: 'linear',
           current_pick_number: 1,
+          is_offline: is_offline ?? false,
         })
         .select('id')
         .single();

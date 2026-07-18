@@ -218,7 +218,7 @@ export const rosterStyles = StyleSheet.create({
   // Mono stat line for past-day actuals — matches the Free Agents row pattern.
   slotStatLine: {
     fontFamily: Fonts.mono,
-    fontSize: ms(10),
+    fontSize: ms(11),
     lineHeight: ms(14),
     letterSpacing: 0.4,
     marginTop: s(2),

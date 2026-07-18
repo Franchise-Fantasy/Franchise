@@ -3,10 +3,10 @@ import { useEffect, useState } from 'react';
 import {
   Alert,
   StyleSheet,
-  TextInput,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -182,7 +182,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
     >
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>
         <ThemedText style={styles.rowLabel}>Name</ThemedText>
-        <TextInput
+        <AppTextInput
           accessibilityLabel="League name"
           style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
           value={name}
@@ -231,7 +231,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
 
           <View style={[styles.editRow, { borderBottomColor: c.border }]}>
             <ThemedText style={styles.rowLabel}>Venmo</ThemedText>
-            <TextInput
+            <AppTextInput
               accessibilityLabel="Venmo username"
               style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
               value={venmoUsername}
@@ -245,7 +245,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
 
           <View style={[styles.editRow, { borderBottomColor: c.border }]}>
             <ThemedText style={styles.rowLabel}>Cash App</ThemedText>
-            <TextInput
+            <AppTextInput
               accessibilityLabel="Cash App tag"
               style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
               value={cashappTag}
@@ -259,7 +259,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
 
           <View style={[styles.editRow, { borderBottomColor: c.border }]}>
             <ThemedText style={styles.rowLabel}>PayPal</ThemedText>
-            <TextInput
+            <AppTextInput
               accessibilityLabel="PayPal username"
               style={[styles.textInput, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
               value={paypalUsername}

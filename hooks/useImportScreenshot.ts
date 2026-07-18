@@ -1,5 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 
+import { type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
 import { logger } from '@/utils/logger';
 
@@ -128,8 +129,8 @@ const MAX_PAYLOAD_BYTES = 20 * 1024 * 1024; // 20MB safety limit
 // --- Hooks ---
 
 export function useExtractRoster() {
-  return useMutation<RosterExtractionResult, Error, { images: ImageData[]; team_name?: string }>({
-    mutationFn: async ({ images, team_name }) => {
+  return useMutation<RosterExtractionResult, Error, { images: ImageData[]; team_name?: string; sport: Sport }>({
+    mutationFn: async ({ images, team_name, sport }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not logged in');
 
@@ -138,7 +139,7 @@ export function useExtractRoster() {
       }
 
       const res = await supabase.functions.invoke('import-screenshot-league', {
-        body: { action: 'extract_roster', images, team_name },
+        body: { action: 'extract_roster', images, team_name, sport },
       });
 
       if (res.error) {
@@ -328,13 +329,13 @@ export interface SearchOrCreateResult {
 }
 
 export function useSearchOrCreatePlayer() {
-  return useMutation<SearchOrCreateResult, Error, { name: string; position?: string }>({
-    mutationFn: async ({ name, position }) => {
+  return useMutation<SearchOrCreateResult, Error, { name: string; position?: string; sport: Sport }>({
+    mutationFn: async ({ name, position, sport }) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session) throw new Error('Not logged in');
 
       const res = await supabase.functions.invoke('import-screenshot-league', {
-        body: { action: 'search_or_create_player', name, position },
+        body: { action: 'search_or_create_player', name, position, sport },
       });
 
       if (res.error) {

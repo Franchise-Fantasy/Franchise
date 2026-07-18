@@ -8,11 +8,11 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
@@ -203,7 +203,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
               INVITE BY EMAIL
             </ThemedText>
             <View style={styles.inviteRow}>
-              <TextInput
+              <AppTextInput
                 style={[styles.emailInput, { color: c.text, borderColor: c.border, backgroundColor: c.cardAlt }]}
                 value={inviteEmail}
                 onChangeText={setInviteEmail}

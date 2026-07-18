@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -89,7 +90,7 @@ export function LotteryOddsEditor({ odds, onChange, lotteryTeams }: LotteryOddsE
             </TouchableOpacity>
 
             {editingIdx === i ? (
-              <TextInput
+              <AppTextInput
                 accessibilityLabel={`${POSITION_LABELS[i] ?? `${i + 1}th`} odds percentage`}
                 style={[styles.valueText, styles.valueBox, { color: c.text, borderColor: c.accent }]}
                 value={draft}

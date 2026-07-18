@@ -1,13 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Alert, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
+import { Alert, StyleSheet, TouchableOpacity, View } from 'react-native';
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withTiming,
 } from 'react-native-reanimated';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { type ModalAction } from '@/components/ui/InlineAction';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { Brand } from '@/constants/Colors';
@@ -150,7 +151,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
           <Ionicons name="add-circle" size={ms(28)} color={c.gold} accessible={false} />
         </TouchableOpacity>
       )}
-      <TextInput
+      <AppTextInput
         style={[
           styles.input,
           {

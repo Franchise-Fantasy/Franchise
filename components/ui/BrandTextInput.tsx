@@ -14,6 +14,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
+import { AppTextInput } from './AppTextInput';
 import { SheetRow, useFormSheet } from './formSheet';
 import { ThemedText } from './ThemedText';
 
@@ -68,7 +69,7 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
 
   const field = (
     <View style={inSheet ? styles.sheetField : undefined}>
-      <TextInput
+      <AppTextInput
         ref={ref}
         {...inputProps}
         placeholderTextColor={placeholderTextColor ?? c.secondaryText}

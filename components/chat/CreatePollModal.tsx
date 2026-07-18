@@ -5,11 +5,11 @@ import {
   Alert,
   Platform,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 
+import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
@@ -182,7 +182,7 @@ export function CreatePollModal({
       <ThemedText type="varsitySmall" style={[styles.label, { color: c.secondaryText }]}>
         QUESTION
       </ThemedText>
-      <TextInput
+      <AppTextInput
         accessibilityLabel="Poll question"
         style={[styles.input, { color: c.text, backgroundColor: c.input, borderColor: c.border }]}
         placeholder="What do you want to ask?"
@@ -206,7 +206,7 @@ export function CreatePollModal({
       </ThemedText>
       {options.map((opt, idx) => (
         <View key={idx} style={styles.optionInputRow}>
-          <TextInput
+          <AppTextInput
             accessibilityLabel={`Poll option ${idx + 1}`}
             style={[
               styles.optionInput,

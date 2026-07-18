@@ -11,6 +11,8 @@ import {
   notifyRosteredPlayerNews,
   stripHtml,
 } from '../_shared/news-extract.ts';
+import { hashExternalId, matchPlayersInText } from '../_shared/newsText.ts';
+import { normalizeName } from '../_shared/normalize.ts';
 import { fetchWithRetry } from '../_shared/retry.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { parseRotowireNewsHtml } from './rotowire-html.ts';
@@ -23,6 +25,27 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SB_SECRET_KEY")!,
 );
+
+// External ids we've already decided NOT to insert (HTML-page minors/G-League
+// blurbs that fail requireMatch, items with unparseable dates). They never
+// land in player_news, so the duplicate pre-check below can't filter them —
+// without this cache every such blurb would force the full player-table load
+// on every tick for as long as it stays on RotoWire's news page. Module scope
+// = warm-isolate lifetime; a cold start pays one full pass, then re-learns.
+const rejectedExternalIds = new Set<string>();
+const REJECTED_CACHE_MAX = 1000;
+
+function rememberRejected(id: string) {
+  rejectedExternalIds.add(id);
+  if (rejectedExternalIds.size > REJECTED_CACHE_MAX) {
+    // Sets iterate in insertion order — drop the oldest half.
+    let toDrop = REJECTED_CACHE_MAX / 2;
+    for (const v of rejectedExternalIds) {
+      rejectedExternalIds.delete(v);
+      if (--toDrop <= 0) break;
+    }
+  }
+}
 
 // RotoWire is the PRIMARY, preferred player-news source — curated, fantasy-
 // focused, and polled every minute. poll-news-google only fills coverage gaps
@@ -132,13 +155,14 @@ Deno.serve(async (req: Request) => {
   const RSS_FEEDS = RSS_FEEDS_BY_SPORT[sport];
 
   try {
-    // 1. Fetch the RSS feed twice (0s, 15s). The RSS feed only holds ~5 items,
-    //    but it's the only source with a PRECISE publish time, so we poll it a
-    //    couple of times to catch the freshest items (and any that rapidly
-    //    succeed each other) with real timestamps. The HTML list fetched in
-    //    step 1b provides the depth that used to require 4 rounds, so we no
-    //    longer poll the RSS aggressively just to beat its 5-item cap.
-    const POLL_ROUNDS = 2;
+    // 1. Fetch the RSS feed. The RSS feed only holds ~5 items, and rounds
+    //    exist purely to beat that cap between once-a-minute polls. Sports
+    //    with an HTML news list (step 1b, ~25 items) get their overflow depth
+    //    from it, so a single RSS round suffices — the second round was a
+    //    15-second sleep holding an edge worker every tick (the source of
+    //    poll-news's 16s execution times and the pg_net 5s wait-timeouts).
+    //    WNBA has no confirmed HTML page yet, so it keeps two rounds.
+    const POLL_ROUNDS = HTML_NEWS_BY_SPORT[sport] ? 1 : 2;
     const POLL_INTERVAL_MS = 15_000;
     const seenGuids = new Set<string>();
     const allItems: RssItem[] = [];
@@ -207,8 +231,47 @@ Deno.serve(async (req: Request) => {
 
     console.log(`Fetched ${allItems.length} RSS + ${htmlOverflowItems.length} HTML-overflow unique items`);
 
+    // 1c. Duplicate pre-check: on a typical tick every fetched item is already
+    //     in player_news (or in the rejected cache), so ONE indexed id lookup
+    //     lets us exit before the full player-table load + per-item upsert
+    //     parade that used to run every minute regardless.
+    const candidates: { item: RssItem; requireMatch: boolean; externalId: string }[] = [];
+    for (const item of allItems) {
+      candidates.push({ item, requireMatch: false, externalId: await hashExternalId(item.source, item.guid) });
+    }
+    for (const item of htmlOverflowItems) {
+      candidates.push({ item, requireMatch: true, externalId: await hashExternalId(item.source, item.guid) });
+    }
+
+    const unrejected = candidates.filter((c) => !rejectedExternalIds.has(c.externalId));
+    let knownIds = new Set<string>();
+    if (unrejected.length > 0) {
+      const { data: knownRows, error: knownErr } = await supabase
+        .from('player_news')
+        .select('external_id')
+        .eq('sport', sport)
+        .in('external_id', unrejected.map((c) => c.externalId));
+      if (knownErr) {
+        // Fail open: with an empty known-set every item proceeds to the
+        // upsert path, whose own ignoreDuplicates dedup still holds.
+        console.warn('player_news known-id pre-check failed:', knownErr.message);
+      }
+      knownIds = new Set((knownRows ?? []).map((r) => r.external_id as string));
+    }
+    const toProcess = unrejected.filter((c) => !knownIds.has(c.externalId));
+
+    if (toProcess.length === 0) {
+      await recordHeartbeat(supabase, `poll-news:${sport}`, 'ok');
+      return jsonResponse({
+        message: 'No new items',
+        fetched: candidates.length,
+        inserted: 0,
+      });
+    }
+
     // 2. Load all players for name matching, scoped to this sport so an NBA
-    //    article can't accidentally match a WNBA name (or vice versa).
+    //    article can't accidentally match a WNBA name (or vice versa). Only
+    //    reached when genuinely new items exist.
     const { data: allPlayers, error: playerErr } = await supabase
       .from('players').select('id, name, external_id_nba, status').eq('sport', sport);
     if (playerErr) throw playerErr;
@@ -232,18 +295,25 @@ Deno.serve(async (req: Request) => {
     //    (Player status is never updated from RotoWire — poll-injuries is
     //    authoritative; headline parsing like "Herro: Available Wednesday" is
     //    too imprecise to flip a status safely.)
-    const toInsert: { item: RssItem; requireMatch: boolean }[] = [
-      ...allItems.map((item) => ({ item, requireMatch: false })),
-      ...htmlOverflowItems.map((item) => ({ item, requireMatch: true })),
-    ];
-
     let inserted = 0;
     let mentionsInserted = 0;
     const newArticlePlayerIds = new Set<string>();
     // Map player name → most recent article title (for single-player notification body)
     const newArticleTitles = new Map<string, string>();
 
-    for (const { item, requireMatch } of toInsert) {
+    for (const { item, requireMatch, externalId } of toProcess) {
+      // A requireMatch item with no known-player match is never inserted, so
+      // remember its id — otherwise it defeats the pre-check's early exit on
+      // every tick for as long as it stays on the news page.
+      if (requireMatch) {
+        const matched = matchPlayersInText(
+          normalizeName(`${item.title} ${item.description}`), nameToIds,
+        );
+        if (matched.length === 0) {
+          rememberRejected(externalId);
+          continue;
+        }
+      }
       const { inserted: didInsert, matchedPlayerIds } = await insertNewsArticle(
         supabase, item, sport, nameToIds, playerById, requireMatch,
       );
@@ -270,6 +340,7 @@ Deno.serve(async (req: Request) => {
       fetched: allItems.length + htmlOverflowItems.length,
       rssFetched: allItems.length,
       htmlOverflow: htmlOverflowItems.length,
+      newCandidates: toProcess.length,
       inserted,
       mentionsInserted,
       notificationsSent,
