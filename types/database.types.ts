@@ -765,6 +765,7 @@ export type Database = {
           draft_id: string | null
           id: string
           league_id: string
+          notes: string | null
           original_team_id: string | null
           pick_number: number | null
           player_id: string | null
@@ -781,6 +782,7 @@ export type Database = {
           draft_id?: string | null
           id?: string
           league_id: string
+          notes?: string | null
           original_team_id?: string | null
           pick_number?: number | null
           player_id?: string | null
@@ -797,6 +799,7 @@ export type Database = {
           draft_id?: string | null
           id?: string
           league_id?: string
+          notes?: string | null
           original_team_id?: string | null
           pick_number?: number | null
           player_id?: string | null
@@ -6483,6 +6486,15 @@ export type Database = {
       }
       claim_imported_team: { Args: { team_id_input: string }; Returns: string }
       cleanup_rate_limits: { Args: never; Returns: undefined }
+      commissioner_fix_draft_pick: {
+        Args: {
+          p_current_team_id: string
+          p_notes?: string
+          p_pick_id: string
+          p_round: number
+        }
+        Returns: undefined
+      }
       commissioner_roster_action: {
         Args: {
           p_action: string
@@ -6494,6 +6506,10 @@ export type Database = {
           p_team_id: string
         }
         Returns: Json
+      }
+      commissioner_set_pick_protection: {
+        Args: { p_owner_id?: string; p_pick_id: string; p_threshold?: number }
+        Returns: undefined
       }
       create_playoff_round_atomic: {
         Args: {

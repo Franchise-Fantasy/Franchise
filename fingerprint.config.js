@@ -15,6 +15,16 @@
  *   invalidate the fingerprint via package-lock.json — we only ignore the
  *   installed content, not the dependency declaration.
  *
+ * `sourceSkips: ['GitIgnore']` drops `.gitignore` (fingerprint source reason
+ * `bareGitIgnore`) from the hash. Editing it — e.g. adding a `!scripts/fonts/*.py`
+ * negation — otherwise bumps the runtimeVersion and orphans every later OTA update
+ * from the shipped binary: the app asks the server for its old fingerprint, the
+ * server only has updates under the new one, and `checkForUpdateAsync()` silently
+ * returns `isAvailable: false` — no error, no Install prompt. That stranded build
+ * 103. Nothing we keep in `.gitignore` affects the native surface (this is a CNG
+ * project — `ios/**` and `android/**` are already ignored above), so it has no
+ * business gating OTA compatibility.
+ *
  * @type {import('@expo/fingerprint').Config}
  */
 module.exports = {
@@ -23,4 +33,5 @@ module.exports = {
     'android/**',
     'node_modules/@shopify/react-native-skia/**',
   ],
+  sourceSkips: ['GitIgnore'],
 };

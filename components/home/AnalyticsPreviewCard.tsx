@@ -1,7 +1,8 @@
 import { useRouter } from 'expo-router';
-import { useMemo } from 'react';
+import { useMemo, type ReactNode } from 'react';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { AgeSpectrum } from '@/components/analytics/AgeSpectrum';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { cardShadow } from '@/constants/Colors';
 import { type Sport } from '@/constants/LeagueDefaults';
@@ -15,6 +16,7 @@ import { ordinalSuffix } from '@/utils/formatting';
 import {
   buildLeagueComparison,
   calculateRosterAgeProfile,
+  formatAgeRank,
 } from '@/utils/roster/rosterAge';
 import { isActiveRosterSlot } from '@/utils/roster/rosterSlots';
 import { buildLeagueStrengthComparison } from '@/utils/roster/rosterStrength';
@@ -131,19 +133,13 @@ export function AnalyticsPreviewCard({
     return [...zScores].sort((a, b) => a.zScore - b.zScore)[0];
   }, [zScores]);
 
-  // "4th youngest of 10" / "3rd oldest of 10" — phrased from whichever
-  // end of the age scale is shorter for this team, so the number is
-  // always a small, easily-parsed position.
   const { rankValue, rankSub } = useMemo(() => {
     if (!comparison) return { rankValue: '—', rankSub: '' };
-    const rank = comparison.weightedAgeRank; // 1 = youngest
-    const total = comparison.totalTeams;
-    const fromYoungest = rank <= Math.ceil(total / 2);
-    const n = fromYoungest ? rank : total - rank + 1;
-    return {
-      rankValue: `${n}${ordinalSuffix(n)}`,
-      rankSub: `${fromYoungest ? 'youngest' : 'oldest'} of ${total}`,
-    };
+    const { value, sub } = formatAgeRank(
+      comparison.weightedAgeRank,
+      comparison.totalTeams,
+    );
+    return { rankValue: value, rankSub: sub };
   }, [comparison]);
 
   if (!teamId) return null;
@@ -290,6 +286,16 @@ export function AnalyticsPreviewCard({
                 bigColor={c.text}
                 subColor={c.secondaryText}
                 labelColor={c.secondaryText}
+                footer={
+                  comparison ? (
+                    <AgeSpectrum
+                      compact
+                      profiles={comparison.allProfiles}
+                      teamId={teamId}
+                      rank={comparison.weightedAgeRank}
+                    />
+                  ) : undefined
+                }
               />
             </View>
           )}
@@ -318,6 +324,7 @@ function Column({
   labelColor,
   bigColor,
   subColor,
+  footer,
 }: {
   label: string;
   bigValue: string;
@@ -325,6 +332,8 @@ function Column({
   labelColor: string;
   bigColor: string;
   subColor: string;
+  /** Optional element below the sub-value — the age spectrum uses it. */
+  footer?: ReactNode;
 }) {
   return (
     <View style={styles.column}>
@@ -343,6 +352,7 @@ function Column({
           {subValue}
         </ThemedText>
       )}
+      {footer !== undefined && <View style={styles.colFooter}>{footer}</View>}
     </View>
   );
 }
@@ -415,6 +425,10 @@ const styles = StyleSheet.create({
   colSub: {
     fontSize: ms(10),
     letterSpacing: 0.3,
+  },
+  colFooter: {
+    alignSelf: 'stretch',
+    marginTop: s(6),
   },
   tapHint: {
     flexDirection: 'row',

@@ -1,18 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
-  FlatList,
   ScrollView,
+  SectionList,
   StyleSheet,
   TouchableOpacity,
   View,
 } from 'react-native';
 
 import { PickConditionRow } from '@/components/draft-hub/PickConditionRow';
+import { SectionEyebrow } from '@/components/roster/SectionEyebrow';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
+import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -62,6 +64,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
   // Reassign / fix pick fields
   const [reassignTeamId, setReassignTeamId] = useState('');
   const [reassignRound, setReassignRound] = useState(1);
+  const [reassignNotes, setReassignNotes] = useState('');
 
   function handleClose() {
     setStep('choose');
@@ -74,6 +77,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
     setSwapCounterparty('');
     setReassignTeamId('');
     setReassignRound(1);
+    setReassignNotes('');
     onClose();
   }
 
@@ -123,7 +127,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
     queryFn: async () => {
       const { data, error } = await supabase
         .from('draft_picks')
-        .select('id, season, round, current_team_id, original_team_id, protection_threshold, protection_owner_id')
+        .select('id, season, round, current_team_id, original_team_id, protection_threshold, protection_owner_id, notes')
         .eq('league_id', leagueId)
         .is('player_id', null)
         .in('season', validSeasons)
@@ -137,6 +141,26 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
       (step === 'protection_pick' || step === 'reassign_pick') &&
       !!leagueId,
   });
+
+  // Group the flat pick list into one section per draft year. Without this the
+  // rows are an undifferentiated wall of "2026 2nd / 2026 2nd / 2027 1st ..."
+  // — a commissioner scanning for a specific year has nothing to anchor on.
+  // `allPicks` is already ordered by season then round, so a single pass keeps
+  // the sections in order too.
+  const pickSections = useMemo(() => {
+    type PickRow = NonNullable<typeof allPicks>[number];
+    const bySeason = new Map<string, PickRow[]>();
+    for (const pick of allPicks ?? []) {
+      const existing = bySeason.get(pick.season);
+      if (existing) existing.push(pick);
+      else bySeason.set(pick.season, [pick]);
+    }
+    return [...bySeason].map(([season, data]) => ({
+      // "2026-27" → "2026": the draft happens in the season's start year.
+      title: String(parseInt(season.split('-')[0], 10)),
+      data,
+    }));
+  }, [allPicks]);
 
   // Fetch existing swaps
   const { data: existingSwaps } = useQuery({
@@ -156,20 +180,27 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
   const teamNameMap: Record<string, string> = {};
   for (const t of teams) teamNameMap[t.id] = t.name;
 
+  // Every write below goes through a SECURITY DEFINER RPC. `draft_picks` grants
+  // no UPDATE to `authenticated` any more (20260714000001) — a column-blind grant
+  // let any member rewrite `round` / `pick_number` on their own picks, which
+  // meant trade fraud and a draft-stalling pick_number collision. The RPCs
+  // re-assert the commissioner check and validate the inputs server-side.
+  const invalidatePicks = () => {
+    queryClient.invalidateQueries({ queryKey: queryKeys.commishAllPicks(leagueId) });
+    queryClient.invalidateQueries({ queryKey: ['draftHub'] });
+  };
+
   const handleSetProtection = async () => {
     if (!selectedPick) return;
     setProcessing(true);
     try {
-      const { error } = await supabase
-        .from('draft_picks')
-        .update({
-          protection_threshold: protThreshold,
-          protection_owner_id: protOwnerId || null,
-        })
-        .eq('id', selectedPick.id);
+      const { error } = await supabase.rpc('commissioner_set_pick_protection', {
+        p_pick_id: selectedPick.id,
+        p_threshold: protThreshold,
+        p_owner_id: protOwnerId || undefined,
+      });
       if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['commishAllPicks'] });
-      queryClient.invalidateQueries({ queryKey: ['draftHub'] });
+      invalidatePicks();
       Alert.alert('Success', `Protection set: Top-${protThreshold}`);
       goBack();
     } catch (err: any) {
@@ -183,13 +214,14 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
     if (!selectedPick) return;
     setProcessing(true);
     try {
-      const { error } = await supabase
-        .from('draft_picks')
-        .update({ protection_threshold: null, protection_owner_id: null })
-        .eq('id', selectedPick.id);
+      // Both args omitted → they fall to the RPC's DEFAULT NULL, which is the
+      // "clear this protection" path. (Supabase types the optional params as
+      // `number | undefined`, so `undefined`/omitted is how you send SQL NULL.)
+      const { error } = await supabase.rpc('commissioner_set_pick_protection', {
+        p_pick_id: selectedPick.id,
+      });
       if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['commishAllPicks'] });
-      queryClient.invalidateQueries({ queryKey: ['draftHub'] });
+      invalidatePicks();
       Alert.alert('Success', 'Protection removed');
       goBack();
     } catch (err: any) {
@@ -199,20 +231,23 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
     }
   };
 
-  // Fix a pick the import (or a manual error) got wrong — reassign its owner
-  // and/or correct its round. Direct update, matching the trust model of the
-  // rest of this commissioner tool.
+  // Fix a pick the import (or a manual error) got wrong — reassign its owner,
+  // correct its round, and/or record how it changed hands. The RPC clears
+  // pick_number/slot_number when the round moves, since a round-relative
+  // position stops describing the pick once its round changes.
   const handleReassignPick = async () => {
     if (!selectedPick || !reassignTeamId) return;
     setProcessing(true);
     try {
-      const { error } = await supabase
-        .from('draft_picks')
-        .update({ current_team_id: reassignTeamId, round: reassignRound })
-        .eq('id', selectedPick.id);
+      const notes = reassignNotes.trim();
+      const { error } = await supabase.rpc('commissioner_fix_draft_pick', {
+        p_pick_id: selectedPick.id,
+        p_current_team_id: reassignTeamId,
+        p_round: reassignRound,
+        p_notes: notes || undefined,
+      });
       if (error) throw error;
-      queryClient.invalidateQueries({ queryKey: ['commishAllPicks'] });
-      queryClient.invalidateQueries({ queryKey: ['draftHub'] });
+      invalidatePicks();
       Alert.alert('Success', 'Pick updated');
       goBack();
     } catch (err: any) {
@@ -294,6 +329,7 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
       title={title}
       headerAction={headerAction}
       height="92%"
+      keyboardAvoiding
       scrollableBody={step === 'choose' || step === 'protection_edit' || step === 'swap_edit' || step === 'reassign_edit'}
     >
       {/* Step: Choose */}
@@ -347,23 +383,38 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
         picksLoading ? (
           <View style={styles.loading}><LogoSpinner /></View>
         ) : (
-          <FlatList
-            data={allPicks}
+          <SectionList
+            sections={pickSections}
             keyExtractor={(item) => item.id}
-            renderItem={({ item, index }) => {
+            stickySectionHeadersEnabled={false}
+            renderSectionHeader={({ section }) => (
+              <View style={[styles.sectionHeader, { backgroundColor: c.background }]}>
+                <SectionEyebrow
+                  label={section.title}
+                  right={
+                    <ThemedText style={[styles.sectionCount, { color: c.secondaryText }]}>
+                      {section.data.length}
+                    </ThemedText>
+                  }
+                />
+              </View>
+            )}
+            renderItem={({ item, index, section }) => {
               const ownerName = teamNameMap[item.current_team_id ?? ''] ?? '?';
               const protectionOwnerName =
                 teamNameMap[item.protection_owner_id ?? ''] ?? ownerName;
+              const isLastInSection = index === section.data.length - 1;
               return (
                 <TouchableOpacity
                   accessibilityRole="button"
-                  accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${ownerName}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}`}
-                  style={[styles.pickCell, { borderBottomColor: c.border }, index === (allPicks ?? []).length - 1 && { borderBottomWidth: 0 }]}
+                  accessibilityLabel={`${formatPickLabel(item.season, item.round)}, Owner: ${ownerName}${item.protection_threshold ? `, Top-${item.protection_threshold} protected` : ''}${item.notes ? `, note: ${item.notes}` : ''}`}
+                  style={[styles.pickCell, { borderBottomColor: c.border }, isLastInSection && { borderBottomWidth: 0 }]}
                   onPress={() => {
                     setSelectedPick(item);
                     if (step === 'reassign_pick') {
                       setReassignTeamId(item.current_team_id ?? '');
                       setReassignRound(item.round);
+                      setReassignNotes(item.notes ?? '');
                       setStep('reassign_edit');
                     } else {
                       setProtThreshold(item.protection_threshold ?? 3);
@@ -383,6 +434,17 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
                     </View>
                     <Ionicons name="chevron-forward" size={16} color={c.secondaryText} />
                   </View>
+                  {item.notes ? (
+                    <View style={styles.noteRow}>
+                      <Ionicons name="document-text-outline" size={12} color={c.secondaryText} accessible={false} />
+                      <ThemedText
+                        style={[styles.noteText, { color: c.secondaryText }]}
+                        numberOfLines={2}
+                      >
+                        {item.notes}
+                      </ThemedText>
+                    </View>
+                  ) : null}
                   {item.protection_threshold ? (
                     <View style={styles.storyLineWrap}>
                       <PickConditionRow
@@ -512,6 +574,20 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
               {reassignTeamId === t.id && <Ionicons name="checkmark" size={18} color={c.accent} />}
             </TouchableOpacity>
           ))}
+
+          <BrandTextInput
+            label="NOTES"
+            value={reassignNotes}
+            onChangeText={setReassignNotes}
+            placeholder="e.g. Traded from Yogis Balls for Ja Morant, Aug 2025 (pre-import)"
+            helperText="Optional. Record history the app didn't see — a trade made before the import, or off-app. Anyone in the league can read this, so keep it to pick history."
+            multiline
+            numberOfLines={3}
+            maxLength={500}
+            inputStyle={styles.notesInput}
+            containerStyle={{ marginTop: s(16) }}
+            accessibilityLabel="Pick notes"
+          />
 
           <BrandButton
             label="Save Pick"
@@ -662,6 +738,20 @@ const styles = StyleSheet.create({
     gap: s(8),
   },
   pickSub: { fontSize: ms(12), fontWeight: '500' },
+  sectionHeader: { paddingTop: s(14), paddingBottom: s(2) },
+  sectionCount: { fontSize: ms(12), fontWeight: '600' },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: s(5),
+    paddingTop: s(6),
+  },
+  noteText: { flex: 1, fontSize: ms(11), lineHeight: ms(15) },
+  notesInput: {
+    minHeight: s(80),
+    fontSize: ms(14),
+    textAlignVertical: 'top',
+  },
   storyLineWrap: { paddingTop: s(6) },
   editButtons: { flexDirection: 'row', gap: s(10), marginTop: s(20) },
   teamOption: {

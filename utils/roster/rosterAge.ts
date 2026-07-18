@@ -1,5 +1,6 @@
 import { AGE_BUCKET_COLORS } from '@/constants/StatusColors';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { ordinalSuffix } from '@/utils/formatting';
 import { effectiveFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 
@@ -211,49 +212,26 @@ export function buildLeagueComparison(
   };
 }
 
-export function getInsightText(
-  profile: RosterAgeProfile,
-  comparison?: LeagueAgeComparison | null,
-): string {
-  const { risingCount, primeCount, vetCount, avgAge, weightedProductionAge } = profile;
-
-  // Build composition string
-  const parts: string[] = [];
-  if (primeCount > 0) parts.push(`${primeCount} prime-age`);
-  if (risingCount > 0) parts.push(`${risingCount} rising`);
-  if (vetCount > 0) parts.push(`${vetCount} veteran`);
-  const composition = parts.length > 0 ? parts.join(', ') : null;
-
-  // League-aware insight
-  if (comparison) {
-    const rank = comparison.weightedAgeRank;
-    const total = comparison.totalTeams;
-
-    let rankLabel: string;
-    if (rank === 1) rankLabel = 'Youngest roster in league';
-    else if (rank === total) rankLabel = 'Oldest roster in league';
-    else if (rank <= Math.ceil(total / 2)) rankLabel = `${ordinal(rank)} youngest of ${total} teams`;
-    else rankLabel = `${ordinal(total - rank + 1)} oldest of ${total} teams`;
-
-    return composition ? `${rankLabel} — ${composition}` : rankLabel;
-  }
-
-  // Fallback: team-only insight using weighted vs raw gap
-  const diff = weightedProductionAge - avgAge;
-  const gap = Math.abs(diff).toFixed(1);
-
-  let detail: string;
-  if (diff > 1) detail = `Production weighted ${gap}yr above raw average`;
-  else if (diff < -1) detail = `Production weighted ${gap}yr below raw average`;
-  else detail = 'Balanced age profile';
-
-  return composition ? `${detail} — ${composition}` : detail;
-}
-
-function ordinal(n: number): string {
-  const s = ['th', 'st', 'nd', 'rd'];
-  const v = n % 100;
-  return n + (s[(v - 20) % 10] || s[v] || s[0]);
+/**
+ * The league-position label, always counted up from the youngest team —
+ * "9th" / "youngest of 12".
+ *
+ * Both age cards (the analytics narrative card and the home preview) render
+ * this, and they used to each mirror the rank past the halfway mark on their
+ * own — rank 9 of 12 became "4th oldest". Two teams' cards then read on
+ * opposite scales, which is what made the number impossible to compare. One
+ * formatter means a direction change can only ever happen in one place.
+ *
+ * `sub` is lowercase; callers that render in varsity caps uppercase it.
+ */
+export function formatAgeRank(
+  rank: number,
+  totalTeams: number,
+): { value: string; sub: string } {
+  return {
+    value: `${rank}${ordinalSuffix(rank)}`,
+    sub: `youngest of ${totalTeams}`,
+  };
 }
 
 export const PEAK_YEARS = { start: 25, end: 30 };

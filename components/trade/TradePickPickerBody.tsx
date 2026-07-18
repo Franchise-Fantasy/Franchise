@@ -17,10 +17,9 @@ export interface TradablePickRow {
   current_team_id: string;
   original_team_id: string;
   original_team_name: string;
-  /** Resolved pick slot — set post-lottery (from `slot_number`) or pre-lottery
-   *  via reverse-standings projection. Null when no standings data is available
-   *  yet (e.g. brand-new league). */
-  display_slot: number | null;
+  /** Overall pick number (`draft_picks.pick_number`). Null until the draft
+   *  order is determined, so future picks show no number. */
+  display_pick: number | null;
   /** Protection already carried by the pick (set by an earlier trade). A pick
    *  holds at most one protection — execute-trade rejects adding another. */
   protection_threshold: number | null;
@@ -94,7 +93,7 @@ export function TradePickPickerBody({
       <View>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel={`${formatPickLabel(item.season, item.round, item.display_slot)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${existingProtection != null ? `, already Top-${existingProtection} protected${item.protection_owner_name ? ` for ${item.protection_owner_name}` : ''}` : ''}${item.swap_info ? `, in a pick swap with ${item.swap_info.partner_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
+          accessibilityLabel={`${formatPickLabel(item.season, item.round, item.display_pick)}${isLocked ? ', in active trade' : ''}${isTraded ? `, via ${item.original_team_name}` : ''}${existingProtection != null ? `, already Top-${existingProtection} protected${item.protection_owner_name ? ` for ${item.protection_owner_name}` : ''}` : ''}${item.swap_info ? `, in a pick swap with ${item.swap_info.partner_name}` : ''}${protection != null ? `, Top-${protection} protected` : ''}`}
           accessibilityState={{ selected: isSelected, disabled: isLocked }}
           disabled={isLocked}
           style={[
@@ -117,7 +116,7 @@ export function TradePickPickerBody({
                 type="defaultSemiBold"
                 style={[styles.pickName, { color: c.text }]}
               >
-                {formatPickLabel(item.season, item.round, item.display_slot)}
+                {formatPickLabel(item.season, item.round, item.display_pick)}
               </ThemedText>
               {existingProtection != null && (
                 <Badge label={`Top ${existingProtection} protected`} variant="warning" size="small" />

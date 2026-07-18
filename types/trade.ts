@@ -111,10 +111,10 @@ export interface TradeBuilderPick {
   round: number;
   original_team_name: string;
   estimated_fpts: number;
-  /** Resolved pick slot — set post-lottery (or pre-lottery via reverse-standings)
-   *  so the lane label reads "2026 1st · Pick 4" instead of just "2026 1st"
-   *  when the slot is known. Null when no slot data is available yet. */
-  display_slot?: number | null;
+  /** Overall pick number (`draft_picks.pick_number`) so the lane label reads
+   *  "2026 1st · Pick 4". Null until the draft order is actually determined —
+   *  see `formatPickLabel`. */
+  display_pick?: number | null;
   to_team_id: string; // destination team for this asset
   protection_threshold?: number; // top-N protected (undefined = unprotected)
 }
@@ -149,12 +149,21 @@ export function estimatePickFpts(round: number): number {
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
 
-/** Format a draft pick for display: "2026 1st", "2027 2nd", etc. */
-export function formatPickLabel(season: string, round: number, slotNumber?: number | null): string {
+/**
+ * Format a draft pick for display: "2026 1st", "2027 2nd", etc.
+ *
+ * `pickNumber` is the OVERALL pick (`draft_picks.pick_number`), not the team's
+ * round-relative slot — a team drafting 8th in a 10-team league holds pick 8 in
+ * round 1 and pick 18 in round 2. Pass it only when the draft order is actually
+ * determined; `pick_number` is null until then (future seasons carry a
+ * placeholder `slot_number` that means nothing — see `buildFutureDraftPicks`),
+ * and the label correctly degrades to "2027 1st" with no invented number.
+ */
+export function formatPickLabel(season: string, round: number, pickNumber?: number | null): string {
   // Draft for "2026-27" season happens in summer 2026, so use the start year
   const year = parseInt(season.split('-')[0], 10);
   const base = `${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
-  if (slotNumber != null) return `${base} · Pick ${slotNumber}`;
+  if (pickNumber != null) return `${base} · Pick ${pickNumber}`;
   return base;
 }
 

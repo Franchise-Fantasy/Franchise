@@ -4,30 +4,21 @@ import { formatSeason, getCurrentSeason, parseSeasonStartYear, type Sport } from
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
 
-// Data source: draft_picks owned by a team (with drafts join + reverse-standings
-// derivation of display_slot from archived team_seasons).
+// Data source: draft_picks owned by a team (with drafts join).
 
 export function useTeamTradablePicks(teamId: string | null, leagueId: string | null, draftPickTradingEnabled: boolean = true) {
   return useQuery({
     queryKey: queryKeys.tradablePicks(teamId!, leagueId!, draftPickTradingEnabled),
     queryFn: async () => {
-      // Get max_future_seasons + offseason state from league
+      // Get max_future_seasons + season from league
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, offseason_step, lottery_status, season, sport')
+        .select('max_future_seasons, season, sport')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
 
       const sport = (league?.sport as Sport | null) ?? 'nba';
-      const offseasonStep = league?.offseason_step as string | null;
-      const lotteryComplete =
-        league?.lottery_status === 'complete' ||
-        offseasonStep === 'lottery_complete' ||
-        offseasonStep === 'rookie_draft_pending' ||
-        offseasonStep === 'rookie_draft_complete' ||
-        offseasonStep === 'ready_for_new_season';
-
       const maxFuture = league?.max_future_seasons ?? 3;
       const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
 
@@ -42,7 +33,7 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
       // Join drafts(type) to distinguish initial vs rookie draft picks
       const { data: picks, error: picksError } = await supabase
         .from('draft_picks')
-        .select('id, season, round, pick_number, slot_number, current_team_id, original_team_id, player_id, league_id, protection_threshold, protection_owner_id, drafts(type)')
+        .select('id, season, round, pick_number, current_team_id, original_team_id, player_id, league_id, protection_threshold, protection_owner_id, drafts(type)')
         .eq('current_team_id', teamId!)
         .eq('league_id', leagueId!)
         .is('player_id', null)
@@ -74,35 +65,8 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
         if (teams) nameMap = Object.fromEntries(teams.map((t) => [t.id, t.name]));
       }
 
-      // Derive a reverse-standings index from the most recent archived
-      // team_seasons rows so we can compute display_slot for picks whose
-      // stored slot_number is stale or unset. Only meaningful when there's
-      // actual archived data — otherwise we leave display_slot null rather
-      // than inventing a position.
-      const reverseStandingIndex: Record<string, number> = {};
-      let hasStandings = false;
-      const { data: archived } = await supabase
-        .from('team_seasons')
-        .select('team_id, final_standing, season')
-        .eq('league_id', leagueId!)
-        .order('season', { ascending: false });
-      if (archived && archived.length > 0) {
-        const latestSeason = archived[0].season;
-        const latestRows = archived
-          .filter((r) => r.season === latestSeason)
-          .sort((a, b) => (b.final_standing ?? 0) - (a.final_standing ?? 0)); // worst first
-        latestRows.forEach((r, i) => { reverseStandingIndex[r.team_id] = i; });
-        hasStandings = latestRows.length > 0;
-      }
-
       const results = (picks ?? []).map((p) => {
         const origId = p.original_team_id ?? '';
-        let displaySlot: number | null = null;
-        if (lotteryComplete && p.slot_number != null) {
-          displaySlot = p.slot_number;
-        } else if (hasStandings && reverseStandingIndex[origId] != null) {
-          displaySlot = reverseStandingIndex[origId] + 1;
-        }
         // A swap right applies to whatever pick this team holds in that
         // (season, round) — flag it so the picker shows the pick isn't a
         // clean asset. First matching swap wins for the label.
@@ -120,7 +84,11 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
           original_team_name: nameMap[origId] ?? 'Unknown',
           protection_owner_name: p.protection_owner_id ? nameMap[p.protection_owner_id] ?? null : null,
           swap_info: swapInfo,
-          display_slot: displaySlot,
+          // The overall pick, straight from the DB. Null until the draft order
+          // is set (lottery run / draft created), which is exactly when we want
+          // the label to omit the number rather than invent one — a future
+          // pick's `slot_number` is a placeholder, not a draft position.
+          display_pick: p.pick_number,
         };
       });
 

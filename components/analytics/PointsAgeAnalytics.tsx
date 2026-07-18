@@ -17,7 +17,6 @@ import {
   LayoutChangeEvent,
   Platform,
   ScrollView,
-  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -31,20 +30,24 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 
+import { AgeSpectrum } from "@/components/analytics/AgeSpectrum";
 import { AnalyticsEmptyState } from "@/components/analytics/AnalyticsEmptyState";
 import { DependencyRiskCard } from "@/components/analytics/DependencyRiskCard";
+import {
+  CHART_HEIGHT,
+  styles,
+} from "@/components/analytics/PointsAgeAnalyticsStyles";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { type PositionCurve } from "@/constants/agingCurves";
-import { Brand, Fonts, cardShadow } from "@/constants/Colors";
+import { Brand, cardShadow } from "@/constants/Colors";
 import { getCurrentSeason, type Sport } from "@/constants/LeagueDefaults";
 import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
 import { PlayerSeasonStats, ScoringWeight } from "@/types/player";
-import { ordinalSuffix } from "@/utils/formatting";
 import {
   AgeFptsPoint,
   BUCKET_COLORS,
@@ -53,6 +56,7 @@ import {
   buildLeagueComparison,
   buildScatterData,
   calculateRosterAgeProfile,
+  formatAgeRank,
 } from "@/utils/roster/rosterAge";
 import { getEligiblePositions } from "@/utils/roster/rosterSlots";
 import { ms, s } from "@/utils/scale";
@@ -62,9 +66,9 @@ import {
 } from "@/utils/scoring/fantasyPoints";
 
 // ─── Chart layout ────────────────────────────────────────────────────────────
+// CHART_HEIGHT lives in the styles module — the chart container's style needs it.
 
 const PAD = { top: s(16), right: s(12), bottom: s(36), left: s(40) };
-const CHART_HEIGHT = s(400);
 const DOT_RADIUS = s(6);
 
 /** Tap radius, in screen pixels. Marks render at a fixed size no matter how far
@@ -581,83 +585,89 @@ export function PointsAgeAnalytics({
         </ThemedText>
 
         {(() => {
-          // Same two-column shape AnalyticsPreviewCard uses on the
-          // home screen — Weighted Age + League Position. Phrased
-          // from whichever end of the age scale is shorter so the
-          // ordinal stays small and easily-parsed.
+          // Same two-column shape AnalyticsPreviewCard uses on the home
+          // screen — Weighted Age + League Position — over a spectrum strip
+          // that places every team on one youngest→oldest axis.
           const vsLeague = comparison
             ? profile.weightedProductionAge - comparison.leagueAvgWeightedAge
             : null;
-          let rankValue = '—';
-          let rankSub = '';
-          if (comparison) {
-            const total = comparison.totalTeams;
-            const fromYoungest = comparison.weightedAgeRank <= Math.ceil(total / 2);
-            const n = fromYoungest
-              ? comparison.weightedAgeRank
-              : total - comparison.weightedAgeRank + 1;
-            rankValue = `${n}${ordinalSuffix(n)}`;
-            rankSub = `${fromYoungest ? 'youngest' : 'oldest'} of ${total}`;
-          }
+          const rank = comparison?.weightedAgeRank ?? null;
+          const ranked = comparison
+            ? formatAgeRank(comparison.weightedAgeRank, comparison.totalTeams)
+            : null;
+          const rankValue = ranked?.value ?? '—';
+          const rankSub = ranked ? ranked.sub.toUpperCase() : '';
           return (
-            <View style={styles.columnsRow}>
-              <View style={styles.column}>
-                <ThemedText
-                  type="varsitySmall"
-                  style={[styles.columnLabel, { color: c.secondaryText }]}
-                >
-                  WEIGHTED AGE
-                </ThemedText>
-                <ThemedText
-                  type="display"
-                  style={[styles.columnBig, { color: c.text }]}
-                  numberOfLines={1}
-                >
-                  {profile.weightedProductionAge}
-                </ThemedText>
-                {vsLeague !== null ? (
+            <>
+              <View style={styles.columnsRow}>
+                <View style={styles.column}>
                   <ThemedText
                     type="varsitySmall"
-                    style={[styles.columnSub, { color: c.secondaryText }]}
+                    style={[styles.columnLabel, { color: c.secondaryText }]}
                   >
-                    {`${vsLeague >= 0 ? '+' : ''}${vsLeague.toFixed(1)}YR VS AVG`}
+                    WEIGHTED AGE
                   </ThemedText>
-                ) : null}
-              </View>
+                  <ThemedText
+                    type="display"
+                    style={[styles.columnBig, { color: c.text }]}
+                    numberOfLines={1}
+                  >
+                    {profile.weightedProductionAge}
+                  </ThemedText>
+                  {vsLeague !== null ? (
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.columnSub, { color: c.secondaryText }]}
+                    >
+                      {`${vsLeague >= 0 ? '+' : ''}${vsLeague.toFixed(1)}YR VS AVG`}
+                    </ThemedText>
+                  ) : null}
+                </View>
 
-              <View style={[styles.columnDivider, { backgroundColor: c.border }]} />
+                <View style={[styles.columnDivider, { backgroundColor: c.border }]} />
 
-              <View
-                style={styles.column}
-                accessibilityLabel={
-                  comparison
-                    ? `${rankValue} ${rankSub}`
-                    : 'League position unavailable'
-                }
-              >
-                <ThemedText
-                  type="varsitySmall"
-                  style={[styles.columnLabel, { color: c.secondaryText }]}
+                <View
+                  style={styles.column}
+                  accessibilityLabel={
+                    comparison
+                      ? `${rankValue} ${rankSub.toLowerCase()}`
+                      : 'League position unavailable'
+                  }
                 >
-                  LEAGUE POSITION
-                </ThemedText>
-                <ThemedText
-                  type="display"
-                  style={[styles.columnBig, { color: c.text }]}
-                  numberOfLines={1}
-                >
-                  {rankValue}
-                </ThemedText>
-                {rankSub ? (
                   <ThemedText
                     type="varsitySmall"
-                    style={[styles.columnSub, { color: c.secondaryText }]}
+                    style={[styles.columnLabel, { color: c.secondaryText }]}
                   >
-                    {rankSub.toUpperCase()}
+                    LEAGUE POSITION
                   </ThemedText>
-                ) : null}
+                  <ThemedText
+                    type="display"
+                    style={[styles.columnBig, { color: c.text }]}
+                    numberOfLines={1}
+                  >
+                    {rankValue}
+                  </ThemedText>
+                  {rankSub ? (
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[styles.columnSub, { color: c.secondaryText }]}
+                    >
+                      {rankSub}
+                    </ThemedText>
+                  ) : null}
+                </View>
               </View>
-            </View>
+
+              {comparison && rank !== null ? (
+                <View style={styles.spectrumWrap}>
+                  <AgeSpectrum
+                    profiles={comparison.allProfiles}
+                    teamId={teamId}
+                    rank={rank}
+                  />
+                </View>
+              ) : null}
+            </>
           );
         })()}
       </View>
@@ -1176,9 +1186,17 @@ export function PointsAgeAnalytics({
         title="How to Read This Chart"
       >
         <Text style={[styles.modalText, { color: c.secondaryText }]}>
-          Each dot is a player on the roster, plotted by age (x-axis) and
-          average fantasy points per game (y-axis). Tap any dot to see player
-          details.
+          The strip up top places every team in the league on a single
+          youngest-to-oldest axis by weighted age. Each dot is a team, sitting
+          at its real weighted age — so a tight cluster means the league is
+          evenly aged, and a dot out on its own means that roster is an
+          outlier. The highlighted dot is the team you're viewing.
+        </Text>
+
+        <Text style={[styles.modalText, { color: c.secondaryText }]}>
+          Each dot on the chart below is a player on the roster, plotted by age
+          (x-axis) and average fantasy points per game (y-axis). Tap any dot to
+          see player details.
         </Text>
 
         <Text style={[styles.modalText, { color: c.secondaryText }]}>
@@ -1240,247 +1258,3 @@ export function PointsAgeAnalytics({
   );
 }
 
-const styles = StyleSheet.create({
-  scrollContent: {
-    paddingBottom: s(32),
-  },
-
-  // Narrative Card — mirrors AnalyticsPreviewCard chrome
-  narrativeCard: {
-    position: "relative",
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(16),
-    paddingTop: s(18),
-    paddingBottom: s(14),
-    marginBottom: s(14),
-    overflow: "hidden",
-  },
-  topNotch: {
-    position: "absolute",
-    top: 0,
-    left: s(16),
-    height: 3,
-    width: s(44),
-  },
-  eyebrow: {
-    fontSize: ms(10),
-    letterSpacing: 1.3,
-    marginBottom: s(12),
-  },
-  columnsRow: {
-    flexDirection: "row",
-    alignItems: "stretch",
-  },
-  column: {
-    flex: 1,
-    alignItems: "flex-start",
-    justifyContent: "center",
-    paddingHorizontal: s(2),
-  },
-  columnLabel: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.2,
-    marginBottom: s(4),
-  },
-  columnBig: {
-    fontFamily: Fonts.display,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.3,
-    marginBottom: s(2),
-  },
-  columnSub: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.0,
-  },
-  columnDivider: {
-    width: 1,
-    marginHorizontal: s(8),
-  },
-  curveToggleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: s(12),
-    paddingHorizontal: 2,
-    gap: s(8),
-  },
-  curveToggleChips: {
-    flex: 1,
-    flexDirection: "row",
-    gap: s(6),
-  },
-  curveToggleInfo: {
-    padding: s(2),
-  },
-  curveTogglePill: {
-    minWidth: s(40),
-    paddingHorizontal: s(10),
-    paddingVertical: s(6),
-    borderRadius: 6,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  curveToggleText: {
-    fontSize: ms(11),
-    letterSpacing: 1.0,
-  },
-
-  // Anchors the FIT pill over the chart. The pill is a sibling of the
-  // GestureDetector rather than a child, so its press doesn't also land as a
-  // chart tap.
-  chartWrap: {
-    position: "relative",
-  },
-  // Chart — positioned relative so text overlays work; overflow hidden keeps a
-  // half-clipped edge dot from spilling into the axis gutters.
-  chartArea: {
-    marginBottom: 0,
-    position: "relative",
-    height: CHART_HEIGHT,
-    overflow: "hidden",
-  },
-  fitPill: {
-    position: "absolute",
-    top: s(4),
-    right: s(4),
-    minWidth: s(44),
-    paddingHorizontal: s(10),
-    paddingVertical: s(6),
-    borderRadius: 6,
-    borderWidth: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fitPillText: {
-    fontSize: ms(11),
-    letterSpacing: 1.0,
-  },
-
-  // Absolutely positioned text labels over the Canvas
-  axisLabel: {
-    position: "absolute",
-    fontSize: ms(11),
-    fontWeight: "500",
-  },
-  axisTitleLabel: {
-    position: "absolute",
-    fontSize: ms(11),
-    fontWeight: "700",
-  },
-  indicatorLabel: {
-    position: "absolute",
-    fontSize: ms(8),
-    fontWeight: "700",
-    letterSpacing: 0.5,
-  },
-  playerNameLabel: {
-    position: "absolute",
-    fontSize: ms(9),
-  },
-
-  // Detail Card — gold-rule eyebrow + Alfa Slab name + Badge.
-  detailCard: {
-    borderWidth: 1,
-    borderRadius: 12,
-    padding: s(14),
-    marginBottom: s(8),
-    marginTop: s(8),
-    // Floor sits just above the natural populated-content height so the card
-    // doesn't resize between the empty hint and a player. minHeight (not a
-    // fixed height) still lets it grow gracefully under large-font settings.
-    minHeight: s(118),
-    justifyContent: "center",
-  },
-  detailEyebrowRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(8),
-    marginBottom: s(8),
-  },
-  detailRule: {
-    height: 2,
-    width: s(18),
-  },
-  detailEyebrow: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.3,
-  },
-  detailHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: s(10),
-  },
-  detailHeaderLeft: {
-    flex: 1,
-    minWidth: 0,
-  },
-  detailName: {
-    fontFamily: Fonts.display,
-    fontSize: ms(18),
-    lineHeight: ms(22),
-    letterSpacing: -0.2,
-  },
-  detailMeta: {
-    fontSize: ms(10),
-    letterSpacing: 1.2,
-    marginTop: s(2),
-  },
-  detailFpts: {
-    alignItems: "flex-end",
-  },
-  detailFptsValue: {
-    fontFamily: Fonts.display,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.3,
-  },
-  detailFptsLabel: {
-    fontSize: ms(9),
-    letterSpacing: 1.0,
-    marginTop: s(1),
-  },
-  detailBadges: {
-    flexDirection: "row",
-    gap: s(8),
-    marginTop: s(8),
-  },
-  detailHintWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: s(20),
-  },
-  detailHint: {
-    fontSize: ms(10),
-    letterSpacing: 1.2,
-    textAlign: "center",
-  },
-
-  // Info modal content (rendered inside shared InfoModal)
-  modalText: {
-    fontSize: ms(13),
-    lineHeight: ms(19),
-    marginBottom: s(12),
-  },
-  modalSwatchRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: s(5),
-    marginBottom: s(12),
-  },
-  modalSwatch: {
-    width: s(10),
-    height: s(10),
-    borderRadius: 5,
-  },
-  modalSwatchLabel: {
-    fontSize: ms(12),
-    fontWeight: "500",
-  },
-
-  footnote: { fontSize: ms(10), fontStyle: "italic", textAlign: "center" },
-});

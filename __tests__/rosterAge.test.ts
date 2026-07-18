@@ -4,7 +4,7 @@ import {
   buildLeagueComparison,
   calculateAge,
   calculateRosterAgeProfile,
-  getInsightText,
+  formatAgeRank,
   shortDisplayName,
 } from '@/utils/roster/rosterAge';
 
@@ -176,45 +176,49 @@ describe('buildLeagueComparison', () => {
     );
     expect(aFirst!.weightedAgeRank).toBe(bFirst!.weightedAgeRank);
   });
+
+  // The age spectrum draws one dot per entry in allProfiles and finds the
+  // charted team inside it, so every qualifying team has to be there — a team
+  // missing from the strip would silently misrepresent the league's spread.
+  it('returns every qualifying team in allProfiles, sorted youngest first', () => {
+    const team = (teamId: string, birthdate: string) =>
+      [1, 2, 3].map((i) => ({
+        ...makePlayer({ player_id: `${teamId}${i}`, birthdate, games_played: 10, total_pts: 200 }),
+        team_id: teamId,
+      }));
+    const players = [
+      ...team('team-old', '1990-06-01'),
+      ...team('team-young', '2003-06-01'),
+      ...team('team-mid', '1998-06-01'),
+    ];
+
+    const comp = buildLeagueComparison(players as any, WEIGHTS, 'team-mid');
+
+    expect(comp!.allProfiles.map((p) => p.teamId)).toEqual([
+      'team-young',
+      'team-mid',
+      'team-old',
+    ]);
+    expect(comp!.totalTeams).toBe(3);
+    expect(comp!.weightedAgeRank).toBe(2);
+  });
 });
 
-describe('getInsightText', () => {
-  it('says "Balanced age profile" when no comparison and gap is small', () => {
-    const profile = { avgAge: 27, weightedProductionAge: 27.2, risingCount: 0, primeCount: 5, vetCount: 0, totalWithAge: 5 };
-    expect(getInsightText(profile)).toContain('Balanced age profile');
+describe('formatAgeRank', () => {
+  // The cards used to mirror the rank once it passed the halfway mark, so rank
+  // 9 of 12 rendered as "4th oldest" — two teams' cards then read on opposite
+  // scales. Every rank must count up from the youngest team, including the
+  // ones in the old half.
+  it('counts up from the youngest team at every rank', () => {
+    expect(formatAgeRank(1, 12)).toEqual({ value: '1st', sub: 'youngest of 12' });
+    expect(formatAgeRank(6, 12)).toEqual({ value: '6th', sub: 'youngest of 12' });
+    expect(formatAgeRank(9, 12)).toEqual({ value: '9th', sub: 'youngest of 12' });
+    expect(formatAgeRank(12, 12)).toEqual({ value: '12th', sub: 'youngest of 12' });
   });
 
-  it('includes composition counts when present', () => {
-    const profile = { avgAge: 27, weightedProductionAge: 27, risingCount: 2, primeCount: 3, vetCount: 1, totalWithAge: 6 };
-    const text = getInsightText(profile);
-    expect(text).toContain('prime');
-    expect(text).toContain('rising');
-    expect(text).toContain('veteran');
-  });
-
-  it('says "Youngest roster in league" when ranked 1st', () => {
-    const profile = { avgAge: 23, weightedProductionAge: 23, risingCount: 5, primeCount: 0, vetCount: 0, totalWithAge: 5 };
-    const text = getInsightText(profile, {
-      myProfile: { ...profile, teamId: 'a' },
-      leagueAvgWeightedAge: 27,
-      leagueAvgRosterAge: 27,
-      weightedAgeRank: 1,
-      totalTeams: 12,
-      allProfiles: [],
-    });
-    expect(text).toContain('Youngest roster in league');
-  });
-
-  it('says "Oldest roster in league" when ranked last', () => {
-    const profile = { avgAge: 33, weightedProductionAge: 33, risingCount: 0, primeCount: 0, vetCount: 5, totalWithAge: 5 };
-    const text = getInsightText(profile, {
-      myProfile: { ...profile, teamId: 'a' },
-      leagueAvgWeightedAge: 27,
-      leagueAvgRosterAge: 27,
-      weightedAgeRank: 12,
-      totalTeams: 12,
-      allProfiles: [],
-    });
-    expect(text).toContain('Oldest roster in league');
+  it('never says "oldest"', () => {
+    for (let rank = 1; rank <= 12; rank++) {
+      expect(formatAgeRank(rank, 12).sub).not.toContain('oldest');
+    }
   });
 });

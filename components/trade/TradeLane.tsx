@@ -277,7 +277,7 @@ function PickAssetRow({
   onRemove: () => void;
 }) {
   const c = useColors();
-  const label = formatPickLabel(pick.season, pick.round, pick.display_slot);
+  const label = formatPickLabel(pick.season, pick.round, pick.display_pick);
   const via = pick.original_team_name ? `via ${pick.original_team_name}` : null;
 
   return (

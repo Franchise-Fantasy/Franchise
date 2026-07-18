@@ -482,7 +482,7 @@ export function ProposeTradeModal({
           round: pick.round,
           original_team_name: pick.original_team_name,
           estimated_fpts: estimatePickFpts(pick.round),
-          display_slot: pick.display_slot,
+          display_pick: pick.display_pick,
           to_team_id: getDefaultDest(forTeamId),
         },
       });
