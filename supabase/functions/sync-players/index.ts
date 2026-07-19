@@ -364,11 +364,34 @@ Deno.serve(async (req: Request) => {
 
     // 4. Fetch our existing players, scoped to this sport (BDL ID namespaces
     // are separate per sport, so cross-sport name collisions don't matter).
-    const { data: existing, error: fetchErr } = await supabase
-      .from('players')
-      .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate, draft_year')
-      .eq('sport', sport);
-    if (fetchErr) throw new Error(`Failed to fetch players: ${fetchErr.message}`);
+    // Paginate: the NFL pool is >1000 rows and PostgREST silently caps a single
+    // select at 1000, so a plain query drops the tail. Those players then look
+    // absent, get classified as new in 5a, and the 6. insert dies on the
+    // (sport, external_id_bdl) unique constraint — taking the whole sync with
+    // it. Same hazard, same fix as import-sleeper-league's player fetch.
+    const existing: Array<{
+      id: string;
+      name: string;
+      position: string | null;
+      pro_team: string | null;
+      external_id_bdl: number | null;
+      external_id_nba: number | null;
+      birthdate: string | null;
+      draft_year: number | null;
+    }> = [];
+    const PLAYER_PAGE = 1000;
+    for (let from = 0; ; from += PLAYER_PAGE) {
+      const { data, error: fetchErr } = await supabase
+        .from('players')
+        .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate, draft_year')
+        .eq('sport', sport)
+        .order('id')
+        .range(from, from + PLAYER_PAGE - 1);
+      if (fetchErr) throw new Error(`Failed to fetch players: ${fetchErr.message}`);
+      if (!data || data.length === 0) break;
+      existing.push(...(data as typeof existing));
+      if (data.length < PLAYER_PAGE) break;
+    }
 
     type ExistingRec = {
       id: string;
@@ -383,7 +406,7 @@ Deno.serve(async (req: Request) => {
     const existingByBdlId = new Map<number, ExistingRec>();
     const existingByName = new Map<string, ExistingRec>();
 
-    for (const p of existing ?? []) {
+    for (const p of existing) {
       const rec: ExistingRec = {
         id: p.id,
         pro_team: p.pro_team,
@@ -596,7 +619,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       sport,
       bdl_active: activePlayers.length,
-      already_in_db: (existing ?? []).length,
+      already_in_db: existing.length,
       newly_inserted: newlyInserted,
       updated,
       positions_backfilled: positionsBackfilled,

@@ -197,7 +197,7 @@ const skelStyles = StyleSheet.create({
   },
   // Heights mirror pStyles line-heights from PlayerCell so the three
   // stacked bars sum to the same vertical space as the live cell.
-  line1: { height: ms(12) },           // name (lineHeight ms(14))
-  line2: { height: ms(11), marginTop: s(3) },  // meta/chip (lineHeight ms(13))
-  line3: { height: ms(14), marginTop: s(3) },  // stats + fpts (lineHeight ms(16))
+  line1: { height: ms(15) },                   // name (lineHeight ms(17))
+  line2: { height: ms(12), marginTop: s(4) },  // meta/chip (lineHeight ms(12))
+  line3: { height: ms(17), marginTop: s(4) },  // stats + fpts (lineHeight ms(19))
 });

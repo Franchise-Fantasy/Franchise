@@ -197,18 +197,23 @@ const CAT_STAT_FIELDS: [string, string][] = [
 function StatBlocks({
   stats,
   color,
+  labelColor,
   fields,
 }: {
   stats: Record<string, number | boolean> | null | undefined;
   color: string;
+  labelColor: string;
   fields: [string, string][];
 }) {
   return (
     <View style={pStyles.statBlocks}>
       {fields.map(([key, label]) => (
-        <Text key={label} style={[pStyles.statBlock, { color }]} numberOfLines={1}>
+        <Text key={label} style={[pStyles.statValue, { color }]} numberOfLines={1}>
           {Number(stats?.[key] ?? 0)}
-          {label}
+          {/* Unit letter is the quiet half of the pair — smaller and dimmer so
+              the eye lands on the number first and "9P 5R 3A" reads as three
+              values rather than one run of characters. */}
+          <Text style={[pStyles.statUnit, { color: labelColor }]}>{label}</Text>
         </Text>
       ))}
     </View>
@@ -535,6 +540,7 @@ export const PlayerCell = React.memo(function PlayerCell({
               <StatBlocks
                 stats={liveLog as Record<string, number | boolean>}
                 color={c.text}
+                labelColor={c.secondaryText}
                 fields={
                   sport === "nfl"
                     ? nflStatFields(liveLog as Record<string, unknown>)
@@ -660,6 +666,7 @@ export const PlayerCell = React.memo(function PlayerCell({
             <StatBlocks
               stats={player.dayGameStats}
               color={c.text}
+              labelColor={c.secondaryText}
               fields={
                 sport === "nfl"
                   ? nflStatFields(player.dayGameStats ?? {})
@@ -703,7 +710,7 @@ export const pStyles = StyleSheet.create({
   slotRow: {
     flexDirection: "row",
     alignItems: "center",
-    minHeight: s(74),
+    minHeight: s(78),
     paddingVertical: s(8),
     paddingHorizontal: s(8),
     borderBottomWidth: StyleSheet.hairlineWidth,
@@ -726,43 +733,49 @@ export const pStyles = StyleSheet.create({
   gameInfoRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(4),
-    marginTop: s(3),
+    gap: s(5),
+    marginTop: s(4),
   },
   // Line 3 packs the fixed-width stat blocks and the FPTS toward the center
   // seam (justifyContent flex-end + centerPad), with a small constant gap
-  // between them (gap: s(8)) so the last block isn't flush against the FPTS.
+  // between them so the last block isn't flush against the FPTS.
+  // alignItems is BASELINE, not center: the FPTS is ~5pt larger than the stat
+  // blocks, so centering floated it above their text baseline and the number
+  // read as detached from the line it belongs to. Baseline sits every numeral
+  // on one rule, which is what makes the row scan as a single unit.
   statsRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "baseline",
     alignSelf: "stretch",
     justifyContent: "flex-end",
-    gap: s(6),
-    marginTop: s(3),
+    gap: s(8),
+    marginTop: s(4),
   },
   // Stat line rendered as equal-width blocks (one per category), value centered
   // in each. Equal widths keep the line a constant total width — single vs
   // double digits never shift anything — so the FPTS after it stays locked.
-  // gap guarantees the blocks never touch even when a value grows past the
-  // minWidth (e.g. two double-digit stats like "17P" "10R").
-  statBlocks: { flexDirection: "row", gap: s(3) },
-  statBlock: {
+  // minWidth fits a two-digit value plus its unit ("25P") WITHOUT overflowing;
+  // at the old s(19) a double-digit stat outgrew its box and the two players'
+  // columns stopped lining up across the row.
+  statBlocks: { flexDirection: "row", gap: s(5) },
+  statValue: {
     fontFamily: Fonts.mono,
-    fontSize: ms(11),
-    lineHeight: ms(14),
+    fontSize: ms(13),
+    lineHeight: ms(16),
     letterSpacing: 0.3,
-    minWidth: s(19),
+    minWidth: s(24),
     textAlign: "center",
   },
+  statUnit: { fontSize: ms(10), letterSpacing: 0.2 },
   // FPTS gets its own fixed-width slot too, so its (varying) width never drags
   // the stat blocks around — the number aligns to the center-seam edge of the
   // slot while the slot's outer edge stays put.
-  fptsSlot: { minWidth: s(40) },
+  fptsSlot: { minWidth: s(46) },
   // Explicit lineHeights below tighten the default text bounding boxes so
   // the three rows in a player cell sit at visually equal vertical gaps.
   // Default lineHeight on RN ≈ 1.3× fontSize, which makes the larger FPTS
   // row (ms(15)) eat more vertical space than the smaller meta rows.
-  name: { fontSize: ms(12), fontWeight: "500", lineHeight: ms(14) },
+  name: { fontSize: ms(13.5), fontWeight: "600", lineHeight: ms(17) },
   // Position label + small body meta — Oswald varsity caps so it reads
   // the same broadcast voice the roster page uses.
   meta: {
@@ -778,25 +791,17 @@ export const pStyles = StyleSheet.create({
   // truncating. flexShrink on the instance keeps the pill intact if it can't.
   gameInfo: {
     fontFamily: Fonts.mono,
-    fontSize: ms(8),
-    lineHeight: ms(11),
+    fontSize: ms(9.5),
+    lineHeight: ms(12),
     letterSpacing: 0.2,
     textTransform: "uppercase",
-  },
-  // Mono stat line ("20P 8R 5A") + FPTS — same family the roster slot uses
-  // so the two pages read as one numeric voice.
-  statLine: {
-    fontFamily: Fonts.mono,
-    fontSize: ms(10),
-    lineHeight: ms(13),
-    letterSpacing: 0.4,
   },
   // Headline FPTS — the matchup's deciding number, so it's the largest, gold
   // (color applied inline by AnimatedFpts), and weightiest text in the cell.
   pts: {
     fontFamily: Fonts.mono,
-    fontSize: ms(16),
-    lineHeight: ms(17),
+    fontSize: ms(18),
+    lineHeight: ms(19),
     fontWeight: "700",
     letterSpacing: 0.5,
   },
