@@ -25,4 +25,15 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
   return context.resolveRequest(context, moduleName, platform);
 };
 
+// Defer module execution to first use (Expo defaults this OFF). Without it,
+// every module in the bundle is evaluated at cold launch; with it, screens
+// pay for their imports when first opened. Bare side-effect imports (e.g.
+// polyfills) are not inlined and stay eager.
+config.transformer.getTransformOptions = async () => ({
+  transform: {
+    experimentalImportSupport: true,
+    inlineRequires: true,
+  },
+});
+
 module.exports = config;

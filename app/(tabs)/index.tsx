@@ -16,6 +16,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
+import { OfflineDraftEntryModal } from '@/components/commissioner/OfflineDraftEntryModal';
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
 import { ChampionCard } from '@/components/home/ChampionCard';
 import { DeclareKeepersSheet } from '@/components/home/DeclareKeepersSheet';
@@ -46,6 +47,7 @@ import { useTotalUnread } from '@/hooks/chat';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
+import { useOfflineDraftMode } from '@/hooks/useOfflineDraftMode';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
 import { usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
 import { usePaymentLink } from '@/hooks/usePaymentLink';
@@ -65,6 +67,7 @@ type HomeDraft = {
   type: string;
   status: string | null;
   draft_date: string | null;
+  is_offline: boolean;
 };
 
 // Per-step hero action mapping. Returns null for non-commissioners or
@@ -166,7 +169,7 @@ export default function HomeScreen() {
       if (!league) return null;
       const { data, error } = await supabase
         .from('drafts')
-        .select('id, type, status, draft_date')
+        .select('id, type, status, draft_date, is_offline')
         .eq('league_id', league.id)
         .neq('status', 'complete')
         .order('created_at', { ascending: false })
@@ -200,6 +203,7 @@ export default function HomeScreen() {
     enabled: !!activeDraft?.id && isManualOrder && isInitialDraft,
   });
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const [showOfflineEntry, setShowOfflineEntry] = useState(false);
   const [keeperSheetVisible, setKeeperSheetVisible] = useState(false);
 
   // Rookie + seasonal draft existence lookups — only needed during
@@ -319,6 +323,13 @@ export default function HomeScreen() {
     }[]) ?? [];
     return teams.find((t) => t.id === teamId) ?? null;
   }, [league, teamId]);
+
+  const offlineDraftMode = useOfflineDraftMode({
+    leagueId: league?.id ?? '',
+    leagueName: league?.name ?? 'Your League',
+    draftId: activeDraft?.id ?? null,
+    commissionerTeamId: myTeam?.id ?? null,
+  });
 
   const paymentBadge: PaymentBadge = useMemo(() => {
     if (!league || !teamId) return null;
@@ -481,6 +492,8 @@ export default function HomeScreen() {
         isCommissioner && slotsOpen > 0 && !isOffseason
           ? { code: league.invite_code, slotsOpen }
           : null;
+      const draftNotStarted =
+        activeDraft.status === 'unscheduled' || activeDraft.status === 'pending';
       return {
         kind: 'draft_pending',
         season: league.season,
@@ -494,6 +507,9 @@ export default function HomeScreen() {
           isManualOrder && activeDraft.type === 'initial'
             ? { slotsAssigned: !!slotsAssigned }
             : null,
+        offline: activeDraft.is_offline ? { canToggle: draftNotStarted } : null,
+        offlineEligible:
+          !activeDraft.is_offline && activeDraft.type === 'rookie' && draftNotStarted,
       };
     }
 
@@ -943,6 +959,15 @@ export default function HomeScreen() {
                   draftId={activeDraft.id}
                 />
               )}
+              {activeDraft?.id && league?.id && isCommissioner && activeDraft.is_offline && (
+                <OfflineDraftEntryModal
+                  visible={showOfflineEntry}
+                  onClose={() => setShowOfflineEntry(false)}
+                  draftId={activeDraft.id}
+                  leagueId={league.id}
+                  sport={league.sport}
+                />
+              )}
               <BusyOverlay
                 visible={offseasonActions.loading}
                 title={offseasonActions.loadingLabel ?? 'Working…'}
@@ -966,6 +991,9 @@ export default function HomeScreen() {
                           onSchedulePress={onSchedulePress}
                           onEnterDraft={onEnterDraft}
                           onSetDraftOrder={() => setShowOrderModal(true)}
+                          onEnterOfflineResults={() => setShowOfflineEntry(true)}
+                          onRunOffline={offlineDraftMode.runOffline}
+                          onSwitchToInApp={offlineDraftMode.switchToInApp}
                           onShareInvite={onShareInvite}
                           rostersPending={rostersPending}
                         />
@@ -1040,6 +1068,15 @@ export default function HomeScreen() {
                 }}
                 leagueId={league.id}
                 draftId={activeDraft.id}
+              />
+            )}
+            {activeDraft?.id && league?.id && isCommissioner && activeDraft.is_offline && (
+              <OfflineDraftEntryModal
+                visible={showOfflineEntry}
+                onClose={() => setShowOfflineEntry(false)}
+                draftId={activeDraft.id}
+                leagueId={league.id}
+                sport={league.sport}
               />
             )}
 

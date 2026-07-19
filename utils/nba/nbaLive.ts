@@ -116,7 +116,7 @@ export function useLivePlayerStats(
         if (now !== dateRef.current) {
           dateRef.current = now;
           // Clear stale live data from the previous day
-          setLiveMap(new Map());
+          setLiveMap((prev) => (prev.size === 0 ? prev : new Map()));
         }
         if (!wasActive && playerIdsRef.current.length > 0) {
           fetchStatsRef.current?.(playerIdsRef.current);
@@ -177,7 +177,7 @@ export function useLivePlayerStats(
       ...((yesterdayRes.data ?? []) as LivePlayerStats[]),
     ];
     const map = buildMap(rows);
-    setLiveMap(map);
+    setLiveMap((prev) => (mapsEqual(prev, map) ? prev : map));
 
     // Adapt polling speed: 30s when any game is in progress, 5min otherwise
     const anyLive = [...map.values()].some((s) => s.game_status === 2);
@@ -188,7 +188,7 @@ export function useLivePlayerStats(
 
   useEffect(() => {
     if (!enabled || playerIds.length === 0) {
-      setLiveMap(new Map());
+      setLiveMap((prev) => (prev.size === 0 ? prev : new Map()));
       return;
     }
 
@@ -209,6 +209,29 @@ export function useLivePlayerStats(
   }, [enabled, playerIds.join(','), fetchStats]);
 
   return liveMap;
+}
+
+// Poll results are usually identical tick-to-tick (30s cadence vs. sparse
+// scoring events, and 5min idle polls almost never change). Compare before
+// setState so unchanged polls keep the SAME Map identity and none of the
+// subscribed screens (roster, matchup, team-roster, player detail) re-render.
+function rowsEqual(a: LivePlayerStats, b: LivePlayerStats): boolean {
+  const ka = Object.keys(a) as (keyof LivePlayerStats)[];
+  if (ka.length !== Object.keys(b).length) return false;
+  for (const k of ka) if (a[k] !== b[k]) return false;
+  return true;
+}
+
+function mapsEqual(
+  a: Map<string, LivePlayerStats>,
+  b: Map<string, LivePlayerStats>,
+): boolean {
+  if (a.size !== b.size) return false;
+  for (const [k, v] of a) {
+    const other = b.get(k);
+    if (!other || !rowsEqual(v, other)) return false;
+  }
+  return true;
 }
 
 function buildMap(rows: LivePlayerStats[]): Map<string, LivePlayerStats> {

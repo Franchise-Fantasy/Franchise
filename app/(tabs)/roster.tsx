@@ -21,7 +21,7 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { useWeeks } from "@/components/matchup/matchupData";
+import { formatWeekRange, useWeeks } from "@/components/matchup/matchupData";
 import { OnCourtDot } from "@/components/matchup/PlayerCell";
 import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
 import { CompareBar } from "@/components/player/CompareBar";
@@ -41,6 +41,7 @@ import {
   dayToStatRecord,
   fetchDayGameStats,
   fetchTeamRosterForDate,
+  fetchWeekGameStats,
   formatProjFpts,
   prevFptsToContext,
   projectionToContext,
@@ -123,6 +124,7 @@ import {
 } from "@/utils/nba/nbaLive";
 import {
   fetchNbaScheduleForDate,
+  fetchScheduleForWeek,
   formatGameTime,
   ScheduleEntry,
 } from "@/utils/nba/nbaSchedule";
@@ -147,6 +149,7 @@ import {
   projAvgRowToFpts,
   windowFantasyPoints,
 } from "@/utils/scoring/fantasyPoints";
+import { isWeeklyLineupSport } from "@/utils/sports/registry";
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -237,6 +240,11 @@ export default function RosterScreen() {
   const yesterday = addDays(today, -1);
   const isYesterday = selectedDate === yesterday;
 
+  // NFL and other weekly sports set one lineup for the whole fantasy week —
+  // the anchor date is pinned to the week (see weekPin below) and per-day
+  // navigation is replaced with week-to-week navigation.
+  const isWeekly = isWeeklyLineupSport(sport);
+
   const { data: scoringWeights } = useLeagueScoring(leagueId ?? "");
   const { data: league } = useLeague();
   const isCategories = league?.scoring_type === "h2h_categories";
@@ -269,6 +277,27 @@ export default function RosterScreen() {
       ) ?? null,
     [weeks, selectedDate],
   );
+
+  // Weekly sports (NFL): the anchor is pinned to a single representative day of
+  // the viewed week — today clamped into [week.start, week.end]. For the current
+  // week that's today (the week's first editable day, since past days are
+  // locked); for a future week it's the week start; for a past week it's the
+  // week end. resolveSlot forward-fills from this day, so a single lineup write
+  // covers every remaining game of the week. weekPin always lands inside
+  // currentWeek's range, so pinning never re-derives currentWeek (no loop) and
+  // week-to-week navigation isn't yanked back to the current week.
+  const weekPin = currentWeek
+    ? today < currentWeek.start_date
+      ? currentWeek.start_date
+      : today > currentWeek.end_date
+        ? currentWeek.end_date
+        : today
+    : today;
+  useEffect(() => {
+    if (isWeekly && currentWeek && selectedDate !== weekPin) {
+      setSelectedDate(weekPin);
+    }
+  }, [isWeekly, currentWeek, weekPin, selectedDate]);
 
   // NFL bye-week detection: which pro teams play at all in the viewed league
   // week (query disabled for basketball sports).
@@ -440,13 +469,27 @@ export default function RosterScreen() {
     placeholderData: keepPreviousData,
   });
 
-  // For past dates: fetch that day's actual game stats
+  // Game stats for the row's stat line. Weekly sports (NFL) fetch the whole
+  // week's box scores (each player has ≤1 game), so a completed game shows its
+  // final line regardless of which day is anchored; daily sports fetch the
+  // selected past date only.
   const { data: dayGameStats } = useQuery<Map<string, DayGameStats>>({
-    queryKey: queryKeys.dayGameStats(teamId!, selectedDate),
+    queryKey: isWeekly
+      ? ["weekGameStats", teamId, currentWeek?.id]
+      : queryKeys.dayGameStats(teamId!, selectedDate),
     queryFn: () =>
-      fetchDayGameStats(rosterPlayers!.map((p) => p.player_id), selectedDate),
-    enabled: isPastDate && !!rosterPlayers && rosterPlayers.length > 0,
-    staleTime: 1000 * 60 * 60,
+      isWeekly
+        ? fetchWeekGameStats(
+            rosterPlayers!.map((p) => p.player_id),
+            currentWeek!.start_date,
+            currentWeek!.end_date,
+          )
+        : fetchDayGameStats(rosterPlayers!.map((p) => p.player_id), selectedDate),
+    enabled:
+      (isWeekly ? !!currentWeek : isPastDate) &&
+      !!rosterPlayers &&
+      rosterPlayers.length > 0,
+    staleTime: weekIsLive ? 1000 * 30 : 1000 * 60 * 60,
   });
 
   // Schedule for the selected date: tricode → matchup + final score. Fetched
@@ -455,8 +498,14 @@ export default function RosterScreen() {
   // injured player has no player_games row, so the schedule is the only signal
   // the game happened.
   const { data: daySchedule } = useQuery<Map<string, ScheduleEntry>>({
-    queryKey: [...queryKeys.daySchedule(selectedDate), sport],
-    queryFn: () => fetchNbaScheduleForDate(selectedDate, sport),
+    queryKey: isWeekly
+      ? ["weekSchedule", currentWeek?.id, sport]
+      : [...queryKeys.daySchedule(selectedDate), sport],
+    queryFn: () =>
+      isWeekly
+        ? fetchScheduleForWeek(currentWeek!.start_date, currentWeek!.end_date, sport)
+        : fetchNbaScheduleForDate(selectedDate, sport),
+    enabled: isWeekly ? !!currentWeek : true,
     staleTime: 1000 * 60 * 60,
   });
 
@@ -528,11 +577,17 @@ export default function RosterScreen() {
     sport,
   );
 
-  // Filter live stats to only include games matching the selected date.
-  // Yesterday's late games (still live past midnight) show on yesterday's view,
-  // not today's.
+  // Filter live stats to the row's window. Weekly sports (NFL) keep every live
+  // game in the pinned week so a game on any weekday reaches the rows; daily
+  // sports keep only the selected date (yesterday's late games still live past
+  // midnight show on yesterday's view, not today's).
   const liveMap = new Map(
-    [...rawLiveMap].filter(([, stats]) => stats.game_date === selectedDate),
+    [...rawLiveMap].filter(([, stats]) =>
+      isWeekly && currentWeek
+        ? stats.game_date >= currentWeek.start_date &&
+          stats.game_date <= currentWeek.end_date
+        : stats.game_date === selectedDate,
+    ),
   );
 
   // Hero/summary live-merge map: today's games (live or final — not yet in
@@ -1084,6 +1139,13 @@ export default function RosterScreen() {
     )
       return;
 
+    // Weekly sports set one lineup for the whole week — there's no per-day
+    // choice, so skip the sheet and optimize the week directly.
+    if (isWeekly) {
+      runAutoLineup("week");
+      return;
+    }
+
     const autoLineupActions: ModalAction[] = [
       {
         id: "today",
@@ -1143,7 +1205,13 @@ export default function RosterScreen() {
     try {
       // 1. Build date range based on mode
       const dates: string[] = [];
-      if (mode === "today") {
+      if (isWeekly) {
+        // Weekly sports set one lineup for the whole week: optimize the single
+        // pinned anchor day. resolveSlot forward-fills it across the week, so
+        // one write covers every game. A bye player has no game and is benched
+        // below via hasGame.
+        dates.push(weekPin);
+      } else if (mode === "today") {
         // Optimize the day the user is *viewing* (the date pill), not the
         // literal calendar today — when swiped forward to a future day of the
         // week, "Today Only" should fix that day's lineup. `canAutoLineup`
@@ -1343,9 +1411,13 @@ export default function RosterScreen() {
                         ? currentFpts
                         : projFpts || fallbackFpts || currentFpts,
               locked: isDateToday ? isPlayerLocked(p) : false,
-              hasGame: noRosterGamesToday
-                ? true
-                : teamsPlaying?.has(p.nbaTricode ?? "") ?? false,
+              // Weekly sports: every non-bye player has exactly one game this
+              // week, so they're all candidates; bye players are benched.
+              hasGame: isWeekly
+                ? !isOnBye(p.nbaTricode)
+                : noRosterGamesToday
+                  ? true
+                  : teamsPlaying?.has(p.nbaTricode ?? "") ?? false,
             };
           },
         );
@@ -1431,6 +1503,7 @@ export default function RosterScreen() {
       daySchedule,
       dayGameStats,
       sport,
+      today,
     });
 
   // Context-slot helpers — shared with team-roster/[id].tsx via rosterData
@@ -1448,10 +1521,50 @@ export default function RosterScreen() {
   // Horizontal swipe to flip days. Threshold + velocity check so a casual
   // brush doesn't trigger a navigation; failOffsetY keeps the vertical
   // ScrollView intact. Arrow buttons in the hero stay live in parallel.
+  // Weekly sports navigate week-to-week (there is no per-day lineup). Landing
+  // day is today clamped into the target week, matching weekPin, so the pin
+  // effect is a no-op after the jump.
+  const weekIdx =
+    weeks && currentWeek ? weeks.findIndex((w) => w.id === currentWeek.id) : -1;
+  const canGoBackWeek = weekIdx > 0;
+  const canGoForwardWeek = weekIdx >= 0 && weekIdx < (weeks?.length ?? 0) - 1;
+  const navigateWeek = (delta: -1 | 1) => {
+    if (!weeks || weekIdx < 0) return;
+    const target = weeks[weekIdx + delta];
+    if (!target) return;
+    const landing =
+      today < target.start_date
+        ? target.start_date
+        : today > target.end_date
+          ? target.end_date
+          : today;
+    setSelectedDate(landing);
+  };
+
   const swipeDay = (delta: -1 | 1) => {
+    if (isWeekly) {
+      navigateWeek(delta);
+      return;
+    }
     if (delta === -1 && !canGoBack) return;
     setSelectedDate(addDays(selectedDate, delta));
   };
+
+  // Hero nav — weekly sports step week-to-week; daily sports step day-to-day.
+  const heroCanGoBack = isWeekly ? canGoBackWeek : canGoBack;
+  const heroCanGoForward = isWeekly ? canGoForwardWeek : true;
+  const onHeroPrev = () =>
+    isWeekly
+      ? navigateWeek(-1)
+      : canGoBack && setSelectedDate(addDays(selectedDate, -1));
+  const onHeroNext = () =>
+    isWeekly ? navigateWeek(1) : setSelectedDate(addDays(selectedDate, 1));
+  // No "jump to today" for weekly — the current week is a week, not a day.
+  const onHeroGoToToday = isWeekly ? undefined : () => setSelectedDate(today);
+  const weekLabel =
+    isWeekly && currentWeek
+      ? formatWeekRange(currentWeek.start_date, currentWeek.end_date)
+      : undefined;
   const dayPan = Gesture.Pan()
     .activeOffsetX([-15, 15])
     .failOffsetY([-12, 12])
@@ -1494,7 +1607,10 @@ export default function RosterScreen() {
         <RosterHero
           selectedDate={selectedDate}
           today={today}
-          canGoBack={canGoBack}
+          weekly={isWeekly}
+          weekLabel={weekLabel}
+          canGoBack={heroCanGoBack}
+          canGoForward={heroCanGoForward}
           isPastDate={isPastDate}
           isToday={isToday}
           currentWeek={currentWeek}
@@ -1508,11 +1624,9 @@ export default function RosterScreen() {
           categoryRecord={heroCategoryRecord}
           weekIsLive={weekIsLive}
           rosterStats={heroRosterStats}
-          onPrevDay={() =>
-            canGoBack && setSelectedDate(addDays(selectedDate, -1))
-          }
-          onNextDay={() => setSelectedDate(addDays(selectedDate, 1))}
-          onGoToToday={() => setSelectedDate(today)}
+          onPrevDay={onHeroPrev}
+          onNextDay={onHeroNext}
+          onGoToToday={onHeroGoToToday}
         />
 
         <View style={styles.centered}>
@@ -1530,8 +1644,10 @@ export default function RosterScreen() {
     ? starterSlots.reduce((sum, slot) => {
         if (!slot.player) return sum;
         const { fpts, isLive } = resolveSlotStats(slot.player);
-        // On today, only count games that are actually live or finished
-        if (isToday && !isLive && fpts !== null) {
+        // On today, only count games that are actually live or finished.
+        // Weekly sports resolve the week's real box directly (a completed game's
+        // live row may have expired), so the live-gate would wrongly drop it.
+        if (!isWeekly && isToday && !isLive && fpts !== null) {
           const live = liveMap.get(slot.player.player_id);
           if (!live) return sum;
         }
@@ -1547,7 +1663,7 @@ export default function RosterScreen() {
     // In that state we keep the position label under the name and surface the
     // upcoming-game chip in the FPTS column instead of a meaningless "0.0".
     const isPreGame =
-      !!matchup && !isLive && !statLine && (isToday || isFutureDate);
+      !!matchup && !isLive && !statLine && !didNotPlay && (isToday || isFutureDate);
     const matchupDisplay = matchup
       ? gameTimeUtc && !isLive
         ? `${matchup} · ${formatGameTime(gameTimeUtc)}`
@@ -1841,7 +1957,7 @@ export default function RosterScreen() {
                           string,
                           number | boolean
                         >;
-                      } else if (isPastDate) {
+                      } else if (isPastDate || isWeekly) {
                         const dayGame = dayGameStats?.get(
                           slot.player!.player_id,
                         );

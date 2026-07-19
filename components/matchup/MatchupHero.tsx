@@ -105,7 +105,8 @@ export interface MatchupHeroProps {
   onPrevMatchup?: () => void;
   /** Switch to the next matchup in the league carousel. */
   onNextMatchup?: () => void;
-  onGoToToday: () => void;
+  /** Omitted for weekly sports — a week has no "today" to jump back to. */
+  onGoToToday?: () => void;
   onSchedulePress?: () => void;
   onSummaryPress?: () => void;
   onTeamPress?: (teamId: string) => void;
@@ -126,6 +127,15 @@ export interface MatchupHeroProps {
   } | null;
 
   canGoBack: boolean;
+  /** Whether a next step exists (weekly sports gate this at the last week;
+   *  daily sports pass selectedDate < maxDate). */
+  canGoForward?: boolean;
+  /** Weekly sports (NFL) view the whole week: the eyebrow shows the week range
+   *  (weekLabel) instead of a day, there's no jump-to-today, and the arrows
+   *  step week-to-week. */
+  weekly?: boolean;
+  /** Week-range label shown in place of dayLabel when weekly. */
+  weekLabel?: string;
 }
 
 function formatRecord(t: HeroTeam | null): string {
@@ -191,11 +201,16 @@ export function MatchupHero({
   tickerSlot,
   offseason,
   canGoBack,
+  canGoForward = true,
+  weekly = false,
+  weekLabel,
   isLoading,
 }: MatchupHeroProps) {
   const c = useColors();
   const { isCompareMode, setCompareMode } = useCompareSelection();
   const isFutureDate = selectedDate > today;
+  // Weekly sports label the eyebrow with the week range instead of a day.
+  const dateText = weekly ? (weekLabel ?? dayLabel) : dayLabel;
 
   // Status word dropped — the live red dot covers LIVE, and the date
   // itself gives enough context for upcoming / final / tonight states.
@@ -405,7 +420,7 @@ export function MatchupHero({
               position (left of the centered date) already communicates
               direction. The flex spacer pushes the chip to the inner edge
               so it hugs the centered date rather than the card edge. */}
-          {!isToday && isFutureDate && (
+          {!weekly && !isToday && isFutureDate && onGoToToday && (
             <>
               <View style={styles.eyebrowSpacer} />
               <TouchableOpacity
@@ -432,7 +447,7 @@ export function MatchupHero({
           activeOpacity={0.7}
           hitSlop={TAP_SLOP}
           accessibilityRole="button"
-          accessibilityLabel={`${dayLabel}${
+          accessibilityLabel={`${dateText}${
             currentWeek
               ? `, Week ${currentWeek.week_number}`
               : seasonOpensLabel
@@ -448,7 +463,7 @@ export function MatchupHero({
             style={styles.eyebrowDate}
             numberOfLines={1}
           >
-            {dayLabel.toUpperCase()}
+            {dateText.toUpperCase()}
           </ThemedText>
           {onSchedulePress && (
             <Ionicons
@@ -481,7 +496,7 @@ export function MatchupHero({
               chip is rendered at the inner edge (close to the centered
               date) and the spacer pushes the action chips to the far
               edge. */}
-          {!isToday && !isFutureDate && (
+          {!weekly && !isToday && !isFutureDate && onGoToToday && (
             <>
               <TouchableOpacity
                 onPress={onGoToToday}
@@ -546,7 +561,7 @@ export function MatchupHero({
           style={[styles.bodyArrow, !canGoBack && styles.bodyArrowDisabled]}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           accessibilityRole="button"
-          accessibilityLabel="Previous day"
+          accessibilityLabel={weekly ? "Previous week" : "Previous day"}
           accessibilityState={{ disabled: !canGoBack }}
         >
           <Text style={styles.bodyArrowText}>‹</Text>
@@ -583,10 +598,12 @@ export function MatchupHero({
         </View>
         <TouchableOpacity
           onPress={onNextDay}
-          style={styles.bodyArrow}
+          disabled={!canGoForward}
+          style={[styles.bodyArrow, !canGoForward && styles.bodyArrowDisabled]}
           hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           accessibilityRole="button"
-          accessibilityLabel="Next day"
+          accessibilityLabel={weekly ? "Next week" : "Next day"}
+          accessibilityState={{ disabled: !canGoForward }}
         >
           <Text style={styles.bodyArrowText}>›</Text>
         </TouchableOpacity>

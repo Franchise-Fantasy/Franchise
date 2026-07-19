@@ -37,9 +37,13 @@ export function usePollResults(
 ) {
   const queryClient = useQueryClient();
 
-  // Realtime subscription on poll_votes for this poll
+  // Realtime subscription on poll_votes for this poll. Closed polls can't
+  // receive votes, so don't hold a channel open for every old poll in the
+  // chat history — only open polls subscribe. When a poll closes while
+  // mounted, the next re-render flips pollIsOpen and the effect unsubscribes.
+  const pollIsOpen = !!poll && new Date(poll.closes_at) > new Date();
   useEffect(() => {
-    if (!pollId) return;
+    if (!pollId || !pollIsOpen) return;
     const channel = supabase
       .channel(uniqueChannelTopic(`poll_votes_${pollId}`))
       .on(
@@ -60,7 +64,7 @@ export function usePollResults(
     };
     // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pollId]);
+  }, [pollId, pollIsOpen]);
 
   return useQuery<PollResults>({
     queryKey: queryKeys.pollResults(pollId!),

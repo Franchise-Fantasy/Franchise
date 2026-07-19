@@ -26,6 +26,7 @@ import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveM
 import { ImportTeamRosterModal } from '@/components/commissioner/ImportTeamRosterModal';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
+import { OfflineDraftEntryModal } from '@/components/commissioner/OfflineDraftEntryModal';
 import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
@@ -56,6 +57,7 @@ import { useUnconfirmedPaymentCount } from '@/hooks/usePaymentLedger';
 import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { useSubscription } from '@/hooks/useSubscription';
+import { reopenOfflineDraft } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { formatIsoDate } from '@/utils/dates';
 import { formatPickClock } from '@/utils/draft/pickClock';
@@ -127,8 +129,35 @@ export default function LeagueInfoScreen() {
     staleTime: 1000 * 60 * 5,
   });
 
+  // Offline rookie draft (dynasty) — drives the "Enter Offline Results" /
+  // "Reopen Draft Results" commissioner actions. Once published the draft is
+  // 'complete' and leaves the home hero, so this is the only place to reopen it.
+  const { data: rookieDraft } = useQuery({
+    queryKey: ['leagueRookieDraft', leagueId],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('drafts')
+        .select('id, status, is_offline')
+        .eq('league_id', leagueId!)
+        .eq('type', 'rookie')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      if (error) throw error;
+      return data;
+    },
+    enabled: !!leagueId,
+    staleTime: 1000 * 60,
+  });
+
   const isCommissioner = !!(session?.user?.id && league?.created_by === session.user.id);
   const lifecycle = getLifecycle(draft?.status ?? undefined, league?.schedule_generated ?? false, league?.offseason_step ?? null);
+  // Offline rookie draft management: enter results while unpublished, reopen
+  // once published (only before the new season starts).
+  const offlineRookie = rookieDraft?.is_offline ? rookieDraft : null;
+  const offlineRookiePublished = offlineRookie?.status === 'complete';
+  const canReopenOffline =
+    !!offlineRookie && offlineRookiePublished && league?.offseason_step === 'rookie_draft_complete';
   const { data: announcements } = useAnnouncements(leagueId ?? null);
   const { data: bracket } = usePlayoffBracket(league?.season ?? '');
 
@@ -180,6 +209,34 @@ export default function LeagueInfoScreen() {
     return !!finalSlot?.winner_id;
   })();
 
+  function handleReopenOffline() {
+    if (!offlineRookie || reopeningOffline) return;
+    confirm({
+      title: 'Reopen Draft Results',
+      message:
+        'This removes the drafted rookies from their rosters so you can edit and re-publish the results. Continue?',
+      action: {
+        label: 'Reopen',
+        destructive: true,
+        onPress: async () => {
+          setReopeningOffline(true);
+          try {
+            await reopenOfflineDraft(offlineRookie.id);
+            queryClient.invalidateQueries({ queryKey: ['leagueRookieDraft', leagueId] });
+            queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId!) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId!) });
+            queryClient.invalidateQueries({ queryKey: queryKeys.draftHub(leagueId!) });
+            setShowOfflineEntry(true);
+          } catch (err) {
+            Alert.alert('Error', (err instanceof Error && err.message) || 'Failed to reopen results');
+          } finally {
+            setReopeningOffline(false);
+          }
+        },
+      },
+    });
+  }
+
   // Settings modals
   const [showBasicsModal, setShowBasicsModal] = useState(false);
   const [showRosterModal, setShowRosterModal] = useState(false);
@@ -195,6 +252,8 @@ export default function LeagueInfoScreen() {
   const [showForceMove, setShowForceMove] = useState(false);
   const [showPickConditions, setShowPickConditions] = useState(false);
   const [showEditDraftOrder, setShowEditDraftOrder] = useState(false);
+  const [showOfflineEntry, setShowOfflineEntry] = useState(false);
+  const [reopeningOffline, setReopeningOffline] = useState(false);
   const [showPaymentLedger, setShowPaymentLedger] = useState(false);
   const [showSendAnnouncement, setShowSendAnnouncement] = useState(false);
   const [showLeagueNotifs, setShowLeagueNotifs] = useState(false);
@@ -525,6 +584,26 @@ export default function LeagueInfoScreen() {
                   subLabel="Fix the imported rookie draft order"
                   c={c}
                   onPress={() => setShowEditDraftOrder(true)}
+                  last={!offlineRookie}
+                />
+              )}
+              {offlineRookie && !offlineRookiePublished && (
+                <CommAction
+                  icon="clipboard"
+                  label="Enter Offline Results"
+                  subLabel="Record the rookie draft results by hand"
+                  c={c}
+                  onPress={() => setShowOfflineEntry(true)}
+                  last
+                />
+              )}
+              {canReopenOffline && (
+                <CommAction
+                  icon="refresh"
+                  label="Reopen Draft Results"
+                  subLabel="Undo the published results to edit them"
+                  c={c}
+                  onPress={handleReopenOffline}
                   last
                 />
               )}
@@ -1019,6 +1098,15 @@ export default function LeagueInfoScreen() {
               leagueId={leagueId}
               season={league.season}
               onClose={() => setShowEditDraftOrder(false)}
+            />
+          )}
+          {offlineRookie && (
+            <OfflineDraftEntryModal
+              visible={showOfflineEntry}
+              onClose={() => setShowOfflineEntry(false)}
+              draftId={offlineRookie.id}
+              leagueId={leagueId}
+              sport={(league?.sport as string) ?? 'nba'}
             />
           )}
           <ImportTeamRosterModal

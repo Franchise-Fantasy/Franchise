@@ -1,7 +1,8 @@
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
+import { subscribeScoreTopic } from '@/lib/scoreTopics';
 import { supabase } from '@/lib/supabase';
 
 interface UseWeekScoresOptions {
@@ -50,7 +51,6 @@ async function triggerScoreCompute(
  */
 export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScoresOptions) {
   const queryClient = useQueryClient();
-  const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const query = useQuery({
     queryKey: queryKeys.weekScores(leagueId!, scheduleId!),
@@ -71,45 +71,21 @@ export function useWeekScores({ leagueId, scheduleId, weekIsLive }: UseWeekScore
     staleTime: weekIsLive ? 1000 * 60 * 5 : 1000 * 60 * 30, // Realtime handles live updates, so staleTime can be longer
   });
 
-  // Subscribe to week_scores table changes for this schedule
+  // Subscribe to week_scores updates for this schedule via the ref-counted
+  // topic manager — several screens listen to the same schedule at once, and
+  // a per-screen channel would be torn down for ALL of them by whichever
+  // screen unmounted first (shared deterministic topic).
   useEffect(() => {
-    if (!scheduleId) {
-      if (channelRef.current) {
-        supabase.removeChannel(channelRef.current);
-        channelRef.current = null;
-      }
-      return;
-    }
-
-    // Deterministic broadcast topic — must match the week_scores_broadcast DB
-    // trigger's `scores:<schedule_id>` exactly (NOT uniqueChannelTopic, which is
-    // only for postgres_changes/presence).
-    const channel = supabase
-      .channel(`scores:${scheduleId}`)
-      .on(
-        'broadcast',
-        { event: 'score_update' },
-        (message) => {
-          // The trigger sends one changed row per message: { schedule_id, team_id, score }.
-          const row = message.payload as { team_id?: string; score?: number } | undefined;
-          if (!row?.team_id) return;
-          queryClient.setQueryData(
-            queryKeys.weekScores(leagueId!, scheduleId!),
-            (old: Record<string, number> | undefined) => ({
-              ...old,
-              [row.team_id!]: Number(row.score),
-            }),
-          );
-        },
-      )
-      .subscribe();
-
-    channelRef.current = channel;
-
-    return () => {
-      supabase.removeChannel(channel);
-      channelRef.current = null;
-    };
+    if (!scheduleId) return;
+    return subscribeScoreTopic(scheduleId, (row) => {
+      queryClient.setQueryData(
+        queryKeys.weekScores(leagueId!, scheduleId!),
+        (old: Record<string, number> | undefined) => ({
+          ...old,
+          [row.team_id!]: Number(row.score),
+        }),
+      );
+    });
     // queryClient is a stable singleton — omitting prevents unnecessary channel teardown.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scheduleId, leagueId]);

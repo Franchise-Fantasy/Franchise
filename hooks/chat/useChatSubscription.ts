@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
+import { prependIncomingMessage } from '@/hooks/chat/useMessages';
 import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 
 /**
@@ -26,9 +27,11 @@ export function useChatSubscription(conversationId: string | null) {
           filter: `conversation_id=eq.${conversationId}`,
         },
         () => {
-          queryClient.invalidateQueries({
-            queryKey: queryKeys.messages(conversationId!),
-          });
+          // Prepend the enriched row(s) instead of refetching a whole page
+          // per incoming message; falls back to invalidate on ambiguity.
+          // Own messages included: the same account on another device needs
+          // the echo, and the prepend dedupes this device's optimistic row.
+          void prependIncomingMessage(queryClient, conversationId!);
         },
       )
       .on(

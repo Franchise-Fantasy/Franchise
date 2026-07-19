@@ -23,9 +23,12 @@ import { PlayerName } from '@/components/player/PlayerName';
 import { AnimatedFpts } from '@/components/roster/AnimatedFpts';
 import {
   buildSeasonAverages,
+  computeSlotStats,
+  fetchWeekGameStats,
   formatProjFpts,
   prevFptsToContext,
   projectionToContext,
+  type DayGameStats,
   type SeasonAverages,
 } from '@/components/roster/rosterData';
 import {
@@ -64,17 +67,17 @@ import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
 import { useRosterGameLogs } from '@/hooks/useRosterGameLogs';
 import { useTeamByes } from '@/hooks/useTeamByes';
 import { supabase } from '@/lib/supabase';
-import { PlayerSeasonStats, PlayerGameLog } from '@/types/player';
+import { PlayerSeasonStats } from '@/types/player';
 import { formatPosition } from '@/utils/formatting';
 import { getSportToday } from '@/utils/leagueTime';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import {
   formatGameInfo,
-  liveToGameLog,
   useLivePlayerStats,
 } from '@/utils/nba/nbaLive';
 import {
   fetchNbaScheduleForDate,
+  fetchScheduleForWeek,
   formatGameTime,
   ScheduleEntry,
 } from '@/utils/nba/nbaSchedule';
@@ -84,11 +87,10 @@ import { baseSlotName, slotLabel } from '@/utils/roster/rosterSlots';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 import {
-  calculateGameFantasyPoints,
   formatScore,
   gameWindowSize,
 } from '@/utils/scoring/fantasyPoints';
-import { nflStatLine } from '@/utils/scoring/nflStatLine';
+import { isWeeklyLineupSport } from '@/utils/sports/registry';
 
 // Heritage deck watermark — same patch that bleeds into the corner of the
 // matchup / roster heroes, so this header reads as part of that family.
@@ -115,18 +117,6 @@ function formatRecord(
   return t.ties > 0 ? `${w}-${l}-${t.ties}` : `${w}-${l}`;
 }
 
-// `Record<string, number>` for the matchup PlayerCell stat parser. Mirrors
-// the shape used by (tabs)/roster.tsx's resolveSlotStats. NFL lines come from
-// the shared position-shaped formatter ("18/27 245Y 2TD").
-function buildStatLine(stats: Record<string, number>, sport?: string | null): string | null {
-  if (sport === 'nfl') return nflStatLine(stats) || null;
-  const parts: string[] = [];
-  if (stats.pts != null) parts.push(`${stats.pts} PTS`);
-  if (stats.reb != null) parts.push(`${stats.reb} REB`);
-  if (stats.ast != null) parts.push(`${stats.ast} AST`);
-  if (parts.length === 0) return null;
-  return parts.join(' · ');
-}
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
@@ -153,6 +143,9 @@ export default function TeamRosterScreen() {
 
   const isOwnTeam = viewTeamId === myTeamId;
   const today = getSportToday(sport);
+  // Weekly sports (NFL) show the week's single game per player, not today's —
+  // mirrors the pinned-week behavior on the user's own roster page.
+  const isWeekly = isWeeklyLineupSport(sport);
 
   const { data: league } = useLeague();
   const isCategories = league?.scoring_type === 'h2h_categories';
@@ -297,19 +290,41 @@ export default function TeamRosterScreen() {
     staleTime: 1000 * 60 * 2,
   });
 
-  // Schedule for today — populates the upcoming-game chip pre-tipoff.
+  // Schedule — populates the upcoming-game chip pre-tipoff. Weekly sports fetch
+  // the whole week (the game may be on any weekday); daily sports fetch today.
   const { data: daySchedule } = useQuery<Map<string, ScheduleEntry>>({
-    queryKey: [...queryKeys.daySchedule(today), sport],
-    queryFn: () => fetchNbaScheduleForDate(today, sport),
+    queryKey: isWeekly
+      ? ['weekSchedule', byeWeek?.id, sport]
+      : [...queryKeys.daySchedule(today), sport],
+    queryFn: () =>
+      isWeekly
+        ? fetchScheduleForWeek(byeWeek!.start_date, byeWeek!.end_date, sport)
+        : fetchNbaScheduleForDate(today, sport),
+    enabled: isWeekly ? !!byeWeek : true,
     staleTime: 1000 * 60 * 60,
   });
 
-  // Live stats (today only)
+  // Live stats. Weekly sports keep the whole week's live games (game on any
+  // weekday); daily sports keep only today's.
   const playerIdList = rosterPlayers?.map((p) => p.player_id) ?? [];
   const rawLiveMap = useLivePlayerStats(playerIdList, true, sport);
   const liveMap = new Map(
-    [...rawLiveMap].filter(([, stats]) => stats.game_date === today),
+    [...rawLiveMap].filter(([, stats]) =>
+      isWeekly && byeWeek
+        ? stats.game_date >= byeWeek.start_date && stats.game_date <= byeWeek.end_date
+        : stats.game_date === today,
+    ),
   );
+
+  // Weekly sports: the week's completed box scores, so a finished game shows its
+  // final line even after its live row expires (mirrors the roster page).
+  const { data: weekGameStats } = useQuery<Map<string, DayGameStats>>({
+    queryKey: ['weekGameStats', viewTeamId, byeWeek?.id],
+    queryFn: () =>
+      fetchWeekGameStats(playerIdList, byeWeek!.start_date, byeWeek!.end_date),
+    enabled: isWeekly && !!byeWeek && playerIdList.length > 0,
+    staleTime: 1000 * 60 * 30,
+  });
 
   // Previous-season fpts/G (points leagues) — powers the "Prev" window option.
   const { data: prevSeasonFpts } = usePrevSeasonFpts(
@@ -441,57 +456,23 @@ export default function TeamRosterScreen() {
     }
   }
 
-  // ─── Today-only stats resolver (mirrors the today branch in
-  //     (tabs)/roster.tsx's resolveSlotStats — read-only, so no past/future).
-  function resolveSlotStats(player: RosterPlayer | null): {
-    fpts: number | null;
-    statLine: string | null;
-    isLive: boolean;
-    matchup: string | null;
-    gameTimeUtc: string | null;
-  } {
-    if (!player || !scoringWeights) {
-      return { fpts: null, statLine: null, isLive: false, matchup: null, gameTimeUtc: null };
-    }
-    const live = liveMap.get(player.player_id);
-    const scheduleEntry = player.nbaTricode
-      ? daySchedule?.get(player.nbaTricode) ?? null
-      : null;
-    const todayMatchup = scheduleEntry?.matchup ?? null;
-    const todayGameTime = scheduleEntry?.gameTimeUtc ?? null;
-    if (!live && !todayMatchup) {
-      return { fpts: null, statLine: null, isLive: false, matchup: null, gameTimeUtc: null };
-    }
-    if (live) {
-      const stats = liveToGameLog(live, sport);
-      const fpts = isCategories
-        ? null
-        : Math.round(
-            calculateGameFantasyPoints(
-              stats as unknown as PlayerGameLog,
-              scoringWeights,
-              sport,
-            ) * 10,
-          ) / 10;
-      return {
-        fpts,
-        statLine:
-          live.game_status === 1
-            ? null
-            : buildStatLine(stats as Record<string, number>, sport),
-        isLive: live.game_status === 2,
-        matchup: live.matchup || null,
-        gameTimeUtc: null,
-      };
-    }
-    return {
-      fpts: isCategories ? null : 0,
-      statLine: null,
-      isLive: false,
-      matchup: todayMatchup,
-      gameTimeUtc: todayGameTime,
-    };
-  }
+  // Stats resolver — delegates to the shared computeSlotStats so this read-only
+  // mirror stays in lockstep with (tabs)/roster.tsx. This page is anchored to
+  // today (no past/future navigation), so isToday is always true for daily
+  // sports; weekly sports route to the week-aware branch inside computeSlotStats
+  // (fed the week-window daySchedule / weekGameStats / liveMap above).
+  const resolveSlotStats = (player: RosterPlayer | null) =>
+    computeSlotStats(player, {
+      scoringWeights,
+      isToday: true,
+      isPastDate: false,
+      isCategories,
+      liveMap,
+      daySchedule,
+      dayGameStats: isWeekly ? weekGameStats : undefined,
+      sport,
+      today,
+    });
 
   // ─── Render ─────────────────────────────────────────────────────────────────
 
@@ -524,7 +505,9 @@ export default function TeamRosterScreen() {
     ? starterSlots.reduce((sum, slot) => {
         if (!slot.player) return sum;
         const { fpts, isLive } = resolveSlotStats(slot.player);
-        if (!isLive && fpts !== null) {
+        // Weekly sports resolve the week's real box directly (its live row may
+        // have expired), so the live-gate would wrongly drop a completed game.
+        if (!isWeekly && !isLive && fpts !== null) {
           if (!liveMap.get(slot.player.player_id)) return sum;
         }
         return fpts !== null ? sum + fpts : sum;
@@ -541,8 +524,9 @@ export default function TeamRosterScreen() {
     prevFptsToContext(prevSeasonFpts?.get(playerId));
 
   const renderSlotRow = (slot: SlotEntry, idx: number, list: SlotEntry[]) => {
-    const { fpts, statLine, isLive, matchup, gameTimeUtc } = resolveSlotStats(slot.player);
-    const isPreGame = !!matchup && !isLive && !statLine;
+    const { fpts, statLine, isLive, matchup, gameTimeUtc, didNotPlay } = resolveSlotStats(slot.player);
+    // A weekly player who already played but sat (DNP) isn't "pre-game".
+    const isPreGame = !!matchup && !isLive && !statLine && !didNotPlay;
     const matchupDisplay = matchup
       ? gameTimeUtc && !isLive
         ? `${matchup} · ${formatGameTime(gameTimeUtc)}`

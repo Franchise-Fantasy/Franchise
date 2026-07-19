@@ -33,31 +33,26 @@ export interface TeamSlotData {
   promotedFromTaxiSet: Set<string>;
 }
 
-export async function fetchTeamSlots(
+/** Date-independent fetched state for a (team, week): everything
+ *  resolveTeamSlotsForDate needs to answer "what slot on day X" for ANY X in
+ *  the window, without another round trip. */
+export interface TeamSlotsRaw {
+  currentPlayerIds: Set<string>;
+  defaultSlotMap: Map<string, string>;
+  promotedFromTaxiSet: Set<string>;
+  acquiredDateMap: Map<string, string>;
+  dailyByPlayer: Map<string, DailyEntry[]>;
+}
+
+/** The query half of fetchTeamSlots — depends only on (team, week), never on
+ *  the viewed date, so callers can cache one fetch per week and re-resolve
+ *  per day in memory. */
+export async function fetchTeamSlotsRaw(
   teamId: string,
   leagueId: string,
-  date: string,
-  weekBounds?: { start_date: string; end_date: string },
+  bounds: { start_date: string; end_date: string },
   sport?: string | null,
-): Promise<TeamSlotData> {
-  // Slate-anchored "today" so resolveSlot agrees with the server/cron about
-  // the calendar boundary, regardless of which TZ the viewer is in.
-  const today = getSportToday(sport ?? null);
-
-  // Look up week bounds if not provided (roster page doesn't always have them)
-  let bounds = weekBounds;
-  if (!bounds) {
-    const { data: week } = await supabase
-      .from('league_schedule')
-      .select('start_date, end_date')
-      .eq('league_id', leagueId)
-      .lte('start_date', date)
-      .gte('end_date', date)
-      .maybeSingle();
-    // Fallback: treat the date as a single-day window
-    bounds = week ?? { start_date: date, end_date: date };
-  }
-
+): Promise<TeamSlotsRaw> {
   // 1. Fetch current roster + daily lineups in parallel
   const [{ data: leaguePlayers, error: lpErr }, { data: dailyEntries }] = await Promise.all([
     supabase
@@ -107,6 +102,21 @@ export async function fetchTeamSlots(
     }
     dailyByPlayer.get(entry.player_id)!.push(entry);
   }
+
+  return { currentPlayerIds, defaultSlotMap, promotedFromTaxiSet, acquiredDateMap, dailyByPlayer };
+}
+
+/** The pure half — resolve slots for one specific date from a raw fetch. */
+export function resolveTeamSlotsForDate(
+  raw: TeamSlotsRaw,
+  date: string,
+  bounds: { start_date: string; end_date: string },
+  sport?: string | null,
+): TeamSlotData {
+  // Slate-anchored "today" so resolveSlot agrees with the server/cron about
+  // the calendar boundary, regardless of which TZ the viewer is in.
+  const today = getSportToday(sport ?? null);
+  const { currentPlayerIds, defaultSlotMap, promotedFromTaxiSet, acquiredDateMap, dailyByPlayer } = raw;
 
   // 4. Identify dropped players: in daily_lineups but NOT in league_players,
   //    with a non-DROPPED entry during the week on or before the selected date
@@ -174,4 +184,31 @@ export async function fetchTeamSlots(
     defaultSlotMap,
     promotedFromTaxiSet,
   };
+}
+
+/** Fetch + resolve in one call (the original API). Prefer the raw/resolve
+ *  pair when the caller re-resolves multiple dates within one week. */
+export async function fetchTeamSlots(
+  teamId: string,
+  leagueId: string,
+  date: string,
+  weekBounds?: { start_date: string; end_date: string },
+  sport?: string | null,
+): Promise<TeamSlotData> {
+  // Look up week bounds if not provided (roster page doesn't always have them)
+  let bounds = weekBounds;
+  if (!bounds) {
+    const { data: week } = await supabase
+      .from('league_schedule')
+      .select('start_date, end_date')
+      .eq('league_id', leagueId)
+      .lte('start_date', date)
+      .gte('end_date', date)
+      .maybeSingle();
+    // Fallback: treat the date as a single-day window
+    bounds = week ?? { start_date: date, end_date: date };
+  }
+
+  const raw = await fetchTeamSlotsRaw(teamId, leagueId, bounds, sport);
+  return resolveTeamSlotsForDate(raw, date, bounds, sport);
 }

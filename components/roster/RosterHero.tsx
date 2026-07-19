@@ -45,6 +45,16 @@ interface RosterHeroProps {
   selectedDate: string;
   today: string;
   canGoBack: boolean;
+  /** Whether a next step exists (weekly sports gate this at the last week;
+   *  daily sports leave it true and the next arrow is always live). */
+  canGoForward?: boolean;
+  /** Weekly sports (NFL) set one lineup for the whole week: the eyebrow shows
+   *  the week range (weekLabel) instead of a day, there's no day picker or
+   *  jump-to-today, and the arrows step week-to-week. */
+  weekly?: boolean;
+  /** Week-range label (e.g. "Sep 4 – 8"), shown in place of dayLabel when
+   *  weekly. */
+  weekLabel?: string;
   isPastDate: boolean;
   isToday: boolean;
   currentWeek:
@@ -99,7 +109,8 @@ interface RosterHeroProps {
   } | null;
   onPrevDay: () => void;
   onNextDay: () => void;
-  onGoToToday: () => void;
+  /** Omitted for weekly sports — a week has no "today" to jump back to. */
+  onGoToToday?: () => void;
   /** When set, the eyebrow date becomes a tappable dropdown. */
   onDatePress?: () => void;
   /** When set, the week chip opens the weekly summary. */
@@ -310,6 +321,9 @@ export function RosterHero({
   selectedDate,
   today,
   canGoBack,
+  canGoForward = true,
+  weekly = false,
+  weekLabel,
   isPastDate,
   isToday,
   currentWeek,
@@ -443,7 +457,15 @@ export function RosterHero({
             date) so showing/hiding it can't shift the date — mirrors the
             Matchup hero. */}
         <View style={styles.eyebrowCenter}>
-          {!isOffseason &&
+          {!isOffseason && weekly ? (
+            <ThemedText
+              type="varsity"
+              style={styles.eyebrowDate}
+              numberOfLines={1}
+            >
+              {(weekLabel ?? dayLabel).toUpperCase()}
+            </ThemedText>
+          ) : !isOffseason &&
             (onDatePress ? (
               <TouchableOpacity
                 onPress={onDatePress}
@@ -482,7 +504,7 @@ export function RosterHero({
           {/* Inner edge — jump-to-today chip sits flush against the date so
               it reads as a date-nav utility. */}
           <View style={styles.eyebrowRightInner}>
-            {!isToday && !isOffseason && (
+            {!weekly && !isToday && !isOffseason && onGoToToday && (
               <TouchableOpacity
                 onPress={onGoToToday}
                 style={styles.todayIconChip}
@@ -659,7 +681,13 @@ export function RosterHero({
         <View style={styles.contextStripWrap}>
           <ContextStrip items={contextItems} />
         </View>
-        {!isOffseason && <ArrowChip direction="next" onPress={onNextDay} />}
+        {!isOffseason && (
+          <ArrowChip
+            direction="next"
+            disabled={!canGoForward}
+            onPress={onNextDay}
+          />
+        )}
       </View>
     </View>
   );

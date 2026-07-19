@@ -13,7 +13,6 @@ import {
   fetchMatchupDataById,
   fetchTeamSeeds,
   fetchWeeklyAdds,
-  fetchWeekMatchupData,
   formatWeekRange,
   useWeekMatchup,
   useWeeks,
@@ -33,6 +32,7 @@ import {
 } from "@/components/matchup/PlayerCell";
 import { RecapTicker } from "@/components/matchup/RecapTicker";
 import { ScheduleTicker } from "@/components/matchup/ScheduleTicker";
+import { useAdjacentDayPrefetch } from "@/components/matchup/useAdjacentDayPrefetch";
 import { WeekScheduleModal } from "@/components/matchup/WeekScheduleModal";
 import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
 import { CompareBar } from "@/components/player/CompareBar";
@@ -82,9 +82,10 @@ import {
   liveToGameLog,
   useLivePlayerStats,
 } from "@/utils/nba/nbaLive";
-import { fetchNbaScheduleForDate } from "@/utils/nba/nbaSchedule";
+import { fetchNbaScheduleForDate, fetchScheduleForWeek } from "@/utils/nba/nbaSchedule";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { calculateGameFantasyPoints } from "@/utils/scoring/fantasyPoints";
+import { isWeeklyLineupSport } from "@/utils/sports/registry";
 
 // Slots whose points don't count toward the matchup score — excluded from
 // every ticker (live recap, upcoming games, past recap).
@@ -312,6 +313,48 @@ export default function MatchupScreen() {
       (w) => w.start_date <= selectedDate && selectedDate <= w.end_date,
     ) ?? null;
 
+  // Weekly sports (NFL) view the whole week, not a single day — pin the anchor
+  // to today clamped into the viewed week (matches the roster page) so the
+  // per-day board cells resolve the week's game, and navigation steps
+  // week-to-week rather than day-to-day.
+  const isWeekly = isWeeklyLineupSport(sport);
+  const weekPin = currentWeek
+    ? today < currentWeek.start_date
+      ? currentWeek.start_date
+      : today > currentWeek.end_date
+        ? currentWeek.end_date
+        : today
+    : today;
+  useEffect(() => {
+    if (isWeekly && currentWeek && selectedDate !== weekPin) {
+      setSelectedDate(weekPin);
+    }
+  }, [isWeekly, currentWeek, weekPin, selectedDate]);
+
+  // Week-to-week navigation for weekly sports. Landing day is today clamped
+  // into the target week (matches weekPin), so the pin effect is a no-op after
+  // the jump.
+  const weekIdx =
+    weeks && currentWeek ? weeks.findIndex((w) => w.id === currentWeek.id) : -1;
+  const canGoBackWeek = weekIdx > 0;
+  const canGoForwardWeek = weekIdx >= 0 && weekIdx < (weeks?.length ?? 0) - 1;
+  const navigateWeek = (delta: -1 | 1) => {
+    if (!weeks || weekIdx < 0) return;
+    const target = weeks[weekIdx + delta];
+    if (!target) return;
+    const landing =
+      today < target.start_date
+        ? target.start_date
+        : today > target.end_date
+          ? target.end_date
+          : today;
+    setSelectedDate(landing);
+  };
+  const weekLabel =
+    isWeekly && currentWeek
+      ? formatWeekRange(currentWeek.start_date, currentWeek.end_date)
+      : undefined;
+
   // Schedule exists but the selected day is before tip-off (the draft-day gap
   // before opening night) — flips the hero from "OFFSEASON" to "UPCOMING".
   const firstWeekStart = weeks?.[0]?.start_date ?? null;
@@ -476,6 +519,7 @@ export default function MatchupScreen() {
 
   const {
     data: matchupData,
+    todayData: todayMatchupData,
     isLoading: matchupLoading,
     isError: matchupError,
     refetch: refetchMatchup,
@@ -553,40 +597,16 @@ export default function MatchupScreen() {
       displayLoading ||
       (!!currentWeek && allMatchups === undefined));
 
-  // Parallel "today" fetch for the hero week score. The hero score is
-  // week-wide and must not change when the user swipes the day picker —
-  // but `displayData` is keyed on `selectedDate`, so its `weekTotal` and
-  // `players` (used for liveBonus) drift across days. We mirror the same
-  // matchup query with selectedDate=today so the hero always reads from
-  // today's roster + today's weekTotal regardless of which day is shown.
-  // When the user IS on today, the query keys match and React Query
-  // dedupes — no extra network request.
+  // Week-wide "today" view for the hero score. The hero must not change when
+  // the user swipes the day picker — `todayMatchupData` comes from
+  // useWeekMatchup, derived in memory from the SAME week-keyed raw fetch as
+  // the day view, so it costs no extra network request.
   // Only meaningful for the current live week; outside it the hero falls
   // back to displayData (finalized stored scores or future placeholders).
   const isLiveWeekView =
     !!currentWeek &&
     currentWeek.start_date <= today &&
     today <= currentWeek.end_date;
-  const { data: todayMatchupData } = useQuery({
-    queryKey: queryKeys.weekMatchup(
-      leagueId!,
-      currentWeek?.id,
-      teamId ?? undefined,
-      today,
-    ),
-    queryFn: () => {
-      if (!currentWeek || !teamId || !leagueId || !scoring) return null;
-      return fetchWeekMatchupData(currentWeek, teamId, leagueId, today, scoring, sport);
-    },
-    enabled:
-      isLiveWeekView &&
-      isViewingOwnMatchup &&
-      !!teamId &&
-      !!leagueId &&
-      !!scoring &&
-      scoring.length > 0,
-    staleTime: 1000 * 60 * 2,
-  });
   const { data: todayOtherMatchupData } = useQuery({
     queryKey: queryKeys.matchupById(selectedMatchupId!, today),
     queryFn: () => {
@@ -716,16 +736,24 @@ export default function MatchupScreen() {
   // not today's.
   // For past dates, exclude final games (status 3) — those are already counted
   // in dayTotal from player_games. Only keep still-live games to avoid doubling.
+  // Weekly sports (NFL) show the whole week's cells at once, so keep every live
+  // game in the viewed week rather than a single day; daily sports keep only
+  // the selected date.
   const liveMap = useMemo(
     () =>
       new Map(
         [...rawLiveMap].filter(([, stats]) => {
-          if (stats.game_date !== selectedDate) return false;
+          if (isWeekly) {
+            if (currentWeek && stats.game_date < currentWeek.start_date) return false;
+            if (currentWeek && stats.game_date > currentWeek.end_date) return false;
+          } else if (stats.game_date !== selectedDate) {
+            return false;
+          }
           if (stats.game_date < today && stats.game_status === 3) return false;
           return true;
         }),
       ),
-    [rawLiveMap, selectedDate, today],
+    [rawLiveMap, selectedDate, today, isWeekly, currentWeek],
   );
 
   // Hero-bonus map: includes today's games (live or final — not yet in
@@ -785,51 +813,30 @@ export default function MatchupScreen() {
   // Fetched for every day state — future/today use it for the tipoff caption,
   // past days use the persisted final score (live stats expire).
   const { data: daySchedule } = useQuery<Map<string, any>>({
-    queryKey: [...queryKeys.futureSchedule(selectedDate), sport],
-    queryFn: () => fetchNbaScheduleForDate(selectedDate, sport),
+    queryKey: isWeekly
+      ? ["weekSchedule", currentWeek?.id, sport]
+      : [...queryKeys.futureSchedule(selectedDate), sport],
+    queryFn: () =>
+      isWeekly
+        ? fetchScheduleForWeek(currentWeek!.start_date, currentWeek!.end_date, sport)
+        : fetchNbaScheduleForDate(selectedDate, sport),
+    enabled: isWeekly ? !!currentWeek : true,
     staleTime: 1000 * 60 * 60,
   });
 
   // Prefetch adjacent days to reduce pop-in when navigating
-  useEffect(() => {
-    if (!weeks || !teamId || !leagueId || !scoring || scoring.length === 0)
-      return;
-    const adjacent = [
-      addDays(selectedDate, -1),
-      addDays(selectedDate, 1),
-      addDays(selectedDate, 2),
-    ];
-
-    for (const day of adjacent) {
-      const wk = weeks.find((w) => w.start_date <= day && day <= w.end_date);
-      if (!wk) continue;
-
-      // User's own matchup
-      queryClient.prefetchQuery({
-        queryKey: queryKeys.weekMatchup(leagueId!, wk.id, teamId, day),
-        queryFn: () => fetchWeekMatchupData(wk, teamId, leagueId, day, scoring, sport),
-        staleTime: 1000 * 60 * 2,
-      });
-
-      // Currently-viewed matchup (when looking at someone else's) — without
-      // this prefetch, swiping days while viewing another matchup hits a
-      // cold cache and pops the score block.
-      if (selectedMatchupId && !isViewingOwnMatchup) {
-        queryClient.prefetchQuery({
-          queryKey: queryKeys.matchupById(selectedMatchupId, day),
-          queryFn: () =>
-            fetchMatchupDataById(selectedMatchupId, wk, leagueId, day, scoring, sport),
-          staleTime: 1000 * 60 * 2,
-        });
-      }
-
-      queryClient.prefetchQuery({
-        queryKey: [...queryKeys.futureSchedule(day), sport],
-        queryFn: () => fetchNbaScheduleForDate(day, sport),
-        staleTime: 1000 * 60 * 60,
-      });
-    }
-  }, [selectedDate, weeks, teamId, leagueId, scoring, sport, selectedMatchupId, isViewingOwnMatchup]);
+  useAdjacentDayPrefetch({
+    weeks,
+    selectedDate,
+    today,
+    teamId,
+    leagueId,
+    scoring,
+    sport,
+    selectedMatchupId,
+    isViewingOwnMatchup,
+    enabled: !isWeekly,
+  });
 
   const { data: seedMap } = useQuery({
     queryKey: queryKeys.matchupSeeds(leagueId!, currentWeek?.week_number!),
@@ -1068,7 +1075,10 @@ export default function MatchupScreen() {
         today={today}
         isPastDate={selectedDate < today}
         isToday={selectedDate === today}
-        canGoBack={selectedDate > minDate}
+        canGoBack={isWeekly ? canGoBackWeek : selectedDate > minDate}
+        canGoForward={isWeekly ? canGoForwardWeek : selectedDate < maxDate}
+        weekly={isWeekly}
+        weekLabel={weekLabel}
         dayLabel={formatDayLabel(selectedDate)}
         currentWeek={currentWeek}
         seasonOpensLabel={seasonOpensLabel}
@@ -1099,10 +1109,12 @@ export default function MatchupScreen() {
         liveActivityHighlighted={highlightGoLive}
         onGoLive={handleGoLive}
         onPrevDay={() => {
+          if (isWeekly) return navigateWeek(-1);
           if (selectedDate > minDate)
             setSelectedDate(addDays(selectedDate, -1));
         }}
         onNextDay={() => {
+          if (isWeekly) return navigateWeek(1);
           if (selectedDate < maxDate)
             setSelectedDate(addDays(selectedDate, 1));
         }}
@@ -1112,13 +1124,19 @@ export default function MatchupScreen() {
         onNextMatchup={
           nextMatchupId ? () => setSelectedMatchupId(nextMatchupId) : undefined
         }
-        onGoToToday={() => {
-          // Today is a valid return target whenever it's not past the season's
-          // end — that covers in-season days and the pre-tip-off gap (today
-          // before the first week), which now renders the upcoming hero. Only a
-          // genuinely finished season (today > last week) stays off-limits.
-          if (today <= maxDate) setSelectedDate(today);
-        }}
+        onGoToToday={
+          // Weekly sports have no per-day "today" to return to.
+          isWeekly
+            ? undefined
+            : () => {
+                // Today is a valid return target whenever it's not past the
+                // season's end — that covers in-season days and the pre-tip-off
+                // gap (today before the first week), which now renders the
+                // upcoming hero. Only a genuinely finished season (today > last
+                // week) stays off-limits.
+                if (today <= maxDate) setSelectedDate(today);
+              }
+        }
         onSchedulePress={() => setScheduleVisible(true)}
         onSummaryPress={
           heroDataLeft && currentWeek

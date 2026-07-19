@@ -711,7 +711,34 @@
       "Bash(curl -s \"http://localhost:8081\")",
       "Bash(open \"http://localhost:8081\")",
       "Bash(command -v deno)",
-      "Read(//Users/joe/.deno/bin/**)"
+      "Read(//Users/joe/.deno/bin/**)",
+      "Bash(npx --no-install deno check --config supabase/functions/deno.json supabase/functions/sync-headshots/index.ts)",
+      "Bash(lsof -nP -iTCP:8081 -sTCP:LISTEN)",
+      "Bash(curl -s -o /dev/null -w \"server: HTTP %{http_code}\\\\n\" http://localhost:8081)",
+      "Bash(command -v supabase)",
+      "Bash(grep -n \"^import { Alert\\\\|Alert,\\\\|from '@/constants/queryKeys'\\\\|from '@/lib/draft'\\\\|from 'react-native'\" app/league-info.tsx)",
+      "Bash(cd /Users/joe/Desktop/Franchise *)",
+      "Read(//Users/joe/.supabase/**)",
+      "Bash(cd /Users/joe/Desktop/Franchise/supabase/functions *)",
+      "Bash(awk '/player_season_stats: \\\\{/,0' types/database.types.ts)",
+      "Bash(awk '/Row: \\\\{/,/\\\\}/')",
+      "Bash(node -e \"const a=require\\('./app.json'\\); console.log\\('web:',JSON.stringify\\(a.expo.web||'NONE',null,2\\)\\); console.log\\('plugins:',JSON.stringify\\(\\(a.expo.plugins||[]\\).map\\(p=>Array.isArray\\(p\\)?p[0]:p\\)\\)\\)\")",
+      "Bash(git fsck *)",
+      "Bash(curl -s --max-time 8 -o /dev/null -w \"root: HTTP %{http_code}\\\\n\" \"http://localhost:8081/\")",
+      "Bash(node -e \"console.log\\(require\\('./package.json'\\).scripts.typecheck || require\\('./package.json'\\).scripts['typecheck:app'] || 'none'\\)\")",
+      "Bash(npm test *)",
+      "Bash(npx expo *)",
+      "Bash(git check-ignore *)",
+      "Bash(echo \"none-left:$?\")",
+      "Bash(sed -n '/export function defaultLeagueDay/,/^}/p' /Users/joe/Desktop/Franchise/utils/dates.ts)",
+      "Bash(echo \"=== exit $? ===\")",
+      "Bash(awk '/export function computeSlotStats/,/^}/' components/roster/rosterData.ts)",
+      "Bash(awk '/async unsubscribe\\\\\\(/,/^    \\\\}/' node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js)",
+      "Bash(awk '/    subscribe\\\\\\(/,/joinedOnce = true/' node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js)",
+      "Bash(awk '/    teardown\\\\\\(\\\\\\)/,/^    \\\\}/' node_modules/@supabase/realtime-js/dist/main/RealtimeChannel.js)",
+      "Bash(node scripts/check-sport-scope.mjs)",
+      "Bash(node scripts/check-paired-files.mjs)",
+      "Bash(node scripts/check-realtime-channels.mjs)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
@@ -722,7 +749,8 @@
       "c:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\memory",
       "C:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\73c77862-940f-4e17-b14f-92473a04a444\\tool-results",
       "C:\\Users\\Joe\\.claude\\projects\\c--Users-Joe-OneDrive-Desktop-franchise-v2\\941afa4a-d5eb-4ba7-ab36-853832ddc4f9\\workflows\\scripts",
-      "/Users/joe/Desktop/Franchise/app/draft-room"
+      "/Users/joe/Desktop/Franchise/app/draft-room",
+      "/Users/joe/Desktop/Franchise/utils"
     ]
   }
 }

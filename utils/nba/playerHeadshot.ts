@@ -29,6 +29,22 @@ export const WNBA_HEADSHOT_OFFSET: ImageStyle = {
   transform: [{ translateY: '-10%' }],
 };
 
+// NFL.com's portrait master (400x400, center-cropped to 256x192 with no face
+// gravity) frames the head smaller and higher than cdn.nba.com, so in the
+// bottom-anchored circles the face reads small and sits low. Scale up slightly
+// and shift upward. Real NFL headshots only — not the silhouette. Tune the two
+// numbers if the crop still feels off.
+export const NFL_HEADSHOT_OFFSET: ImageStyle = {
+  transform: [{ scale: 1.18 }, { translateY: '-8%' }],
+};
+
+// Per-sport framing correction applied to real headshots (never the silhouette).
+// Sports absent from the map render with no transform.
+export const HEADSHOT_OFFSETS: Partial<Record<Sport, ImageStyle>> = {
+  wnba: WNBA_HEADSHOT_OFFSET,
+  nfl: NFL_HEADSHOT_OFFSET,
+};
+
 /**
  * Returns the headshot URL for a player, or null if no external ID is set.
  *

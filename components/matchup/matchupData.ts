@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 
 import { type PillMatchup } from "@/components/matchup/MatchupPillBar";
 import { RosterPlayer, round1, buildStatLine } from "@/components/matchup/PlayerCell";
@@ -7,8 +8,15 @@ import { RosterConfigSlot } from "@/hooks/useLeagueRosterConfig";
 import { supabase } from "@/lib/supabase";
 import { ScoringWeight } from "@/types/player";
 import { parseLocalDate } from "@/utils/dates";
+import { getSportToday } from "@/utils/leagueTime";
 import { liveToGameLog, type LivePlayerStats } from "@/utils/nba/nbaLive";
-import { fetchTeamData, sumStarterDayPoints } from "@/utils/roster/fetchTeamData";
+import {
+  deriveTeamDayData,
+  fetchTeamData,
+  fetchTeamWeekData,
+  sumStarterDayPoints,
+  type TeamWeekRaw,
+} from "@/utils/roster/fetchTeamData";
 import { isActiveSlot } from "@/utils/roster/resolveSlot";
 import { baseSlotName, ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import {
@@ -18,6 +26,7 @@ import {
   type CategoryResult,
   type TeamStatTotals,
 } from "@/utils/scoring/categoryScoring";
+import { isWeeklyLineupSport } from "@/utils/sports/registry";
 
 // Data layer for the Matchup tab: types, pure slot/label helpers, Supabase
 // fetchers, and the React Query hooks. Split out of (tabs)/matchup.tsx so the
@@ -156,7 +165,11 @@ function buildTeamDataFromFrozen(
 
   const rosterPlayers: RosterPlayer[] = playerScores.map((ps) => {
     const games = ps.games ?? [];
-    const dayGame = games.find((g) => g.date === selectedDate) ?? null;
+    // Weekly sports (NFL) show the week's single game regardless of the pinned
+    // anchor day — prefer the started game, else the player's only game.
+    const dayGame = isWeeklyLineupSport(sport)
+      ? (games.find((g) => isActiveSlot(g.slot)) ?? games[0] ?? null)
+      : (games.find((g) => g.date === selectedDate) ?? null);
     // The viewed day's slot wins; otherwise fall back to the standing slot.
     const displaySlot = dayGame?.slot ?? ps.roster_slot ?? "BE";
 
@@ -491,14 +504,22 @@ export async function fetchTeamSeeds(
   return map;
 }
 
-export async function fetchWeekMatchupData(
-  week: Week,
-  teamId: string,
-  leagueId: string,
-  selectedDate: string,
-  scoring: ScoringWeight[],
-  sport: string | null | undefined,
-): Promise<{
+/** Date-independent fetched state for the user's matchup in one week.
+ *  Derive any day's view with deriveWeekMatchupData — day swipes inside the
+ *  week never refetch. */
+export interface WeekMatchupRaw {
+  matchup: Matchup;
+  teamId: string;
+  isHome: boolean;
+  myInfo: TeamInfo;
+  oppInfo: TeamInfo | null;
+  /** Raw week data for the live path; null when the side renders frozen. */
+  myRaw: TeamWeekRaw | null;
+  oppRaw: TeamWeekRaw | null;
+  week: Week;
+}
+
+export interface WeekMatchupView {
   myTeam: TeamMatchupData;
   opponentTeam: TeamMatchupData | null;
   week: Week;
@@ -506,7 +527,15 @@ export async function fetchWeekMatchupData(
   categoryRecord: CategoryRecord | null;
   finalizedScore: FinalizedScore | null;
   categoryResults: CategoryMatchupResult | null;
-} | null> {
+}
+
+export async function fetchWeekMatchupRaw(
+  week: Week,
+  teamId: string,
+  leagueId: string,
+  liveMode: boolean,
+  sport: string | null | undefined,
+): Promise<WeekMatchupRaw | null> {
   const matchup = await fetchMatchupForWeek(week.id, teamId);
   if (!matchup) return null;
 
@@ -522,27 +551,55 @@ export async function fetchWeekMatchupData(
   const useFrozenMy = matchup.is_finalized && !!myFrozen;
   const useFrozenOpp = matchup.is_finalized && !!oppFrozen;
 
-  const [myInfo, oppInfo, myResult, oppResult] = await Promise.all([
+  const [myInfo, oppInfo, myRaw, oppRaw] = await Promise.all([
     fetchTeamInfo(teamId),
     opponentId ? fetchTeamInfo(opponentId) : Promise.resolve(null),
     useFrozenMy
       ? Promise.resolve(null)
-      : fetchTeamData(teamId, leagueId, week, selectedDate, scoring, sport),
+      : fetchTeamWeekData(teamId, leagueId, week, liveMode, sport),
     !opponentId || useFrozenOpp
       ? Promise.resolve(null)
-      : fetchTeamData(opponentId, leagueId, week, selectedDate, scoring, sport),
+      : fetchTeamWeekData(opponentId, leagueId, week, liveMode, sport),
   ]);
+
+  return { matchup, teamId, isHome, myInfo, oppInfo, myRaw, oppRaw, week };
+}
+
+/** Pure per-day view of a fetched week — the same shape the old date-keyed
+ *  fetch returned, so consumers are unchanged. */
+export function deriveWeekMatchupData(
+  raw: WeekMatchupRaw | null,
+  selectedDate: string,
+  scoring: ScoringWeight[],
+  sport: string | null | undefined,
+): WeekMatchupView | null {
+  if (!raw) return null;
+  const { matchup, teamId, isHome, myInfo, oppInfo, myRaw, oppRaw, week } = raw;
+  const opponentId = isHome ? matchup.away_team_id : matchup.home_team_id;
+
+  const myFrozen = isHome ? matchup.home_player_scores : matchup.away_player_scores;
+  const oppFrozen = isHome ? matchup.away_player_scores : matchup.home_player_scores;
+  const useFrozenMy = matchup.is_finalized && !!myFrozen;
+  const useFrozenOpp = matchup.is_finalized && !!oppFrozen;
 
   const myTeam = useFrozenMy
     ? buildTeamDataFromFrozen(teamId, myInfo, myFrozen!, selectedDate, scoring, sport)
-    : buildLiveTeam(teamId, myInfo, myResult!);
+    : buildLiveTeam(
+        teamId,
+        myInfo,
+        deriveTeamDayData(myRaw!, week, selectedDate, scoring, sport),
+      );
 
   let opponentTeam: TeamMatchupData | null = null;
   if (opponentId && oppInfo) {
     opponentTeam = useFrozenOpp
       ? buildTeamDataFromFrozen(opponentId, oppInfo, oppFrozen!, selectedDate, scoring, sport)
-      : oppResult
-        ? buildLiveTeam(opponentId, oppInfo, oppResult)
+      : oppRaw
+        ? buildLiveTeam(
+            opponentId,
+            oppInfo,
+            deriveTeamDayData(oppRaw, week, selectedDate, scoring, sport),
+          )
         : null;
   }
 
@@ -591,7 +648,7 @@ export async function fetchMatchupDataById(
   if (error) throw error;
   const matchup = data as unknown as Matchup;
 
-  // Left team is always the home team here — see fetchWeekMatchupData for the
+  // Left team is always the home team here — see fetchWeekMatchupRaw for the
   // frozen-vs-live rationale.
   const useFrozenHome = matchup.is_finalized && !!matchup.home_player_scores;
   const useFrozenAway = matchup.is_finalized && !!matchup.away_player_scores;
@@ -675,18 +732,24 @@ export function useWeekMatchup(
       (w) => w.start_date <= selectedDate && selectedDate <= w.end_date,
     ) ?? null;
 
-  return useQuery({
-    queryKey: queryKeys.weekMatchup(leagueId!, week?.id, teamId ?? undefined, selectedDate),
+  // The fetch is WEEK-keyed, not date-keyed: swiping days inside a week
+  // derives in memory from one cached raw fetch instead of re-running ~10
+  // queries per swipe. The only date-shaped fetch input is the live/past
+  // branch (live views stop game logs at yesterday), so that flag joins the
+  // key in the old selectedDate slot.
+  const today = getSportToday(sport ?? null);
+  const liveMode = selectedDate >= today;
+
+  const query = useQuery({
+    queryKey: queryKeys.weekMatchup(
+      leagueId!,
+      week?.id,
+      teamId ?? undefined,
+      liveMode ? "live" : "past",
+    ),
     queryFn: () => {
       if (!week || !teamId || !leagueId) return null;
-      return fetchWeekMatchupData(
-        week,
-        teamId,
-        leagueId,
-        selectedDate,
-        scoring,
-        sport,
-      );
+      return fetchWeekMatchupRaw(week, teamId, leagueId, liveMode, sport);
     },
     enabled: !!week && !!teamId && !!leagueId && scoring.length > 0,
     staleTime: 1000 * 60 * 2,
@@ -697,4 +760,35 @@ export function useWeekMatchup(
       return undefined;
     },
   });
+
+  const data = useMemo(
+    () =>
+      query.data !== undefined
+        ? deriveWeekMatchupData(query.data, selectedDate, scoring, sport)
+        : undefined,
+    [query.data, selectedDate, scoring, sport],
+  );
+
+  // Today's view of the same raw fetch, for the week-wide hero score — it
+  // must not drift as the day picker moves. Only meaningful when today falls
+  // inside the viewed week (the old today-mirror query had the same gate).
+  const weekContainsToday =
+    !!week && week.start_date <= today && today <= week.end_date;
+  const todayData = useMemo(
+    () =>
+      weekContainsToday && query.data
+        ? deriveWeekMatchupData(query.data, today, scoring, sport)
+        : null,
+    [weekContainsToday, query.data, today, scoring, sport],
+  );
+
+  // Picked fields only — spreading the tracked query result would read every
+  // getter and subscribe the screen to isFetching/dataUpdatedAt churn.
+  return {
+    data,
+    todayData,
+    isLoading: query.isLoading,
+    isError: query.isError,
+    refetch: query.refetch,
+  };
 }

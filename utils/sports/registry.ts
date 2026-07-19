@@ -56,6 +56,14 @@ export interface SportModule {
    * Football in the following fantasy week.
    */
   weekEndDow: 0 | 1;
+  /**
+   * Lineups are set once per fantasy week rather than per calendar day. NFL
+   * teams play once a week, so day-by-day navigation is meaningless — the GM
+   * sets one lineup for the whole week. NBA/WNBA play multiple games across a
+   * week on different days, so their lineups are edited per day. A daily sport
+   * leaves this false; a future weekly sport sets it true.
+   */
+  weeklyLineup: boolean;
   /** Position tokens used for filter chips and per-position roster limits. */
   positions: readonly string[];
   defaultRosterSlots: readonly RosterSlot[];
@@ -164,6 +172,7 @@ const NBA_MODULE: SportModule = {
   sport: 'nba',
   seasonFormat: 'cross-year',
   weekEndDow: 0,
+  weeklyLineup: false,
   positions: ['PG', 'SG', 'SF', 'PF', 'C'],
   defaultRosterSlots: [
     { position: 'PG', label: 'Point Guard', count: 1 },
@@ -191,6 +200,7 @@ const WNBA_MODULE: SportModule = {
   sport: 'wnba',
   seasonFormat: 'single-year',
   weekEndDow: 0,
+  weeklyLineup: false,
   // WNBA reports bare-letter positions (G/F/C); PG/SG/SF/PF don't exist as
   // roster concepts in WNBA leagues.
   positions: ['G', 'F', 'C'],
@@ -291,6 +301,7 @@ const NFL_MODULE: SportModule = {
   sport: 'nfl',
   seasonFormat: 'single-year',
   weekEndDow: 1,
+  weeklyLineup: true,
   positions: ['QB', 'RB', 'WR', 'TE', 'K', 'DST'],
   defaultRosterSlots: [
     { position: 'QB', label: 'Quarterback', count: 1 },
@@ -344,6 +355,15 @@ const MODULES: Record<RegistrySport, SportModule> = {
  */
 export function getSportModule(sport: string | null | undefined): SportModule {
   return MODULES[(sport ?? 'nba') as RegistrySport] ?? MODULES.nba;
+}
+
+/**
+ * Whether this sport sets its lineup once per fantasy week (NFL) rather than
+ * per calendar day (NBA/WNBA). Gate every "whole-week" UI/scoring branch on
+ * this — never inline `sport === 'nfl'` — so daily sports stay provable no-ops.
+ */
+export function isWeeklyLineupSport(sport: string | null | undefined): boolean {
+  return getSportModule(sport).weeklyLineup;
 }
 
 /**

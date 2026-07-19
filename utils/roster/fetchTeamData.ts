@@ -3,12 +3,17 @@ import { supabase } from '@/lib/supabase';
 import { ScoringWeight } from '@/types/player';
 import { addDays } from '@/utils/dates';
 import { getSportToday } from '@/utils/leagueTime';
-import { fetchTeamSlots } from '@/utils/roster/fetchTeamSlots';
+import {
+  fetchTeamSlotsRaw,
+  resolveTeamSlotsForDate,
+  type TeamSlotsRaw,
+} from '@/utils/roster/fetchTeamSlots';
 import { resolveSlot , isActiveSlot } from '@/utils/roster/resolveSlot';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { aggregateTeamStats } from '@/utils/scoring/categoryScoring';
 import { calculateGameFantasyPoints, calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 import { NFL_GAME_COLUMNS } from '@/utils/scoring/nflStatLine';
+import { isWeeklyLineupSport } from '@/utils/sports/registry';
 
 
 interface Week {
@@ -31,50 +36,47 @@ export function sumStarterDayPoints(players: RosterPlayer[]): number {
   }, 0);
 }
 
-export async function fetchTeamData(
+/** Date-independent fetched state for one team's week. Derive per-day views
+ *  with deriveTeamDayData — no further round trips per day swipe. */
+export interface TeamWeekRaw {
+  slotsRaw: TeamSlotsRaw;
+  gameLogs: any[];
+  seasonStats: any[];
+  playerInfoRows: any[];
+}
+
+/** The query half of fetchTeamData. `liveMode` = the viewer is on today or a
+ *  future day: game logs stop at yesterday (today's points come from the live
+ *  stats poller, not player_games). Past-day views take the whole week. */
+export async function fetchTeamWeekData(
   teamId: string,
   leagueId: string,
   week: Week,
-  selectedDate: string,
-  scoring: ScoringWeight[],
+  liveMode: boolean,
   sport?: string | null,
-): Promise<{
-  players: RosterPlayer[];
-  droppedPlayers: RosterPlayer[];
-  teamStats: Record<string, number>;
-  weekTotalAll: number;
-}> {
-  // Slate-anchored "today" so day-boundary logic agrees across viewers.
+): Promise<TeamWeekRaw> {
   const today = getSportToday(sport ?? null);
+  const slotsRaw = await fetchTeamSlotsRaw(teamId, leagueId, week, sport);
 
-  // Use the shared slot resolution — same function the roster page uses
-  const slots = await fetchTeamSlots(teamId, leagueId, selectedDate, week, sport);
-
-  const allPlayerIds = [...slots.currentPlayerIds, ...slots.droppedPlayerIds];
-  if (allPlayerIds.length === 0)
-    return { players: [], droppedPlayers: [], teamStats: {}, weekTotalAll: 0 };
-
-  // Build drop-date map for per-game slot resolution
-  const dropDateMap = new Map<string, string>();
-  for (const pid of slots.droppedPlayerIds) {
-    const entries = slots.dailyByPlayer.get(pid) ?? [];
-    const droppedEntry = entries.find((e) => e.roster_slot === ROSTER_SLOT.DROPPED);
-    if (droppedEntry) dropDateMap.set(pid, droppedEntry.lineup_date);
+  // Anyone who can appear in this week's views — current roster plus players
+  // dropped mid-week (their pre-drop games still count). This is the
+  // date-independent superset of every per-day droppedPlayerIds set
+  // resolveTeamSlotsForDate can produce for a date inside the week.
+  const allPlayerIds = [...slotsRaw.currentPlayerIds];
+  for (const [pid, entries] of slotsRaw.dailyByPlayer) {
+    if (slotsRaw.currentPlayerIds.has(pid)) continue;
+    const relevant = entries.some(
+      (e) =>
+        e.lineup_date >= week.start_date &&
+        e.lineup_date <= week.end_date &&
+        e.roster_slot !== ROSTER_SLOT.DROPPED,
+    );
+    if (relevant) allPlayerIds.push(pid);
   }
+  if (allPlayerIds.length === 0)
+    return { slotsRaw, gameLogs: [], seasonStats: [], playerInfoRows: [] };
 
-  const resolveGameSlotFast = (playerId: string, day: string): string =>
-    resolveSlot({
-      dailyEntries: slots.dailyByPlayer.get(playerId) ?? [],
-      day,
-      defaultSlot: slots.defaultSlotMap.get(playerId) ?? 'BE',
-      isOnCurrentRoster: slots.currentPlayerIds.has(playerId),
-      dropDate: dropDateMap.get(playerId),
-      acquiredDate: slots.acquiredDateMap.get(playerId),
-      today,
-    });
-
-  // Fetch game logs, season stats, and dropped player info in parallel
-  const weekEndForQuery = selectedDate >= today ? addDays(today, -1) : week.end_date;
+  const weekEndForQuery = liveMode ? addDays(today, -1) : week.end_date;
 
   // One literal select covers both sports — the other sport's columns come
   // back null and are skipped everywhere (a dynamic per-sport string would
@@ -100,9 +102,80 @@ export async function fetchTeamData(
       .in('id', allPlayerIds),
   ]);
 
+  return {
+    slotsRaw,
+    gameLogs: gameLogs ?? [],
+    seasonStats: seasonStats ?? [],
+    playerInfoRows: playerInfoRows ?? [],
+  };
+}
+
+/** The pure half — build one day's view from a week's raw fetch. */
+export function deriveTeamDayData(
+  raw: TeamWeekRaw,
+  week: Week,
+  selectedDate: string,
+  scoring: ScoringWeight[],
+  sport?: string | null,
+): {
+  players: RosterPlayer[];
+  droppedPlayers: RosterPlayer[];
+  teamStats: Record<string, number>;
+  weekTotalAll: number;
+} {
+  // Slate-anchored "today" so day-boundary logic agrees across viewers.
+  const today = getSportToday(sport ?? null);
+
+  // Use the shared slot resolution — same function the roster page uses
+  const slots = resolveTeamSlotsForDate(raw.slotsRaw, selectedDate, week, sport);
+
+  const allPlayerIds = [...slots.currentPlayerIds, ...slots.droppedPlayerIds];
+  if (allPlayerIds.length === 0)
+    return { players: [], droppedPlayers: [], teamStats: {}, weekTotalAll: 0 };
+
+  // Build drop-date map for per-game slot resolution
+  const dropDateMap = new Map<string, string>();
+  for (const pid of slots.droppedPlayerIds) {
+    const entries = slots.dailyByPlayer.get(pid) ?? [];
+    const droppedEntry = entries.find((e) => e.roster_slot === ROSTER_SLOT.DROPPED);
+    if (droppedEntry) dropDateMap.set(pid, droppedEntry.lineup_date);
+  }
+
+  const resolveGameSlotFast = (playerId: string, day: string): string =>
+    resolveSlot({
+      dailyEntries: slots.dailyByPlayer.get(playerId) ?? [],
+      day,
+      defaultSlot: slots.defaultSlotMap.get(playerId) ?? 'BE',
+      isOnCurrentRoster: slots.currentPlayerIds.has(playerId),
+      dropDate: dropDateMap.get(playerId),
+      acquiredDate: slots.acquiredDateMap.get(playerId),
+      today,
+    });
+
+  const { seasonStats } = raw;
+
+  // Two guards that restore the exact row set the old per-date fetch produced:
+  //
+  // (a) A live view (selectedDate on/after today) must NEVER count today's
+  //     player_games rows — today's production arrives via the live stats
+  //     poller and is added on top as a live bonus, so a today row that
+  //     already went final in player_games would be double-counted. The old
+  //     live-mode fetch stopped at yesterday; a past-mode raw doesn't, so
+  //     filter here. (No-op on live-mode raws.)
+  //
+  // (b) Only players in THIS date's roster/dropped set may contribute — the
+  //     week-wide fetch superset can include add/drop stints entirely after
+  //     the viewed date, whose games the old code never fetched (they'd leak
+  //     into category teamStats).
+  const viewIsLive = selectedDate >= today;
+  const perDateIds = new Set(allPlayerIds);
+  const gameLogs = raw.gameLogs.filter(
+    (g) => perDateIds.has(g.player_id) && (!viewIsLive || g.game_date < today),
+  );
+
   // Build player info map
   const playerInfoMap = new Map<string, any>();
-  for (const p of playerInfoRows ?? []) playerInfoMap.set(p.id, p);
+  for (const p of raw.playerInfoRows) playerInfoMap.set(p.id, p);
 
   const weekPointsMap = new Map<string, number>();
   const weekGamesMap = new Map<string, number>();
@@ -147,7 +220,9 @@ export async function fetchTeamData(
     // Always populate per-day display data — bench/IR players show their stat
     // line, matchup chip, and own fpts even though those points don't roll up
     // into the team's day/week total (filtered downstream by roster_slot).
-    if (game.game_date === selectedDate) {
+    // Weekly sports (NFL) show the week's single game regardless of the pinned
+    // anchor day — gameLogs are already week-bounded and there's ≤1 game/player.
+    if (isWeeklyLineupSport(sport) || game.game_date === selectedDate) {
       dayPointsMap.set(game.player_id, (dayPointsMap.get(game.player_id) ?? 0) + fp);
       if (game.matchup) dayMatchupMap.set(game.player_id, game.matchup);
       if (sport === 'nfl') {
@@ -243,4 +318,24 @@ export async function fetchTeamData(
   });
 
   return { players: visiblePlayers, droppedPlayers, teamStats, weekTotalAll };
+}
+
+/** Fetch + derive in one call (the original API). Prefer the week-raw/derive
+ *  pair when the caller re-derives multiple dates within one week. */
+export async function fetchTeamData(
+  teamId: string,
+  leagueId: string,
+  week: Week,
+  selectedDate: string,
+  scoring: ScoringWeight[],
+  sport?: string | null,
+): Promise<{
+  players: RosterPlayer[];
+  droppedPlayers: RosterPlayer[];
+  teamStats: Record<string, number>;
+  weekTotalAll: number;
+}> {
+  const today = getSportToday(sport ?? null);
+  const raw = await fetchTeamWeekData(teamId, leagueId, week, selectedDate >= today, sport);
+  return deriveTeamDayData(raw, week, selectedDate, scoring, sport);
 }

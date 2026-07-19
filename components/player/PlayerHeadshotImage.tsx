@@ -3,7 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import type { ImageStyle, StyleProp } from 'react-native';
 
 import type { Sport } from '@/constants/LeagueDefaults';
-import { getPlayerHeadshotUrl, PLAYER_SILHOUETTE, WNBA_HEADSHOT_OFFSET } from '@/utils/nba/playerHeadshot';
+import { getPlayerHeadshotUrl, HEADSHOT_OFFSETS, PLAYER_SILHOUETTE } from '@/utils/nba/playerHeadshot';
 
 type Props = {
   externalIdNba: string | number | null | undefined;
@@ -79,7 +79,7 @@ export function PlayerHeadshotImage({
     <Image
       key={`${url ?? 'silhouette'}-${retryNonce}`}
       source={showHeadshot ? { uri: url } : PLAYER_SILHOUETTE}
-      style={[style, showHeadshot && sport === 'wnba' && WNBA_HEADSHOT_OFFSET]}
+      style={[style, showHeadshot && HEADSHOT_OFFSETS[sport]]}
       contentFit={showHeadshot ? contentFit : 'contain'}
       cachePolicy="memory-disk"
       recyclingKey={url ?? 'silhouette'}

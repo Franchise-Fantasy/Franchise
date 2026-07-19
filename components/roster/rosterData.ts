@@ -14,6 +14,7 @@ import {
 } from "@/utils/scoring/fantasyPoints";
 import { NFL_GAME_COLUMNS, nflStatFields, nflStatLine } from "@/utils/scoring/nflStatLine";
 import { averageGames, lastNPlayedGames } from "@/utils/scoring/windowAverages";
+import { isWeeklyLineupSport } from "@/utils/sports/registry";
 
 // Data layer for the roster tab: the per-date roster fetch + the small pure
 // stat-line helpers. Split out of (tabs)/roster.tsx so the route file holds
@@ -191,6 +192,31 @@ export async function fetchDayGameStats(
   return map;
 }
 
+/**
+ * Week-window version of fetchDayGameStats — the player's box score for their
+ * single game in [startDate, endDate]. Weekly sports (NFL) play once per
+ * fantasy week, so player_id → one box; the roster is pinned to the week, not a
+ * day. Scoped by player_id (each id belongs to one sport), so no sport filter
+ * is needed (same as fetchDayGameStats).
+ */
+export async function fetchWeekGameStats(
+  playerIds: string[],
+  startDate: string,
+  endDate: string,
+): Promise<Map<string, DayGameStats>> {
+  const { data } = await supabase
+    .from("player_games")
+    .select(
+      'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, matchup',
+    )
+    .in("player_id", playerIds)
+    .gte("game_date", startDate)
+    .lte("game_date", endDate);
+  const map = new Map<string, DayGameStats>();
+  for (const row of data ?? []) map.set(row.player_id, row as DayGameStats);
+  return map;
+}
+
 export interface SlotStats {
   fpts: number | null;
   statLine: string | null;
@@ -212,6 +238,10 @@ export interface SlotStatsContext {
   daySchedule: Map<string, ScheduleEntry> | undefined;
   dayGameStats: Map<string, DayGameStats> | undefined;
   sport?: string | null;
+  /** Today's date (sport clock). Required for weekly sports, where the row
+   *  shows the week's single game and its played/live/upcoming state is decided
+   *  against today rather than the pinned anchor date. */
+  today?: string;
 }
 
 const EMPTY_SLOT_STATS: SlotStats = {
@@ -232,6 +262,11 @@ export function computeSlotStats(
     ctx;
 
   if (!player || !scoringWeights) return EMPTY_SLOT_STATS;
+
+  // Weekly sports (NFL) show the week's single game regardless of the pinned
+  // anchor day, so the played/live/upcoming state is decided from the game
+  // itself rather than the day-based isToday/isPastDate flags.
+  if (isWeeklyLineupSport(sport)) return computeWeekSlotStats(player, ctx);
 
   if (isToday) {
     const live = liveMap.get(player.player_id);
@@ -359,6 +394,102 @@ export function computeSlotStats(
     isLive: false,
     matchup: futureMatchup,
     gameTimeUtc: futureGameTime,
+  };
+}
+
+// Weekly-sport (NFL) row stats: the player has at most one game in the pinned
+// fantasy week, so state is derived from that game — live, final (box score or
+// finished live row), played-but-sat (DNP), upcoming, or no game (bye). The
+// caller populates `daySchedule`/`dayGameStats`/`liveMap` with WEEK-window data
+// (fetchScheduleForWeek / fetchWeekGameStats / week-filtered live map).
+function computeWeekSlotStats(
+  player: RosterPlayer,
+  ctx: SlotStatsContext,
+): SlotStats {
+  const { scoringWeights, isCategories, liveMap, daySchedule, dayGameStats, sport, today } = ctx;
+  if (!scoringWeights) return EMPTY_SLOT_STATS;
+
+  const live = liveMap.get(player.player_id);
+
+  // In-progress game
+  if (live && live.game_status === 2) {
+    const stats = liveToGameLog(live, sport);
+    const fpts = isCategories
+      ? null
+      : Math.round(
+          calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
+        ) / 10;
+    return {
+      fpts,
+      statLine: buildStatLine(stats as Record<string, number>, sport),
+      isLive: true,
+      matchup: live.matchup || null,
+      gameTimeUtc: null,
+    };
+  }
+
+  // Completed game — box score already written
+  const weekGame = dayGameStats?.get(player.player_id);
+  if (weekGame) {
+    const stats = dayToStatRecord(weekGame, sport);
+    const fpts = isCategories
+      ? null
+      : Math.round(
+          calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
+        ) / 10;
+    return {
+      fpts,
+      statLine: buildStatLine(stats as Record<string, number>, sport),
+      isLive: false,
+      matchup: weekGame.matchup ?? null,
+      gameTimeUtc: null,
+    };
+  }
+
+  // Finished live row before player_games has populated
+  if (live && live.game_status === 3) {
+    const stats = liveToGameLog(live, sport);
+    const fpts = isCategories
+      ? null
+      : Math.round(
+          calculateGameFantasyPoints(stats as unknown as PlayerGameLog, scoringWeights, sport) * 10,
+        ) / 10;
+    return {
+      fpts,
+      statLine: buildStatLine(stats as Record<string, number>, sport),
+      isLive: false,
+      matchup: live.matchup || null,
+      gameTimeUtc: null,
+    };
+  }
+
+  const schedEntry = player.nbaTricode
+    ? (daySchedule?.get(player.nbaTricode) ?? null)
+    : null;
+  if (!schedEntry) return EMPTY_SLOT_STATS; // bye week / no game this week
+
+  // Game already happened this week but the player has no box/live row → DNP.
+  // Guard on dayGameStats having loaded so an in-flight box doesn't flash DNP.
+  const played =
+    schedEntry.gameDate != null && today != null && schedEntry.gameDate < today;
+  if (played && dayGameStats) {
+    return {
+      fpts: null,
+      statLine: null,
+      isLive: false,
+      matchup: schedEntry.matchup,
+      gameTimeUtc: null,
+      didNotPlay: true,
+    };
+  }
+
+  // Upcoming game
+  return {
+    fpts: isCategories ? null : 0,
+    statLine: null,
+    isLive: false,
+    matchup: schedEntry.matchup,
+    gameTimeUtc: schedEntry.gameTimeUtc,
   };
 }
 

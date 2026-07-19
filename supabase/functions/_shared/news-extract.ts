@@ -93,14 +93,16 @@ export async function insertNewsArticle(
       mentioned_players: mentionedPlayers,
     }, { onConflict: 'external_id', ignoreDuplicates: true })
     .select('id')
-    .single();
+    .maybeSingle();
 
+  // ignoreDuplicates makes a conflict an ON CONFLICT DO NOTHING (0 rows).
+  // maybeSingle returns null (not a 406/PGRST116) on the duplicate, so the
+  // common already-seen-article path stays quiet in the API logs.
   if (newsErr) {
-    if (newsErr.code === 'PGRST116') return empty; // duplicate
     console.warn(`Upsert error for "${item.title.slice(0, 50)}":`, newsErr.message);
     return empty;
   }
-  if (!newsRow) return empty;
+  if (!newsRow) return empty; // duplicate — already in feed
 
   if (matchedPlayerIds.length > 0) {
     const mentions = matchedPlayerIds.map(pid => ({ news_id: newsRow.id, player_id: pid }));

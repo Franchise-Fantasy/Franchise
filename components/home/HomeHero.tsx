@@ -67,6 +67,16 @@ export type HomeHeroVariant =
       // way to set / edit the team-by-team order before scheduling.
       // `null` for non-manual or non-initial drafts.
       manualOrder?: { slotsAssigned: boolean } | null;
+      // Offline-eligible — an in-app rookie draft that hasn't started, so the
+      // commissioner can switch it to offline from the hero. `false`/omitted
+      // for non-rookie or already-offline drafts.
+      offlineEligible?: boolean;
+      // Offline rookie draft — the commissioner runs it in person / elsewhere
+      // and records results by hand. When true the hero shows an "Offline
+      // Draft" state (Enter Results for the commissioner, informational for
+      // members) instead of the live Schedule/Enter pills. `canToggle` gates
+      // the commissioner's mode switch (rookie draft, not yet started).
+      offline?: { canToggle: boolean } | null;
     }
   | {
       kind: 'invite_needed';
@@ -112,6 +122,10 @@ type Props = {
   onSchedulePress?: () => void;
   onEnterDraft?: () => void;
   onSetDraftOrder?: () => void;
+  // Offline rookie draft callbacks
+  onEnterOfflineResults?: () => void;
+  onRunOffline?: () => void;
+  onSwitchToInApp?: () => void;
   // Invite callback
   onShareInvite?: () => void;
   // Commissioner notice: an imported league still has teams whose rosters were
@@ -135,6 +149,9 @@ export function HomeHero({
   onSchedulePress,
   onEnterDraft,
   onSetDraftOrder,
+  onEnterOfflineResults,
+  onRunOffline,
+  onSwitchToInApp,
   onShareInvite,
   rostersPending,
 }: Props) {
@@ -175,6 +192,9 @@ export function HomeHero({
           onShareInvite={onShareInvite}
           onPaymentPress={onPaymentPress}
           onSetDraftOrder={onSetDraftOrder}
+          onEnterOfflineResults={onEnterOfflineResults}
+          onRunOffline={onRunOffline}
+          onSwitchToInApp={onSwitchToInApp}
         />
       )}
       {variant.kind === 'invite_needed' && (
@@ -443,6 +463,9 @@ function DraftPending({
   onShareInvite,
   onPaymentPress,
   onSetDraftOrder,
+  onEnterOfflineResults,
+  onRunOffline,
+  onSwitchToInApp,
 }: {
   variant: Extract<HomeHeroVariant, { kind: 'draft_pending' }>;
   onSchedulePress?: () => void;
@@ -450,12 +473,58 @@ function DraftPending({
   onShareInvite?: () => void;
   onPaymentPress?: () => void;
   onSetDraftOrder?: () => void;
+  onEnterOfflineResults?: () => void;
+  onRunOffline?: () => void;
+  onSwitchToInApp?: () => void;
 }) {
-  const { draftDate, draftType, season, isReadyToEnter, isCommissioner, invite, payment, manualOrder } =
+  const { draftDate, draftType, season, isReadyToEnter, isCommissioner, invite, payment, manualOrder, offline, offlineEligible } =
     variant;
   const dateLabel = formatDraftDate(draftDate);
   const isScheduled = !!draftDate;
   const needsOrderSet = manualOrder != null && !manualOrder.slotsAssigned;
+
+  // ── Offline rookie draft ────────────────────────────────────────────────
+  // The commissioner records results by hand; there's no schedule/clock. Show
+  // a distinct "Offline Draft" state: Enter Results for the commissioner (plus
+  // a switch back to in-app), informational for members.
+  if (offline) {
+    return (
+      <>
+        <EyebrowRow
+          segments={[shortSeason(season), draftTypeLabel(draftType), 'Offline']}
+          rightSlot={
+            isCommissioner && offline.canToggle ? (
+              <OutlinePill
+                label="Use App"
+                onPress={onSwitchToInApp}
+                accessibilityLabel="Switch this draft back to an in-app draft"
+              />
+            ) : null
+          }
+        />
+        <ThemedText type="display" style={[styles.tricode, styles.titleText]} numberOfLines={2}>
+          {'Offline\nDraft.'}
+        </ThemedText>
+        <View style={styles.statRow}>
+          <ThemedText type="varsitySmall" style={styles.statLabel}>
+            {isCommissioner ? 'Enter the results' : 'Run by the commissioner'}
+          </ThemedText>
+          <View style={styles.statDivider} />
+          {isCommissioner ? (
+            <PulsingPill
+              label="Enter Results"
+              onPress={onEnterOfflineResults}
+              accessibilityLabel="Enter offline draft results"
+            />
+          ) : (
+            <ThemedText type="varsitySmall" style={styles.statLabel}>
+              Offline
+            </ThemedText>
+          )}
+        </View>
+      </>
+    );
+  }
 
   // Eyebrow right-slot priority:
   //   1. invite icons        — commissioner, slots still open
@@ -499,6 +568,16 @@ function DraftPending({
         label="Edit Order"
         onPress={onSetDraftOrder}
         accessibilityLabel="Edit the draft order"
+      />
+    );
+  } else if (isCommissioner && offlineEligible) {
+    // Rookie draft that hasn't started — offer to run it offline (results
+    // entered by hand) instead of the live draft room.
+    eyebrowSlot = (
+      <OutlinePill
+        label="Run Offline"
+        onPress={onRunOffline}
+        accessibilityLabel="Run this rookie draft offline"
       />
     );
   }

@@ -990,7 +990,9 @@ export type Database = {
           draft_date?: string | null
           draft_type?: string
           id?: string
+          is_offline?: boolean
           league_id: string
+          offline_picks?: Json | null
           paused_at?: string | null
           paused_remaining_ms?: number | null
           picks_per_round?: number | null
@@ -1010,7 +1012,9 @@ export type Database = {
           draft_date?: string | null
           draft_type?: string
           id?: string
+          is_offline?: boolean
           league_id?: string
+          offline_picks?: Json | null
           paused_at?: string | null
           paused_remaining_ms?: number | null
           picks_per_round?: number | null
@@ -6403,6 +6407,15 @@ export type Database = {
           p_season: string
         }
         Returns: undefined
+      }
+      apply_offline_draft: {
+        Args: {
+          p_draft_id: string
+          p_league_id: string
+          p_mode: string
+          p_picks?: Json
+        }
+        Returns: Json
       }
       apply_roster_move: {
         Args: {

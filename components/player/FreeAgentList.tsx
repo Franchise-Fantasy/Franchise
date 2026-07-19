@@ -484,6 +484,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   // Lightweight minutes-only feed for the "Minutes Up" chip, so the chip
   // keeps working in the default season view without the 18-column stat logs
   // above (~6× less payload; same 45-day window and per-player 5-game walk).
+  // Skipped while a game-window range is active — the heavy logs already
+  // carry `min`, and this query's cached data still serves as the fallback
+  // while those load.
   const { data: recentMinuteLogs } = useQuery({
     queryKey: [...queryKeys.recentGameLogs(leagueId), "minutes"],
     queryFn: async () => {
@@ -506,7 +509,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       }
       return allRows;
     },
-    enabled: !!leagueId && allPlayerIds.length > 0,
+    enabled: !!leagueId && allPlayerIds.length > 0 && !timeRangeNeedsLogs,
     staleTime: 1000 * 60 * 15,
   });
 
@@ -530,11 +533,13 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     staleTime: 1000 * 60 * 30,
   });
 
-  // Derive minutesUpPlayerIds from the light minutes feed (always loaded, so
-  // the chip doesn't depend on which time range is selected)
+  // Derive minutesUpPlayerIds from whichever logs feed is live: the heavy
+  // window logs when an L5/L10/L15 range is active (they carry `min` too, so
+  // the light query pauses), else the light minutes feed — the chip works in
+  // every range without fetching minutes twice.
   const minutesUpPlayerIds = useMemo(
-    () => deriveMinutesUpPlayerIds(recentMinuteLogs, allPlayers),
-    [recentMinuteLogs, allPlayers],
+    () => deriveMinutesUpPlayerIds(recentGameLogs ?? recentMinuteLogs, allPlayers),
+    [recentGameLogs, recentMinuteLogs, allPlayers],
   );
 
   // Build time-range-adjusted player stats when a non-season range is selected

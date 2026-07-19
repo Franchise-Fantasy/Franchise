@@ -52,6 +52,63 @@ export function useMessages(conversationId: string | null) {
   });
 }
 
+// ─── Incoming-message prepend (realtime) ────────────────────
+// Called by useChatSubscription on a chat_messages INSERT. Fetches the newest
+// few enriched rows (same RPC/shape as the page query — the raw realtime
+// payload lacks joined fields like team_name) and prepends the missing ones,
+// instead of refetching a whole 30-row page per incoming message. Falls back
+// to a full invalidate whenever the cache state is ambiguous.
+export async function prependIncomingMessage(
+  queryClient: ReturnType<typeof useQueryClient>,
+  conversationId: string,
+): Promise<void> {
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId) });
+  try {
+    const { data, error } = await supabase.rpc('get_messages_page', {
+      p_conversation_id: conversationId,
+      p_limit: 5,
+    });
+    if (error) throw error;
+    const newest = (data ?? []) as unknown as ChatMessage[];
+    if (newest.length === 0) return;
+
+    let fallBack = false;
+    queryClient.setQueryData<MessagesCache>(
+      queryKeys.messages(conversationId),
+      (old) => {
+        if (!old || old.pages.length === 0) {
+          fallBack = true;
+          return old;
+        }
+        const existing = new Set(old.pages.flat().map((m) => m.id));
+        const fresh = newest.filter((m) => !existing.has(m.id));
+        if (fresh.length === 0) return old;
+        if (fresh.length === newest.length && existing.size > 0) {
+          // Nothing in the probe window overlaps the cache — the gap may be
+          // wider than the window (burst of messages); refetch instead of
+          // risking a hole in the thread.
+          fallBack = true;
+          return old;
+        }
+        const pages = [...old.pages];
+        // A fresh row can be the REAL version of an optimistic temp- row
+        // (own message echoed back — including from the same account on
+        // another device). Drop the twin so it isn't rendered twice while
+        // waiting for the send path's onSettled invalidate.
+        const isTwin = (m: ChatMessage) =>
+          m.id.startsWith('temp-') &&
+          fresh.some((f) => f.team_id === m.team_id && f.content === m.content);
+        pages[0] = [...fresh, ...pages[0].filter((m) => !isTwin(m))];
+        return { ...old, pages };
+      },
+    );
+    if (fallBack) invalidate();
+  } catch {
+    invalidate();
+  }
+}
+
 // ─── Send message ────────────────────────────────────────────
 
 // ─── Unsend (delete) message ────────────────────────────────

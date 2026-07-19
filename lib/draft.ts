@@ -176,3 +176,44 @@ export async function reorderRookieDraftPicks(
   });
   if (error) throw error;
 }
+
+// ── Offline rookie drafts ─────────────────────────────────────────────────
+// Commissioner-only. A dynasty rookie draft flagged `is_offline` is entered by
+// hand and recorded through the `offline-draft` edge function rather than the
+// live draft room. `picks` are the filled selections ([{ pick_number,
+// player_id }]); the edge function resolves teams/slots and (for publish)
+// drafts the players onto rosters. Errors surface the edge function's
+// HttpError message so the caller can Alert it.
+
+export type OfflineDraftPick = { pick_number: number; player_id: string };
+
+async function invokeOfflineDraft(body: Record<string, unknown>) {
+  const { error } = await supabase.functions.invoke('offline-draft', { body });
+  if (error) {
+    // Pull the real HttpError message out of the FunctionsHttpError body
+    // instead of the generic non-2xx string.
+    let detail = error.message;
+    try {
+      const parsed = await (error as { context?: Response }).context?.json?.();
+      if (parsed?.error) detail = parsed.error;
+    } catch {
+      // Body wasn't JSON — keep the fallback.
+    }
+    throw new Error(detail);
+  }
+}
+
+/** Persist staged offline picks without drafting anyone (durability + reopen). */
+export async function saveOfflineDraft(draftId: string, picks: OfflineDraftPick[]) {
+  await invokeOfflineDraft({ action: 'save', draft_id: draftId, picks });
+}
+
+/** Publish offline results: draft the players onto rosters and complete the draft. */
+export async function publishOfflineDraft(draftId: string, picks: OfflineDraftPick[]) {
+  await invokeOfflineDraft({ action: 'publish', draft_id: draftId, picks });
+}
+
+/** Un-publish a completed offline draft so the commissioner can edit + re-publish. */
+export async function reopenOfflineDraft(draftId: string) {
+  await invokeOfflineDraft({ action: 'reopen', draft_id: draftId });
+}

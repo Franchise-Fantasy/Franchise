@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
+import { subscribeScoreTopic } from '@/lib/scoreTopics';
 import { supabase, uniqueChannelTopic } from '@/lib/supabase';
 import { PlayoffBracketSlot, PlayoffSeedPick } from '@/types/playoff';
 
@@ -66,45 +67,27 @@ export function usePlayoffBracket(season: string) {
     staleTime: 1000 * 60 * 5,
   });
 
-  // Subscribe to week_scores changes for live score updates
-  const channelsRef = useRef<ReturnType<typeof supabase.channel>[]>([]);
+  // Subscribe to week_scores updates via the ref-counted topic manager —
+  // the matchup/roster/scoreboard screens listen to the same deterministic
+  // `scores:<schedule_id>` topics, and a per-screen channel would be torn
+  // down for ALL listeners by whichever screen unmounted first.
   useEffect(() => {
-    if (!leagueId || scheduleIds.length === 0) {
-      for (const ch of channelsRef.current) supabase.removeChannel(ch);
-      channelsRef.current = [];
-      return;
-    }
+    if (!leagueId || scheduleIds.length === 0) return;
 
-    // Subscribe to the deterministic broadcast topic for each active playoff
-    // schedule — must match the week_scores_broadcast DB trigger's
-    // `scores:<schedule_id>` exactly (NOT uniqueChannelTopic).
-    const channels = scheduleIds.map((sid) =>
-      supabase
-        .channel(`scores:${sid}`)
-        .on(
-          'broadcast',
-          { event: 'score_update' },
-          (message) => {
-            // The trigger sends one changed row per message: { schedule_id, team_id, score }.
-            const row = message.payload as { team_id?: string; score?: number } | undefined;
-            if (!row?.team_id) return;
-            queryClient.setQueryData(
-              queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
-              (old: Record<string, number> | undefined) => ({
-                ...old,
-                [row.team_id!]: Number(row.score),
-              }),
-            );
-          },
-        )
-        .subscribe(),
+    const unsubscribers = scheduleIds.map((sid) =>
+      subscribeScoreTopic(sid, (row) => {
+        queryClient.setQueryData(
+          queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+          (old: Record<string, number> | undefined) => ({
+            ...old,
+            [row.team_id!]: Number(row.score),
+          }),
+        );
+      }),
     );
 
-    channelsRef.current = channels;
-
     return () => {
-      for (const ch of channels) supabase.removeChannel(ch);
-      channelsRef.current = [];
+      for (const unsub of unsubscribers) unsub();
     };
     // scheduleIds is a fresh array reference each render; joining to a string gives us a
     // stable value dep so the effect only re-runs when the set of ids actually changes.

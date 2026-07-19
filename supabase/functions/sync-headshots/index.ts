@@ -100,7 +100,8 @@ async function syncSport(sport: HeadshotSport, force: boolean): Promise<{
   if (error) throw new Error(`players query: ${error.message}`);
 
   const existing = force ? new Set<string>() : await listExisting(sport);
-  const sourceUrls = HEADSHOT_SOURCES[sport];
+  const source = HEADSHOT_SOURCES[sport];
+  const preSized = "preSized" in source && source.preSized === true;
   const failed: { name: string; id: string; err: string }[] = [];
   let uploaded = 0;
   let skipped = 0;
@@ -117,7 +118,7 @@ async function syncSport(sport: HeadshotSport, force: boolean): Promise<{
       const p = queue[i];
       const id = String(p.external_id_nba);
       try {
-        const urls = sourceUrls(id);
+        const urls = source.urls(id);
         let res: Response | null = null;
         for (const url of urls) {
           const r = await fetch(url);
@@ -127,10 +128,10 @@ async function syncSport(sport: HeadshotSport, force: boolean): Promise<{
         if (!res) throw new Error(`no source resolved: ${urls.join(", ")}`);
         const buf = new Uint8Array(await res.arrayBuffer());
         if (buf.byteLength === 0) throw new Error("empty body");
-        const resized = await resizeHeadshot(buf);
+        const bytes = preSized ? buf : await resizeHeadshot(buf);
         const { error: upErr } = await supabase.storage
           .from("player-headshots")
-          .upload(`${sport}/${id}.png`, resized, {
+          .upload(`${sport}/${id}.png`, bytes, {
             contentType: "image/png",
             upsert: true,
             cacheControl: "31536000",
