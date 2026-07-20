@@ -747,7 +747,16 @@
       "Bash(npx eas-cli@latest build:view 5968fcc8-b1c6-465b-8fab-2f1072eece9b)",
       "Bash(timeout 90 npx eas-cli@latest submit --platform ios --latest --profile production --non-interactive)",
       "Bash(npx eas-cli@latest submit --platform ios --latest --profile production --non-interactive)",
-      "Bash(awk '/^const pStyles/,0' components/matchup/PlayerCell.tsx)"
+      "Bash(awk '/^const pStyles/,0' components/matchup/PlayerCell.tsx)",
+      "Bash(xcodebuild -version)",
+      "Bash(pod --version)",
+      "Bash(ruby -v)",
+      "Bash(gem list *)",
+      "Bash(brew list *)",
+      "Bash(gem install *)",
+      "Bash(sudo -n true)",
+      "Bash(curl -sS -o /dev/null -w \"rubygems:%{http_code}\\\\n\" https://rubygems.org)",
+      "Bash(curl -sS -o /dev/null -w \"mise:%{http_code}\\\\n\" https://mise.run)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

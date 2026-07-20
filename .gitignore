@@ -12,6 +12,15 @@ backend/.aging_curve_cache.json
 landing/.next/
 landing/node_modules/
 
+# CNG-generated native projects. `expo prebuild` regenerates these from
+# app.json + plugins/ on demand (and EAS Build always regenerates them), so
+# they're build output, not source. Keeping them untracked also stops a local
+# `pod install` from dumping ios/Pods/ (~GBs) into the repo.
+# Safe for OTA: fingerprint.config.js already lists ios/** and android/** in
+# ignorePaths, so their presence never changes the runtimeVersion hash.
+ios/
+android/
+
 # Signing / secrets — never commit
 credentials/
 credentials.json
