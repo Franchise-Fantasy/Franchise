@@ -917,6 +917,15 @@ function ScoreBlock({
       ? `${formatScore(rightTeam.dayScore)} ${dayBadge}`
       : null;
 
+  // The dot-matrix face is sized for up to 6 characters ("999.90"). A 4-digit
+  // week total ("1082.40" = 7 chars) overflows the column and its glyphs
+  // collide with the day-nav arrow. Step the size down by the longer focal's
+  // length so BOTH columns stay the same size. Digits are tabular, so this
+  // only changes when a score crosses the 1000-point (7-char) boundary — it
+  // won't jitter as the live score ticks within the same digit count.
+  const focalLen = Math.max(leftFocal?.length ?? 0, rightFocal?.length ?? 0);
+  const scoreFontSize = focalLen >= 8 ? ms(26) : focalLen >= 7 ? ms(33) : ms(40);
+
   return (
     <View style={styles.scoreRow}>
       <ScoreColumn
@@ -928,6 +937,7 @@ function ScoreBlock({
         colorFor={colorFor}
         focal={leftFocal}
         sub={leftSub}
+        scoreFontSize={scoreFontSize}
         onTeamPress={onTeamPress}
       />
       <View style={styles.colDivider} />
@@ -940,6 +950,7 @@ function ScoreBlock({
         colorFor={colorFor}
         focal={rightFocal}
         sub={rightSub}
+        scoreFontSize={scoreFontSize}
         onTeamPress={onTeamPress}
       />
     </View>
@@ -959,6 +970,10 @@ interface ScoreColumnProps {
   /** Small sub-line under the focal number (day total or category record).
    *  Null reserves the line's height with a spacer. */
   sub: string | null;
+  /** Shared focal font size — stepped down for 7+ char scores so a 4-digit
+   *  week total doesn't overflow. Computed once for both columns to keep them
+   *  the same size. */
+  scoreFontSize: number;
   onTeamPress?: (teamId: string) => void;
 }
 
@@ -971,6 +986,7 @@ function ScoreColumn({
   colorFor,
   focal,
   sub,
+  scoreFontSize,
   onTeamPress,
 }: ScoreColumnProps) {
   // Column anchors the meta row (tri + record) to the OUTER edge so the
@@ -1005,7 +1021,8 @@ function ScoreColumn({
       <View style={[styles.metaTopRow, innerAlign]}>{metaOrder}</View>
       {focal != null && team ? (
         <ThemedText
-          style={[styles.bigScore, innerAlign, { color: colorFor(leading) }]}
+          style={[styles.bigScore, innerAlign, { color: colorFor(leading), fontSize: scoreFontSize }]}
+          numberOfLines={1}
         >
           {focal}
         </ThemedText>

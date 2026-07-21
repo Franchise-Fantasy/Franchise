@@ -24,6 +24,7 @@ import { EditWaiverSettingsModal } from '@/components/commissioner/EditWaiverSet
 import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
 import { ImportTeamRosterModal } from '@/components/commissioner/ImportTeamRosterModal';
+import { InviteMembersSheet } from '@/components/commissioner/InviteMembersSheet';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { OfflineDraftEntryModal } from '@/components/commissioner/OfflineDraftEntryModal';
@@ -260,6 +261,7 @@ export default function LeagueInfoScreen() {
   const [showDivisionsModal, setShowDivisionsModal] = useState(false);
   const [showTransferOwnership, setShowTransferOwnership] = useState(false);
   const [showLeagueUpgrade, setShowLeagueUpgrade] = useState(false);
+  const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [importRosterTeam, setImportRosterTeam] = useState<{ id: string; name: string } | null>(null);
   const { leagueTier } = useSubscription();
 
@@ -944,6 +946,20 @@ export default function LeagueInfoScreen() {
           </Section>
         )}
 
+        {/* ── Members ── */}
+        {isCommissioner && leagueId && (
+          <Section title="Members" cardStyle={styles.sectionCardInner}>
+            <CommAction
+              icon="mail-outline"
+              label="Invite Members"
+              subLabel="Send an email invite to anyone with an account"
+              c={c}
+              onPress={() => setShowInviteSheet(true)}
+              last
+            />
+          </Section>
+        )}
+
         {/* ── Danger Zone ── */}
         <Section title="Danger Zone" cardStyle={styles.sectionCardInner}>
           {isCommissioner && ownedOtherMembers.length > 0 && (
@@ -1169,6 +1185,14 @@ export default function LeagueInfoScreen() {
           visible={showLeagueUpgrade}
           onClose={() => setShowLeagueUpgrade(false)}
           leagueMode
+        />
+      )}
+
+      {isCommissioner && leagueId && (
+        <InviteMembersSheet
+          visible={showInviteSheet}
+          leagueId={leagueId}
+          onClose={() => setShowInviteSheet(false)}
         />
       )}
     </SafeAreaView>

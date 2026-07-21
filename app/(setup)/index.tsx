@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 import { StyleSheet, View } from 'react-native';
 
+import { PendingInvitesCard } from '@/components/home/PendingInvitesCard';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { BrandWordmark } from '@/components/ui/BrandWordmark';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -43,6 +44,11 @@ export default function SetupHome() {
           Create your own league or join one a friend has already started.
         </ThemedText>
       </View>
+
+      {/* A brand-new invitee with no leagues lands here — surface their pending
+          invite so they can join directly instead of hunting for a code. Renders
+          nothing when there are no invites. */}
+      <PendingInvitesCard />
 
       <View style={styles.actions}>
         <BrandButton

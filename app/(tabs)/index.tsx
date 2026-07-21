@@ -24,6 +24,7 @@ import { HomeAnnouncementBanner } from '@/components/home/HomeAnnouncementBanner
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
+import { PendingInvitesCard } from '@/components/home/PendingInvitesCard';
 import { QuickNav } from '@/components/home/QuickNav';
 import { StandingsSection } from '@/components/home/StandingsSection';
 import { BusyOverlay } from '@/components/ui/BusyOverlay';
@@ -948,6 +949,7 @@ export default function HomeScreen() {
                 leagueType={league.league_type}
                 scoringType={league.scoring_type}
               />
+              <PendingInvitesCard />
               {activeDraft?.id && league?.id && isCommissioner && isManualOrder && (
                 <ManualDraftOrderModal
                   visible={showOrderModal}
@@ -1042,6 +1044,7 @@ export default function HomeScreen() {
               leagueType={league.league_type}
               scoringType={league.scoring_type}
             />
+            <PendingInvitesCard />
             {heroVariant && (
               <HomeHero
                 variant={heroVariant}
@@ -1054,6 +1057,19 @@ export default function HomeScreen() {
                 onSetDraftOrder={() => setShowOrderModal(true)}
                 onShareInvite={onShareInvite}
                 rostersPending={rostersPending}
+              />
+            )}
+
+            {/* Season's over but the commissioner hasn't advanced yet — crown
+                the champion right under the hero, above analytics + Explore, so
+                the title is the first thing you see (the hero only carries a
+                small tricode, and the offseason UI hasn't taken over yet). */}
+            {isSeasonComplete && champion && (
+              <ChampionCard
+                teamName={champion.name}
+                logoKey={champion.logoKey}
+                tricode={champion.tricode}
+                season={league.season}
               />
             )}
             {/* Manual draft order — commissioner-only modal. Rendered
@@ -1098,19 +1114,6 @@ export default function HomeScreen() {
                 (see computeOffseasonHeroAction) rather than inline here — the
                 full roster list made the home page far too heavy. */}
             <QuickNav leagueType={league.league_type ?? 'dynasty'} />
-
-            {/* Season's over but the commissioner hasn't advanced yet —
-                crown the champion prominently above standings, since the
-                hero only carries a small tricode and the offseason UI (with
-                its own champion surfaces) hasn't taken over the body yet. */}
-            {isSeasonComplete && champion && (
-              <ChampionCard
-                teamName={champion.name}
-                logoKey={champion.logoKey}
-                tricode={champion.tricode}
-                season={league.season}
-              />
-            )}
 
             {isOffseason ? (
               <OffseasonLotteryOrder

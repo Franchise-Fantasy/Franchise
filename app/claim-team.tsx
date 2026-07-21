@@ -121,7 +121,7 @@ export default function ClaimTeamScreen() {
         Claim Your Team
       </ThemedText>
       <ThemedText style={[styles.desc, { color: c.secondaryText }]}>
-        This league was imported from Sleeper. Pick the team that belongs to you.
+        Pick the team that belongs to you.
       </ThemedText>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>

@@ -646,7 +646,7 @@ export type Database = {
           last_success_at: string | null
         }
         Insert: {
-          expected_interval: string
+          expected_interval?: string
           job_name: string
           last_error?: string | null
           last_run_at?: string | null
@@ -1081,6 +1081,71 @@ export type Database = {
           week?: number | null
         }
         Relationships: []
+      }
+      invitations: {
+        Row: {
+          created_at: string
+          id: string
+          invited_by: string
+          invited_email: string
+          invited_user_id: string
+          league_id: string
+          responded_at: string | null
+          status: string
+          team_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          invited_by: string
+          invited_email: string
+          invited_user_id: string
+          league_id: string
+          responded_at?: string | null
+          status?: string
+          team_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          invited_by?: string
+          invited_email?: string
+          invited_user_id?: string
+          league_id?: string
+          responded_at?: string | null
+          status?: string
+          team_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "invitations_invited_by_fkey"
+            columns: ["invited_by"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invitations_invited_user_id_fkey"
+            columns: ["invited_user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invitations_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "invitations_team_id_fkey"
+            columns: ["team_id"]
+            isOneToOne: false
+            referencedRelation: "teams"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       keeper_declarations: {
         Row: {
@@ -6486,6 +6551,7 @@ export type Database = {
         Returns: undefined
       }
       can_view_message: { Args: { p_message_id: string }; Returns: boolean }
+      cancel_league_invite: { Args: { p_invite_id: string }; Returns: Json }
       check_bidding_wars: {
         Args: { p_league_id: string; p_proposal_id: string }
         Returns: undefined
@@ -6525,6 +6591,16 @@ export type Database = {
       commissioner_set_pick_protection: {
         Args: { p_owner_id?: string; p_pick_id: string; p_threshold?: number }
         Returns: undefined
+      }
+      create_league_invite: {
+        Args: {
+          p_invited_by: string
+          p_invited_email: string
+          p_invited_user_id: string
+          p_league_id: string
+          p_team_id?: string
+        }
+        Returns: string
       }
       create_playoff_round_atomic: {
         Args: {
@@ -7361,6 +7437,10 @@ export type Database = {
       replace_scoring_settings: {
         Args: { p_league_id: string; p_rows: Json }
         Returns: undefined
+      }
+      respond_to_league_invite: {
+        Args: { p_action: string; p_invite_id: string }
+        Returns: Json
       }
       reverse_trade_transfers: {
         Args: { p_proposal_id: string }

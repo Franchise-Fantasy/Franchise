@@ -8,7 +8,19 @@ import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
-import type { ScreenshotImportState } from './state';
+import { buildRosterPlayers } from './buildRosterPlayers';
+import type { ScreenshotImportState, TeamRosterData } from './state';
+
+/**
+ * How many players a team will actually import. Uses `buildRosterPlayers`
+ * (the exact list sent to the edge action) so the count can't drift from
+ * what's imported. Naively adding `resolvedMappings.size` double-counted a
+ * *corrected* auto-match: the correction is keyed by the matched player's
+ * index, so it's already inside `matched.length` — buildRosterPlayers folds
+ * it back onto that same row instead of adding a new one.
+ */
+const teamPlayerCount = (t: TeamRosterData) =>
+  buildRosterPlayers(t.matched, t.unmatched, t.resolvedMappings).length;
 
 interface StepReviewProps {
   state: ScreenshotImportState;
@@ -32,14 +44,11 @@ export function StepReview({ state, onSubmit, onBack, loading, finishLater, onEd
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
 
-  const totalPlayers = state.teams.reduce(
-    (sum, t) => sum + t.matched.length + t.resolvedMappings.size,
-    0,
-  );
+  const totalPlayers = state.teams.reduce((sum, t) => sum + teamPlayerCount(t), 0);
   const extractedSeasons = state.historySeasons.filter((h) => h.extracted?.teams?.length);
   // Teams that will be created without a roster when finishing later.
   const unfinishedCount = state.teams.filter(
-    (t) => !t.extracted || t.matched.length + t.resolvedMappings.size === 0,
+    (t) => !t.extracted || teamPlayerCount(t) === 0,
   ).length;
 
   return (
@@ -95,7 +104,7 @@ export function StepReview({ state, onSubmit, onBack, loading, finishLater, onEd
                     {team.team_name}
                   </ThemedText>
                   <Text style={[styles.teamCount, { color: c.secondaryText }]}>
-                    {team.matched.length + team.resolvedMappings.size} players
+                    {teamPlayerCount(team)} players
                   </Text>
                 </View>
                 <Ionicons

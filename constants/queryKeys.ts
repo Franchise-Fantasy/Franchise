@@ -342,6 +342,10 @@ export const queryKeys = {
   // ── Offseason ────────────────────────────────────────────
   champion: (leagueId: string) => ["champion", leagueId] as const,
 
+  // ── Invitations ──────────────────────────────────────────
+  myInvites: (userId: string) => ["myInvites", userId] as const,
+  leagueInvites: (leagueId: string) => ["leagueInvites", leagueId] as const,
+
   // ── CMS (test) ───────────────────────────────────────────
   contentfulTypes: () => ["contentful", "types"] as const,
   contentfulEntries: (contentType: string) =>

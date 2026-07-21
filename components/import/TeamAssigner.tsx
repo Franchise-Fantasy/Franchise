@@ -20,6 +20,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { sendLeagueInvite } from '@/utils/league/sendLeagueInvite';
 import { ms, s } from '@/utils/scale';
 
 interface TeamAssignerProps {
@@ -109,23 +110,12 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
     if (!email || !selectedTeam) return;
     setSendingInvite(true);
     try {
-      const { data: result, error } = await supabase.functions.invoke('send-league-invite', {
-        body: { league_id: leagueId, team_id: selectedTeam.id, email },
-      });
-      if (error) {
-        // Surface the edge function's specific message (already claimed, already
-        // a member, etc.) rather than the generic non-2xx wrapper.
-        let msg = error.message ?? 'Something went wrong.';
-        try {
-          const body = await error.context?.json?.();
-          if (body?.error) msg = body.error;
-        } catch {
-          // fall through with the generic message
-        }
-        Alert.alert('Invite failed', msg);
+      const result = await sendLeagueInvite({ leagueId, email, teamId: selectedTeam.id });
+      if (result.status === 'error') {
+        Alert.alert('Invite failed', result.message);
         return;
       }
-      if (result?.status === 'no_account') {
+      if (result.status === 'no_account') {
         Alert.alert(
           'No account found',
           `No Franchise account is registered to ${email}. Share your league invite code so they can sign up, then assign their team here. (Emailed invites are coming soon.)`,
@@ -134,8 +124,6 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
       }
       showToast('success', `Invite sent to ${email}`);
       closeModal();
-    } catch (err: any) {
-      Alert.alert('Invite failed', err.message ?? 'Something went wrong.');
     } finally {
       setSendingInvite(false);
     }

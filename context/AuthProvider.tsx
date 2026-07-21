@@ -94,6 +94,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         queueSoftPromptIfNeeded(newSession.user.id).catch((e) =>
           logger.warn('queueSoftPromptIfNeeded failed', e),
         );
+        // Also refresh on a fresh sign-in (not just session restore above): a
+        // reinstall + login rotates the Expo token, and without this the stored
+        // token would stay stale until the next cold start. No-ops when the user
+        // has no token row (never opted in / opted out), so it won't resurrect a
+        // disabled subscription.
+        refreshPushToken(newSession.user.id).catch((e) =>
+          logger.warn('refreshPushToken failed', e),
+        );
         initPurchases(newSession.user.id).catch((e) =>
           logger.warn('initPurchases failed', e),
         );

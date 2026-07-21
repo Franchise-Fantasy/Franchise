@@ -535,8 +535,13 @@ function NotificationAndLinkHandler() {
 
       // A league-invite push targets a user who isn't a member yet, so the
       // membership switch would (correctly) fail and bail — skip it for the
-      // claim flow, which handles a non-member landing on the league itself.
-      if (data.screen !== "claim-team" && data.league_id && session?.user) {
+      // claim/create flows, which handle a non-member landing on the league itself.
+      if (
+        data.screen !== "claim-team" &&
+        data.screen !== "create-team" &&
+        data.league_id &&
+        session?.user
+      ) {
         const ok = await switchLeagueContext(
           data.league_id,
           session.user.id,
@@ -589,6 +594,14 @@ function NotificationAndLinkHandler() {
           go = () =>
             router.navigate({
               pathname: "/claim-team",
+              params: { leagueId: data.league_id!, isCommissioner: "false" },
+            } as any);
+        } else if (screen === "create-team" && data.league_id) {
+          // Open-league invite: the invitee isn't a member yet and no team was
+          // reserved, so route them into the create-team flow to make their own.
+          go = () =>
+            router.navigate({
+              pathname: "/create-team",
               params: { leagueId: data.league_id!, isCommissioner: "false" },
             } as any);
         } else if (NOTIF_ROUTES[screen]) {
