@@ -74,7 +74,17 @@ def fetch_with_retry(retries=4, delay=5):
 
 def main():
     print('fetching players missing external_id_nba...', flush=True)
-    result = supabase.table('players').select('id, name, pro_team').is_('external_id_nba', 'null').execute()
+    # sport-scoped: matching is by name against the NBA roster, so an unscoped
+    # query would stamp an NBA person_id onto a same-named NFL/WNBA player —
+    # breaking their headshot and locking out their own id seeder (which only
+    # fills NULL rows).
+    result = (
+        supabase.table('players')
+        .select('id, name, pro_team')
+        .eq('sport', 'nba')
+        .is_('external_id_nba', 'null')
+        .execute()
+    )
     missing = result.data or []
     print(f'  {len(missing)} rows to backfill', flush=True)
 

@@ -920,6 +920,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(181, 123, 48, 0.55)",
     backgroundColor: "rgba(181, 123, 48, 0.14)",
+    // RN flex children default to flexShrink: 0, so without this a long
+    // label ("PLAYOFFS · WK 12") overflows the left zone and paints over
+    // the centered date instead of truncating.
+    flexShrink: 1,
   },
   weekChipText: {
     fontFamily: Fonts.varsityBold,
@@ -927,6 +931,7 @@ const styles = StyleSheet.create({
     fontSize: ms(9),
     letterSpacing: 0.8,
     textTransform: "uppercase",
+    flexShrink: 1,
   },
   weekChipCaret: {
     marginLeft: s(1),
@@ -946,6 +951,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Brand.vintageGold,
     backgroundColor: "rgba(181, 123, 48, 0.18)",
+    flexShrink: 0,
   },
 
   // ── Main row (identity + matchup) ───────────────────────────────────

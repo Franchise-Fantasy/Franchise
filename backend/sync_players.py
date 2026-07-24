@@ -69,43 +69,53 @@ def refresh_mat_view():
     supabase.rpc('refresh_player_season_stats').execute()
     print("Materialized view refreshed.")
 
+def fetch_existing_nba_ids():
+    """Every external_id_nba already stored for an NBA player.
+
+    Paginated because PostgREST silently truncates any response at 1000 rows —
+    a truncated set would make us re-fetch players we already have and blow the
+    job's 10-minute timeout at 0.6s per player.
+    """
+    ids = set()
+    page_size = 1000
+    offset = 0
+    while True:
+        page = (
+            supabase.table('players')
+            .select('external_id_nba')
+            .eq('sport', 'nba')
+            .not_.is_('external_id_nba', 'null')
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        rows = page.data or []
+        ids.update(int(p['external_id_nba']) for p in rows)
+        if len(rows) < page_size:
+            return ids
+        offset += page_size
+
+# The player sync and the matview refresh are independent — a failure in the
+# former must not stop the latter (stale season stats are visible app-wide).
+sync_failed = False
 try:
     # 1. Fetch existing external_id_nba values from our DB
     print("Fetching existing players from database...")
-    existing = supabase.table('players').select('external_id_nba').execute()
-    existing_ids = {
-        int(p['external_id_nba'])
-        for p in existing.data
-        if p.get('external_id_nba') is not None
-    }
+    existing_ids = fetch_existing_nba_ids()
     print(f"  {len(existing_ids)} players already in DB")
 
     # 2. Get active players from the LIVE NBA API (not the static bundled list)
-    nba_api_failed = False
-    new_players_df = None
-    try:
-        print(f"Fetching active players from NBA API (season {CURRENT_SEASON})...")
-        all_players_response = fetch_with_retry(
-            commonallplayers.CommonAllPlayers,
-            is_only_current_season=1,
-            season=CURRENT_SEASON,
-        )
-        all_players_df = all_players_response.get_data_frames()[0]
-        print(f"  {len(all_players_df)} active players from NBA")
+    print(f"Fetching active players from NBA API (season {CURRENT_SEASON})...")
+    all_players_response = fetch_with_retry(
+        commonallplayers.CommonAllPlayers,
+        is_only_current_season=1,
+        season=CURRENT_SEASON,
+    )
+    all_players_df = all_players_response.get_data_frames()[0]
+    print(f"  {len(all_players_df)} active players from NBA")
 
-        # 3. Filter to only new players (not already in DB)
-        new_players_df = all_players_df[~all_players_df['PERSON_ID'].isin(existing_ids)]
-        print(f"  {len(new_players_df)} new players to process")
-    except Exception as e:
-        print(f"NBA API unavailable: {e}")
-        print("Skipping player sync, will still refresh materialized view.")
-        nba_api_failed = True
-
-    if nba_api_failed or new_players_df is None or len(new_players_df) == 0:
-        if not nba_api_failed:
-            print("No new players to sync.")
-        refresh_mat_view()
-        exit(0)
+    # 3. Filter to only new players (not already in DB)
+    new_players_df = all_players_df[~all_players_df['PERSON_ID'].isin(existing_ids)]
+    print(f"  {len(new_players_df)} new players to process")
 
     # 4. Fetch position info for each new player via CommonPlayerInfo
     players_to_upsert = []
@@ -134,6 +144,7 @@ try:
                 'position': mapped_pos,
                 'pro_team': nba_team if nba_team else None,
                 'status': 'active',
+                'sport': 'nba',
             })
             print(f"  Position: {position} -> {mapped_pos}, Team: {nba_team}")
 
@@ -147,21 +158,27 @@ try:
                 'position': 'G',  # Default — positions are managed manually
                 'pro_team': team_abbr if team_abbr else None,
                 'status': 'active',
+                'sport': 'nba',
             })
             print(f"  Inserted with default position")
 
     # 5. Upsert into Supabase
     if players_to_upsert:
         print(f"\nUpserting {len(players_to_upsert)} players into database...")
-        result = supabase.table('players').upsert(
+        supabase.table('players').upsert(
             players_to_upsert,
             on_conflict='external_id_nba',
         ).execute()
         print(f"Done! Upserted {len(players_to_upsert)} players.")
-
-    # 6. Always refresh materialized view
-    refresh_mat_view()
+    else:
+        print("No new players to sync.")
 
 except Exception as e:
-    print(f"Fatal error: {e}")
+    print(f"Player sync failed: {e}")
+    sync_failed = True
+
+# 6. Always refresh the materialized view, even if the sync above failed
+refresh_mat_view()
+
+if sync_failed:
     exit(1)

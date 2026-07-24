@@ -415,29 +415,6 @@ export function MatchupHero({
               />
             )}
           </TouchableOpacity>
-          {/* Return-to-today chip on the LEFT when on a future date —
-              icon-only return arrow keeps the eyebrow tight. The chip's
-              position (left of the centered date) already communicates
-              direction. The flex spacer pushes the chip to the inner edge
-              so it hugs the centered date rather than the card edge. */}
-          {!weekly && !isToday && isFutureDate && onGoToToday && (
-            <>
-              <View style={styles.eyebrowSpacer} />
-              <TouchableOpacity
-                onPress={onGoToToday}
-                style={styles.todayIconChip}
-                hitSlop={TAP_SLOP}
-                accessibilityRole="button"
-                accessibilityLabel="Jump to today"
-              >
-                <Ionicons
-                  name="arrow-undo-outline"
-                  size={ms(14)}
-                  color={Brand.vintageGold}
-                />
-              </TouchableOpacity>
-            </>
-          )}
         </View>
 
         <TouchableOpacity
@@ -476,6 +453,32 @@ export function MatchupHero({
         </TouchableOpacity>
 
         <View style={styles.eyebrowRight}>
+          {/* Return-to-today chip always lives at the inner edge of the
+              RIGHT zone (flush against the centered date), never in the
+              left zone beside the week chip — a long week chip
+              ("PLAYOFFS · WK 12") would otherwise push it over the date.
+              The arrow direction carries the meaning instead of the
+              chip's side: undo/back on a future date, redo/forward on a
+              past one. Mirrors RosterHero. The spacer after it pushes the
+              action chips to the far edge. */}
+          {!weekly && !isToday && onGoToToday && (
+            <>
+              <TouchableOpacity
+                onPress={onGoToToday}
+                style={styles.todayIconChip}
+                hitSlop={TAP_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel="Jump to today"
+              >
+                <Ionicons
+                  name={isFutureDate ? "arrow-undo-outline" : "arrow-redo-outline"}
+                  size={ms(14)}
+                  color={Brand.vintageGold}
+                />
+              </TouchableOpacity>
+              <View style={styles.eyebrowSpacer} />
+            </>
+          )}
           {!offseason && (
             <TouchableOpacity
               onPress={() => setCompareMode(!isCompareMode)}
@@ -491,28 +494,6 @@ export function MatchupHero({
                 color={isCompareMode ? Brand.vintageGold : Brand.ecruMuted}
               />
             </TouchableOpacity>
-          )}
-          {/* Return-to-today chip on the RIGHT when on a past date —
-              chip is rendered at the inner edge (close to the centered
-              date) and the spacer pushes the action chips to the far
-              edge. */}
-          {!weekly && !isToday && !isFutureDate && onGoToToday && (
-            <>
-              <TouchableOpacity
-                onPress={onGoToToday}
-                style={styles.todayIconChip}
-                hitSlop={TAP_SLOP}
-                accessibilityRole="button"
-                accessibilityLabel="Jump to today"
-              >
-                <Ionicons
-                  name="arrow-redo-outline"
-                  size={ms(14)}
-                  color={Brand.vintageGold}
-                />
-              </TouchableOpacity>
-              <View style={styles.eyebrowSpacer} />
-            </>
           )}
           {liveActivitySupported && onGoLive && (
             <TouchableOpacity
@@ -1251,6 +1232,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(181, 123, 48, 0.55)",
     backgroundColor: "rgba(181, 123, 48, 0.14)",
+    // RN flex children default to flexShrink: 0, so without this the chip
+    // keeps its natural width and simply overflows the left zone onto the
+    // centered date once the label grows ("PLAYOFFS · WK 12" on a narrow
+    // screen). Truncating the label is the acceptable degradation here.
+    flexShrink: 1,
   },
   summaryChipText: {
     fontFamily: Fonts.varsityBold,
@@ -1258,6 +1244,7 @@ const styles = StyleSheet.create({
     fontSize: ms(9),
     letterSpacing: 0.8,
     textTransform: "uppercase",
+    flexShrink: 1,
   },
   summaryChipIcon: {
     marginLeft: s(1),
@@ -1279,6 +1266,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Brand.vintageGold,
     backgroundColor: "rgba(181, 123, 48, 0.18)",
+    // Fixed-size square — it yields space to nothing, the flexible week
+    // chip absorbs the squeeze instead.
+    flexShrink: 0,
   },
   acqChip: {
     flexDirection: "row",
@@ -1290,6 +1280,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(181, 123, 48, 0.55)",
     backgroundColor: "rgba(181, 123, 48, 0.14)",
+    flexShrink: 0,
   },
   acqChipText: {
     fontFamily: Fonts.varsityBold,
