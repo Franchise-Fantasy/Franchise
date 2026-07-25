@@ -799,7 +799,8 @@
       "Bash(curl -sS -w '\\\\nHTTP %{http_code}\\\\n' -X POST https://iuqbossmnsezzgocpcbo.supabase.co/functions/v1/sync-prospect -H 'Content-Type: application/json' -d '{\"sys\":{\"id\":\"smoke-test\"},\"fields\":{\"name\":{\"en-US\":\"Smoke Test\"}}}')",
       "Bash(curl -sS -w '\\\\nHTTP %{http_code}\\\\n' -X POST https://iuqbossmnsezzgocpcbo.supabase.co/functions/v1/sync-prospect -H 'Content-Type: application/json' -H 'X-Webhook-Secret: definitely-wrong' -d '{\"sys\":{\"id\":\"smoke-test\"}}')",
       "Bash(curl -s -X POST \"https://iuqbossmnsezzgocpcbo.supabase.co/functions/v1/debug-qstash-test\" -H \"Content-Type: application/json\" -d '{}')",
-      "WebFetch(domain:upstash.com)"
+      "WebFetch(domain:upstash.com)",
+      "WebFetch(domain:dknetwork.draftkings.com)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

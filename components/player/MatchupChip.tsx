@@ -22,7 +22,7 @@ export function MatchupChip({
   isLive?: boolean;
   c: Palette;
   gameTimeUtc?: string | null;
-  alignSelf?: "flex-start" | "flex-end" | "auto";
+  alignSelf?: "flex-start" | "flex-end" | "center" | "auto";
 }) {
   // Away games arrive as "@TEAM"; render the prefix as "AT " so it matches the
   // 2-letter "VS " home prefix (even pill widths, clearer than the bare "@").
