@@ -1,0 +1,41 @@
+name: Weekly Prospect Rankings
+
+# Blends public NBA draft big boards into one consensus rank per draft year and
+# writes it to Supabase (prospect_rankings / rank_history / recent_games) plus
+# Contentful. Vendored from Noah's franchise-fantasy-rankings handoff; source in
+# prospect-rankings/. Writes with the Supabase secret key (bypasses RLS).
+
+on:
+  schedule:
+    - cron: '0 12 * * 1' # Mondays 12:00 UTC (~7am CT)
+  workflow_dispatch: # Allow manual "Run workflow" from the GitHub UI
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: prospect-rankings
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: prospect-rankings/package-lock.json
+
+      - run: npm ci
+
+      - name: Scrape and sync prospect rankings
+        env:
+          # Public project URL and space id are not secrets; the two keys are.
+          SUPABASE_URL: https://iuqbossmnsezzgocpcbo.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SB_SECRET_KEY }}
+          CONTENTFUL_SPACE_ID: 652mhs62v69t
+          CONTENTFUL_MANAGEMENT_TOKEN: ${{ secrets.CONTENTFUL_MANAGEMENT_TOKEN }}
+          CONTENTFUL_ENVIRONMENT: master
+          CONTENTFUL_PROSPECT_TYPE: prospectProfile
+          CONTENTFUL_LOCALE: en-US
+        run: npm run scrape

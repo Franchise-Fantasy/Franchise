@@ -19,6 +19,7 @@
   "exclude": [
     "supabase/functions/**",
     "landing/**",
+    "prospect-rankings/**",
     // ts-jest (not app tsc) typechecks tests that import an edge module whose
     // internal imports use Deno's required `.ts` extension: jest.config.js
     // ignores TS5097 per-file, but `tsc --noEmit` can't. newsText.test.ts is

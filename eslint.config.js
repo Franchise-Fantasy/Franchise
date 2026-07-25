@@ -5,7 +5,7 @@ const expoConfig = require('eslint-config-expo/flat');
 module.exports = defineConfig([
   expoConfig,
   {
-    ignores: ['dist/*', 'landing/**', 'supabase/functions/**'],
+    ignores: ['dist/*', 'landing/**', 'prospect-rankings/**', 'supabase/functions/**'],
     rules: {
       // Cosmetic in modern React; flags apostrophes/quotes in JSX text that render fine.
       'react/no-unescaped-entities': 'off',

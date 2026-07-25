@@ -1,0 +1,21 @@
+{
+  "name": "franchise-fantasy-rankings",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "scrape": "node --env-file-if-exists=.env src/run.js",
+    "dry-run": "node src/run.js --dry-run",
+    "seed": "node --env-file-if-exists=.env src/seed-cms.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.110.8",
+    "cheerio": "^1.2.0",
+    "contentful-management": "^12.10.0"
+  }
+}

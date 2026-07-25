@@ -52,20 +52,27 @@ def normalize(name: str) -> str:
     return name.strip()
 
 
-def fetch_with_retry(retries=4, delay=5):
-    """Call commonallplayers with retries on transient failures."""
+def fetch_with_retry(retries=5, delay=5):
+    """Call commonallplayers with retries on transient failures.
+
+    A healthy response returns in a few seconds; a long wait means NBA.com is
+    hung/throttling the runner IP, so use a short per-request timeout and retry
+    more. The whole budget (5 x 30s reads + capped backoff) must stay under the
+    workflow's timeout-minutes or the job is canceled mid-retry before the
+    actual backfill runs.
+    """
     for attempt in range(retries):
         try:
             resp = commonallplayers.CommonAllPlayers(
                 is_only_current_season=1,
                 season=CURRENT_SEASON,
                 headers=CUSTOM_HEADERS,
-                timeout=180,
+                timeout=30,
             )
             return resp.get_data_frames()[0]
         except Exception as e:
             if attempt < retries - 1:
-                wait = delay * (2 ** attempt)
+                wait = min(delay * (2 ** attempt), 30)
                 print(f'  attempt {attempt + 1} failed: {e}. retrying in {wait}s...', flush=True)
                 time.sleep(wait)
             else:

@@ -1,0 +1,6 @@
+node_modules/
+.env
+
+# Never commit a filled-in credentials sheet
+CREDENTIALS-FILLED.md
+CREDENTIALS.md
