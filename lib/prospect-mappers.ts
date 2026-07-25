@@ -5,7 +5,7 @@
  * ────────────────────────────────────────────── */
 
 import type { RichTextDocument } from '@/types/cms';
-import type { LandingSpot, ProspectCardData, ProspectProfileData } from '@/types/prospect';
+import type { ProspectCardData, ProspectProfileData } from '@/types/prospect';
 
 import { extractText } from './cms-mappers';
 
@@ -23,39 +23,32 @@ function richDoc(field: any): RichTextDocument | undefined {
   return undefined;
 }
 
-/** Map a Contentful prospect entry to card-level data. */
+/**
+ * Map a `prospectProfile` Contentful entry to card-level data. Rank/movement/
+ * currentTeam come from the Supabase prospect_board (joined on slug in the
+ * hook), and playerId from the slug→players.id bridge — not from Contentful.
+ */
 export function mapProspectCard(entry: any): ProspectCardData {
   const f = entry?.fields ?? {};
   return {
-    playerId: '', // filled in by the hook after matching to players table
+    playerId: '', // filled by the hook via the slug→players.id bridge
     contentfulEntryId: entry?.sys?.id ?? '',
+    slug: f.slug ?? '',
     name: f.name ?? '',
     position: f.position ?? '',
     school: f.school ?? '',
     classYear: f.classYear ?? undefined,
     photoUrl: assetUrl(f.photo),
-    dynastyValueScore: f.dynastyValueScore ?? 0,
-    projectedDraftYear: f.projectedDraftYear ?? '',
-    recruitingRank: f.recruitingRank ?? undefined,
-    lastUpdated: f.lastUpdated ?? undefined,
+    draftYear: typeof f.draftYear === 'number' ? f.draftYear : undefined,
+    currentTeam: f.currentTeam ?? undefined,
+    // displayRank / rankChange / lastUpdated are merged from prospect_board.
   };
 }
 
-/** Map a Contentful prospect entry to full profile data. */
+/** Map a `prospectProfile` Contentful entry to full profile data. */
 export function mapProspectProfile(entry: any): ProspectProfileData {
   const f = entry?.fields ?? {};
   const card = mapProspectCard(entry);
-
-  const projectedTeams: LandingSpot[] = [];
-  if (f.projectedTeam1) {
-    projectedTeams.push({ team: f.projectedTeam1, odds: f.projectedTeam1Odds ?? '' });
-  }
-  if (f.projectedTeam2) {
-    projectedTeams.push({ team: f.projectedTeam2, odds: f.projectedTeam2Odds ?? '' });
-  }
-  if (f.projectedTeam3) {
-    projectedTeams.push({ team: f.projectedTeam3, odds: f.projectedTeam3Odds ?? '' });
-  }
 
   return {
     ...card,
@@ -63,11 +56,8 @@ export function mapProspectProfile(entry: any): ProspectProfileData {
     weight: f.weight ?? undefined,
     hometown: f.hometown ?? undefined,
     scoutingReport: richDoc(f.scoutingReport),
-    landingSpotAnalysis: richDoc(f.landingSpotAnalysis),
-    projectedTeams,
     youtubeId: f.youTubeId ?? undefined,
-    hudlUrl: f.hudlUrl ?? undefined,
-    xEmbedUrl: f.xEmbedUrl ?? undefined,
+    recentGames: [], // filled by the hook from player_last_games
   };
 }
 

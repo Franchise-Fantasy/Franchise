@@ -114,6 +114,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { addDays, defaultLeagueDay, formatDayLabel, formatShortDate, useSportToday } from "@/utils/dates";
 import { formatPosition } from "@/utils/formatting";
+import { getOffseasonMilestone } from "@/utils/league/offseasonState";
 import { getSportToday } from "@/utils/leagueTime";
 import { logger } from "@/utils/logger";
 import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
@@ -402,6 +403,34 @@ export default function RosterScreen() {
   // and finish, standing in for the live 0-0 that advance-season zeroes.
   const heroIsOffseason = !currentWeek && !seasonOpensLabel;
   const lastSeason = useOffseasonLastSeason(leagueId, teamId, heroIsOffseason);
+
+  // Days-until-next-season countdown + phase ribbon — mirrors Matchup's
+  // `heroOffseason` so the two heroes stay visually consistent. Fills the
+  // hero's empty lineup-bar slot even for a franchise with no `lastSeason`
+  // yet (e.g. right after the very first draft).
+  const heroOffseasonMilestone = useMemo(() => {
+    if (!heroIsOffseason || !league?.offseason_step) return null;
+    return {
+      ...getOffseasonMilestone(
+        league.sport,
+        league.season,
+        league.league_type ?? "dynasty",
+        league.rookie_draft_order ?? "reverse_record",
+        league.offseason_step,
+        today,
+      ),
+      openerWord: sport === "nfl" ? "KICKOFF" : "TIP-OFF",
+    };
+  }, [
+    heroIsOffseason,
+    league?.offseason_step,
+    league?.sport,
+    league?.season,
+    league?.league_type,
+    league?.rookie_draft_order,
+    sport,
+    today,
+  ]);
 
   const { data: weekScores } = useWeekScores({
     leagueId,
@@ -1636,6 +1665,8 @@ export default function RosterScreen() {
           categoryRecord={heroCategoryRecord}
           weekIsLive={weekIsLive}
           rosterStats={heroRosterStats}
+          lastSeason={lastSeason}
+          offseasonMilestone={heroOffseasonMilestone}
           onPrevDay={onHeroPrev}
           onNextDay={onHeroNext}
           onGoToToday={onHeroGoToToday}
@@ -2097,6 +2128,7 @@ export default function RosterScreen() {
         lineupDay={heroLineupDay}
         rosterStats={heroRosterStats}
         lastSeason={lastSeason}
+        offseasonMilestone={heroOffseasonMilestone}
         onPrevDay={onHeroPrev}
         onNextDay={onHeroNext}
         onGoToToday={onHeroGoToToday}

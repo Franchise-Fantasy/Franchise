@@ -160,6 +160,7 @@ function AnimatedFpts({
 
   return (
     <Animated.Text
+      numberOfLines={1}
       style={[
         textStyle,
         {
@@ -264,7 +265,7 @@ export const PlayerCell = React.memo(function PlayerCell({
   // FPTS locks to a fixed column near the center seam (a spacer fills the gap
   // between the fixed-width stat blocks and it); centerPad keeps it off the pill.
   const centerPad =
-    side === "left" ? { paddingRight: s(6) } : { paddingLeft: s(6) };
+    side === "left" ? { paddingRight: s(3) } : { paddingLeft: s(3) };
 
   const injuryBadge = player ? getInjuryBadge(player.status) : null;
 
@@ -430,7 +431,7 @@ export const PlayerCell = React.memo(function PlayerCell({
           >
             {schedEntry ? (
               <>
-                <MatchupChip matchup={schedEntry.matchup} isLive={false} c={c} />
+                <MatchupChip matchup={schedEntry.matchup} isLive={false} c={c} alignSelf="center" />
                 {schedEntry.gameTimeUtc ? (
                   <Text style={[pStyles.gameInfo, { color: c.secondaryText }]}>
                     {formatGameTime(schedEntry.gameTimeUtc)}
@@ -518,6 +519,7 @@ export const PlayerCell = React.memo(function PlayerCell({
                 matchup={liveStats.matchup}
                 isLive={isLive}
                 c={c}
+                alignSelf="center"
               />
             ) : null}
             {gameInfo ? (
@@ -636,7 +638,7 @@ export const PlayerCell = React.memo(function PlayerCell({
         >
           {pastMatchup ? (
             <>
-              <MatchupChip matchup={pastMatchup} isLive={false} c={c} />
+              <MatchupChip matchup={pastMatchup} isLive={false} c={c} alignSelf="center" />
               {finalScore ? (
                 <Text
                   style={[pStyles.gameInfo, { color: c.secondaryText }]}
@@ -736,9 +738,11 @@ export const pStyles = StyleSheet.create({
     gap: s(5),
     marginTop: s(4),
   },
-  // Line 3 packs the fixed-width stat blocks and the FPTS toward the center
-  // seam (justifyContent flex-end + centerPad), with a small constant gap
-  // between them so the last block isn't flush against the FPTS.
+  // Line 3 shrink-wraps and is positioned by infoCol's alignItems, exactly
+  // like nameRow/gameInfoRow above it — that's what keeps the stat line's
+  // outer edge lined up under the game chip instead of drifting off on its
+  // own (it used to stretch full-width and self-justify, which let a wider
+  // stat group extend past the narrower chip line above it).
   // alignItems is BASELINE, not center: the FPTS is ~5pt larger than the stat
   // blocks, so centering floated it above their text baseline and the number
   // read as detached from the line it belongs to. Baseline sits every numeral
@@ -746,31 +750,33 @@ export const pStyles = StyleSheet.create({
   statsRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    alignSelf: "stretch",
-    justifyContent: "flex-end",
-    gap: s(8),
+    gap: s(7),
     marginTop: s(4),
   },
   // Stat line rendered as equal-width blocks (one per category), value centered
   // in each. Equal widths keep the line a constant total width — single vs
   // double digits never shift anything — so the FPTS after it stays locked.
-  // minWidth fits a two-digit value plus its unit ("25P") WITHOUT overflowing;
-  // at the old s(19) a double-digit stat outgrew its box and the two players'
-  // columns stopped lining up across the row.
-  statBlocks: { flexDirection: "row", gap: s(5) },
+  // The whole line (3 blocks + gaps + FPTS slot) has to fit infoCol (~130px on
+  // a two-player row). SpaceMono is wider than the old condensed face, so the
+  // blocks are sized at ms(11): a two-digit value + unit ("12A"/"25P") is ~19px,
+  // which fits inside the s(20) column WITHOUT overflowing — that's what stops a
+  // double-digit stat from spilling past the gap into the FPTS ("12A27.8"). The
+  // narrower line also leaves room for the generous gaps below (uncrowded), and
+  // the FPTS stays large (ms(16)) so the headline number still reads first.
+  statBlocks: { flexDirection: "row", gap: s(4), flexShrink: 1 },
   statValue: {
     fontFamily: Fonts.mono,
-    fontSize: ms(13),
-    lineHeight: ms(16),
+    fontSize: ms(11),
+    lineHeight: ms(14),
     letterSpacing: 0.3,
-    minWidth: s(24),
+    minWidth: s(20),
     textAlign: "center",
   },
   statUnit: { fontSize: ms(10), letterSpacing: 0.2 },
   // FPTS gets its own fixed-width slot too, so its (varying) width never drags
   // the stat blocks around — the number aligns to the center-seam edge of the
   // slot while the slot's outer edge stays put.
-  fptsSlot: { minWidth: s(46) },
+  fptsSlot: { minWidth: s(40), flexShrink: 1 },
   // Explicit lineHeights below tighten the default text bounding boxes so
   // the three rows in a player cell sit at visually equal vertical gaps.
   // Default lineHeight on RN ≈ 1.3× fontSize, which makes the larger FPTS
@@ -795,15 +801,24 @@ export const pStyles = StyleSheet.create({
     lineHeight: ms(12),
     letterSpacing: 0.2,
     textTransform: "uppercase",
+    // Fascond (mono) sits high in its own line box (same cramped-ascender
+    // quirk documented on the FPTS numerals) — centered against the chip's
+    // padded pill, the glyph itself still reads too high without this nudge.
+    marginTop: s(2),
   },
   // Headline FPTS — the matchup's deciding number, so it's the largest, gold
   // (color applied inline by AnimatedFpts), and weightiest text in the cell.
   pts: {
     fontFamily: Fonts.mono,
-    fontSize: ms(18),
-    lineHeight: ms(19),
+    // SpaceMono has a normal (non-condensed) advance width, so ms(16) is the
+    // size that fits the FPTS slot on one line — ms(19) was tuned for the
+    // condensed Fascond face and overflows/wraps in SpaceMono.
+    fontSize: ms(16),
+    lineHeight: ms(20),
     fontWeight: "700",
-    letterSpacing: 0.5,
+    // SpaceMono is evenly spaced already; positive tracking here floated the
+    // decimal ("47 . 2"), so keep it tight.
+    letterSpacing: 0,
   },
   injuryBadge: { paddingHorizontal: s(4), paddingVertical: 1, borderRadius: 3 },
   injuryText: {

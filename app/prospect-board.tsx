@@ -30,7 +30,6 @@ interface BoardEntry {
   name: string;
   position: string;
   school: string;
-  dynastyScore: number;
   staffRank?: number;
 }
 
@@ -71,14 +70,8 @@ export default function ProspectBoardScreen() {
   const { data: allProspects } = useProspects(draftYear, hasAccess);
   const { mutate: reorder } = useReorderBoard(userId);
 
-  // Build staff ranking map from Contentful dynasty scores
-  const staffRankMap = useMemo(() => {
-    if (!allProspects) return new Map<string, number>();
-    const sorted = [...allProspects].sort((a, b) => b.dynastyValueScore - a.dynastyValueScore);
-    return new Map(sorted.map((p, i) => [p.playerId, i + 1]));
-  }, [allProspects]);
-
-  // Merge board rows with prospect data
+  // Merge board rows with prospect data. Staff rank is the consensus
+  // display_rank straight off the prospect_board (no longer re-derived).
   const boardEntries: BoardEntry[] = useMemo(() => {
     if (!boardRows || !allProspects) return [];
 
@@ -95,12 +88,11 @@ export default function ProspectBoardScreen() {
           name: prospect.name,
           position: prospect.position,
           school: prospect.school,
-          dynastyScore: prospect.dynastyValueScore,
-          staffRank: staffRankMap.get(row.player_id),
+          staffRank: prospect.displayRank,
         };
       })
       .filter(Boolean) as BoardEntry[];
-  }, [boardRows, allProspects, staffRankMap]);
+  }, [boardRows, allProspects]);
 
   const handleDragEnd = useCallback(
     ({ data }: { data: BoardEntry[] }) => {
@@ -129,7 +121,6 @@ export default function ProspectBoardScreen() {
           name={item.name}
           position={item.position}
           school={item.school}
-          dynastyScore={item.dynastyScore}
           staffRank={item.staffRank}
           userRank={index + 1}
           drag={drag}
@@ -223,6 +214,7 @@ export default function ProspectBoardScreen() {
           </View>
         ) : (
           <DraggableFlatList
+            style={styles.list}
             data={boardEntries}
             keyExtractor={item => item.playerId}
             renderItem={renderItem}
@@ -251,8 +243,9 @@ const styles = StyleSheet.create({
   eyebrowText: { fontSize: ms(10), letterSpacing: 1.4 },
   vsStaff: { fontSize: ms(10), letterSpacing: 1.2 },
 
-  // Year selector — text + gold-underline active
-  yearSelector: { flexGrow: 0 },
+  // Year selector — text + gold-underline active. flexShrink:0 so a long board
+  // list can't vertically compress this row and clip the Alfa Slab year digits.
+  yearSelector: { flexGrow: 0, flexShrink: 0 },
   yearRow: {
     paddingHorizontal: s(16),
     paddingTop: s(2),
@@ -287,6 +280,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: s(60),
+  },
+  list: {
+    flex: 1,
   },
   listContent: {
     paddingBottom: s(100),

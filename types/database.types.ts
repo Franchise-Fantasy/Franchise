@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       activity_tokens: {
@@ -4032,6 +4007,27 @@ export type Database = {
           },
         ]
       }
+      player_ids: {
+        Row: {
+          espn_college_id: string | null
+          espn_nba_id: string | null
+          player_slug: string
+          resolved_at: string
+        }
+        Insert: {
+          espn_college_id?: string | null
+          espn_nba_id?: string | null
+          player_slug: string
+          resolved_at?: string
+        }
+        Update: {
+          espn_college_id?: string | null
+          espn_nba_id?: string | null
+          player_slug?: string
+          resolved_at?: string
+        }
+        Relationships: []
+      }
       player_news: {
         Row: {
           description: string | null
@@ -4288,6 +4284,7 @@ export type Database = {
           is_prospect: boolean
           last_google_news_check_at: string | null
           name: string
+          player_slug: string | null
           position: string | null
           pro_team: string | null
           rookie: boolean | null
@@ -4308,6 +4305,7 @@ export type Database = {
           is_prospect?: boolean
           last_google_news_check_at?: string | null
           name: string
+          player_slug?: string | null
           position?: string | null
           pro_team?: string | null
           rookie?: boolean | null
@@ -4328,6 +4326,7 @@ export type Database = {
           is_prospect?: boolean
           last_google_news_check_at?: string | null
           name?: string
+          player_slug?: string | null
           position?: string | null
           pro_team?: string | null
           rookie?: boolean | null
@@ -5283,6 +5282,45 @@ export type Database = {
           },
         ]
       }
+      prospect_rankings: {
+        Row: {
+          consensus_score: number
+          display_rank: number
+          draft_year: number
+          full_name: string
+          player_slug: string
+          position: string | null
+          school: string | null
+          source_ranks: Json
+          team: string | null
+          updated_at: string
+        }
+        Insert: {
+          consensus_score: number
+          display_rank: number
+          draft_year: number
+          full_name: string
+          player_slug: string
+          position?: string | null
+          school?: string | null
+          source_ranks?: Json
+          team?: string | null
+          updated_at?: string
+        }
+        Update: {
+          consensus_score?: number
+          display_rank?: number
+          draft_year?: number
+          full_name?: string
+          player_slug?: string
+          position?: string | null
+          school?: string | null
+          source_ranks?: Json
+          team?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       push_tokens: {
         Row: {
           mute_all: boolean
@@ -5310,6 +5348,33 @@ export type Database = {
         }
         Relationships: []
       }
+      rank_history: {
+        Row: {
+          consensus_score: number
+          display_rank: number
+          draft_year: number
+          id: number
+          player_slug: string
+          scraped_on: string
+        }
+        Insert: {
+          consensus_score: number
+          display_rank: number
+          draft_year: number
+          id?: never
+          player_slug: string
+          scraped_on?: string
+        }
+        Update: {
+          consensus_score?: number
+          display_rank?: number
+          draft_year?: number
+          id?: never
+          player_slug?: string
+          scraped_on?: string
+        }
+        Relationships: []
+      }
       rate_limits: {
         Row: {
           function_name: string
@@ -5331,6 +5396,63 @@ export type Database = {
           request_count?: number
           user_id?: string
           window_start?: string
+        }
+        Relationships: []
+      }
+      recent_games: {
+        Row: {
+          assists: number | null
+          blocks: number | null
+          competition: string
+          fg: string | null
+          fg3: string | null
+          ft: string | null
+          game_date: string
+          id: number
+          minutes: number | null
+          opponent: string | null
+          player_slug: string
+          points: number | null
+          rebounds: number | null
+          steals: number | null
+          synced_at: string
+          turnovers: number | null
+        }
+        Insert: {
+          assists?: number | null
+          blocks?: number | null
+          competition: string
+          fg?: string | null
+          fg3?: string | null
+          ft?: string | null
+          game_date: string
+          id?: never
+          minutes?: number | null
+          opponent?: string | null
+          player_slug: string
+          points?: number | null
+          rebounds?: number | null
+          steals?: number | null
+          synced_at?: string
+          turnovers?: number | null
+        }
+        Update: {
+          assists?: number | null
+          blocks?: number | null
+          competition?: string
+          fg?: string | null
+          fg3?: string | null
+          ft?: string | null
+          game_date?: string
+          id?: never
+          minutes?: number | null
+          opponent?: string | null
+          player_slug?: string
+          points?: number | null
+          rebounds?: number | null
+          steals?: number | null
+          synced_at?: string
+          turnovers?: number | null
         }
         Relationships: []
       }
@@ -6351,6 +6473,28 @@ export type Database = {
           },
         ]
       }
+      player_last_games: {
+        Row: {
+          assists: number | null
+          blocks: number | null
+          competition: string | null
+          fg: string | null
+          fg3: string | null
+          ft: string | null
+          game_date: string | null
+          game_no: number | null
+          id: number | null
+          minutes: number | null
+          opponent: string | null
+          player_slug: string | null
+          points: number | null
+          rebounds: number | null
+          steals: number | null
+          synced_at: string | null
+          turnovers: number | null
+        }
+        Relationships: []
+      }
       player_season_stats: {
         Row: {
           avg_3pa: number | null
@@ -6446,6 +6590,20 @@ export type Database = {
           total_two_pt: number | null
           total_xp_att: number | null
           total_xp_made: number | null
+        }
+        Relationships: []
+      }
+      prospect_board: {
+        Row: {
+          display_rank: number | null
+          draft_year: number | null
+          full_name: string | null
+          player_slug: string | null
+          position: string | null
+          rank_change: number | null
+          school: string | null
+          team: string | null
+          updated_at: string | null
         }
         Relationships: []
       }
@@ -7654,9 +7812,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

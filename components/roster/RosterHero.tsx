@@ -10,6 +10,7 @@ import {
   View,
 } from "react-native";
 
+import { OffseasonMilestone } from "@/components/shared/OffseasonMilestone";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Brand, Fonts } from "@/constants/Colors";
 import { useColors } from "@/hooks/useColors";
@@ -106,6 +107,16 @@ interface RosterHeroProps {
     leagueSize: number | null;
     playoffResult: string | null;
     season: string;
+  } | null;
+  /** Days-until-next-season countdown + phase ribbon — same data Matchup's
+   *  hero uses. Fills the space the lineup bar leaves empty in the
+   *  offseason, since `lastSeason` alone is null until a season archives. */
+  offseasonMilestone?: {
+    phaseLabels: string[];
+    phaseIndex: number;
+    countdownDays: number | null;
+    tipOffISO: string | null;
+    openerWord: string;
   } | null;
   onPrevDay: () => void;
   onNextDay: () => void;
@@ -340,6 +351,7 @@ export function RosterHero({
   lineupDay,
   rosterStats,
   lastSeason,
+  offseasonMilestone,
   onPrevDay,
   onNextDay,
   onGoToToday,
@@ -689,9 +701,23 @@ export function RosterHero({
         )}
       </View>
 
-      {/* ── Lineup health bar ─ per-starter availability + status ────── */}
-      {showLineupBar && (
+      {/* ── Lineup health bar ─ per-starter availability + status. In the
+          offseason there's no lineup to show, so the same slot fills with
+          the next-season countdown instead of sitting empty. ─────────── */}
+      {showLineupBar ? (
         <LineupBar day={lineupDay} isPastDate={isPastDate} />
+      ) : (
+        isOffseason &&
+        offseasonMilestone && (
+          <OffseasonMilestone
+            phaseLabels={offseasonMilestone.phaseLabels}
+            phaseIndex={offseasonMilestone.phaseIndex}
+            countdownDays={offseasonMilestone.countdownDays}
+            tipOffISO={offseasonMilestone.tipOffISO}
+            openerWord={offseasonMilestone.openerWord}
+            compact
+          />
+        )
       )}
 
       {/* ── Bottom ─ day-nav chips flanking the roster-meta strip ────── */}

@@ -12,11 +12,11 @@ import {
   View,
 } from "react-native";
 
+import { OffseasonMilestone } from "@/components/shared/OffseasonMilestone";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Brand, Fonts } from "@/constants/Colors";
 import { useCompareSelection } from "@/context/CompareSelectionProvider";
 import { useColors } from "@/hooks/useColors";
-import { formatIsoDate, formatShortDate } from "@/utils/dates";
 import { ms, s } from "@/utils/scale";
 
 const PATCH_SOURCE = require("../../assets/images/patch_logo.png");
@@ -126,6 +126,11 @@ export interface MatchupHeroProps {
     tipOffISO: string | null;
   } | null;
 
+  /** Round name ("Semifinals", "Finals", "3rd Place Game", …) shown in place
+   *  of the generic "PLAYOFFS" prefix during the playoffs. Undefined falls
+   *  back to "PLAYOFFS". */
+  playoffRoundLabel?: string;
+
   canGoBack: boolean;
   /** Whether a next step exists (weekly sports gate this at the last week;
    *  daily sports pass selectedDate < maxDate). */
@@ -200,6 +205,7 @@ export function MatchupHero({
   onAcqInfoPress,
   tickerSlot,
   offseason,
+  playoffRoundLabel,
   canGoBack,
   canGoForward = true,
   weekly = false,
@@ -214,12 +220,15 @@ export function MatchupHero({
 
   // Status word dropped — the live red dot covers LIVE, and the date
   // itself gives enough context for upcoming / final / tonight states.
-  const playoffPrefix = currentWeek?.is_playoff ? "PLAYOFFS · " : "";
-  const weekChip = currentWeek
-    ? `${playoffPrefix}WK ${currentWeek.week_number}`
-    : seasonOpensLabel
-      ? "UPCOMING"
-      : "OFFSEASON";
+  // Playoffs show just the round name (no "WK N" — the round already
+  // tells you where you are, and the week number is redundant/less clear).
+  const weekChip = currentWeek?.is_playoff
+    ? (playoffRoundLabel ?? "PLAYOFFS")
+    : currentWeek
+      ? `WK ${currentWeek.week_number}`
+      : seasonOpensLabel
+        ? "UPCOMING"
+        : "OFFSEASON";
 
   // Always render the day-total sub-line for points leagues. Each column
   // handles a null team itself (renders a spacer to preserve height) so
@@ -527,7 +536,7 @@ export function MatchupHero({
 
       {/* ── Body ─ offseason countdown, else score block + day-nav arrows ── */}
       {offseason && !leftTeam && !isLoading ? (
-        <OffseasonBody
+        <OffseasonMilestone
           phaseLabels={offseason.phaseLabels}
           phaseIndex={offseason.phaseIndex}
           countdownDays={offseason.countdownDays}
@@ -643,118 +652,6 @@ export function MatchupHero({
           the ticker that the ticker's negative bottom margin can't consume. */}
       {tickerSlot && <View style={styles.tickerSlot}>{tickerSlot}</View>}
     </Animated.View>
-  );
-}
-
-/**
- * Offseason body — replaces the dead "no matchup" copy (and the day arrows
- * that step through empty days) with the one number every manager checks in
- * the gap: how long until the next season tips off, plus a phase ribbon
- * showing where the league sits on the road there.
- */
-function OffseasonBody({
-  phaseLabels,
-  phaseIndex,
-  countdownDays,
-  tipOffISO,
-  openerWord,
-}: {
-  phaseLabels: string[];
-  phaseIndex: number;
-  countdownDays: number | null;
-  tipOffISO: string | null;
-  /** What the season starts with — "TIP-OFF" (basketball) or "KICKOFF" (NFL). */
-  openerWord: string;
-}) {
-  return (
-    <View style={styles.offBody}>
-      {countdownDays != null ? (
-        <View
-          style={styles.countBlock}
-          accessibilityLabel={`Next season ${openerWord.toLowerCase()} in ${countdownDays} ${
-            countdownDays === 1 ? "day" : "days"
-          }${tipOffISO ? `, ${formatIsoDate(tipOffISO)}` : ""}`}
-        >
-          <ThemedText type="varsity" style={styles.countLabel}>
-            {openerWord} IN
-          </ThemedText>
-          <Text style={styles.countNum}>{countdownDays}</Text>
-          <ThemedText type="mono" style={styles.countSub}>
-            {countdownDays === 1 ? "DAY" : "DAYS"}
-            {tipOffISO ? ` · ${formatShortDate(tipOffISO).toUpperCase()}` : ""}
-          </ThemedText>
-        </View>
-      ) : (
-        <ThemedText type="varsity" style={styles.countLabelOnly}>
-          {phaseLabels[phaseIndex] ?? "OFFSEASON"}
-        </ThemedText>
-      )}
-      <PhaseRibbon labels={phaseLabels} activeIndex={phaseIndex} />
-    </View>
-  );
-}
-
-/**
- * The offseason phase ribbon — an engraved timeline of the league's steps
- * (per league type: Season Over → Draft Lottery → Rookie Draft → New Season,
- * etc.) with completed steps and the active step lit in gold. A continuous
- * base rail sits behind opaque nodes so it reads on any sport-tinted surface.
- */
-function PhaseRibbon({
-  labels,
-  activeIndex,
-}: {
-  labels: string[];
-  activeIndex: number;
-}) {
-  const n = labels.length;
-  if (n === 0) return null;
-  const halfPct = (0.5 / n) * 100;
-  const donePct = (Math.min(activeIndex, n - 1) / n) * 100;
-  return (
-    <View
-      style={styles.ribbon}
-      accessibilityLabel={`Offseason progress: ${
-        labels[activeIndex] ?? labels[0]
-      }, step ${Math.min(activeIndex + 1, n)} of ${n}`}
-    >
-      <View style={styles.ribbonNodesRow}>
-        <View
-          style={[styles.ribbonBaseLine, { left: `${halfPct}%`, right: `${halfPct}%` }]}
-        />
-        {activeIndex > 0 && (
-          <View
-            style={[styles.ribbonDoneLine, { left: `${halfPct}%`, width: `${donePct}%` }]}
-          />
-        )}
-        {labels.map((label, i) => (
-          <View key={label} style={styles.ribbonCol}>
-            <View
-              style={[
-                styles.node,
-                i < activeIndex && styles.nodeDone,
-                i === activeIndex && styles.nodeActive,
-              ]}
-            />
-          </View>
-        ))}
-      </View>
-      <View style={styles.ribbonLabelsRow}>
-        {labels.map((label, i) => (
-          <Text
-            key={label}
-            numberOfLines={1}
-            style={[
-              styles.ribbonLabel,
-              i < activeIndex && styles.ribbonLabelDone,
-              i === activeIndex && styles.ribbonLabelActive,
-            ]}
-          >
-            {label}
-          </Text>
-        ))}
-      </View>
-    </View>
   );
 }
 
@@ -1059,117 +956,6 @@ const styles = StyleSheet.create({
     width: s(130),
     height: s(130),
     opacity: 0.14,
-  },
-
-  // ── Offseason body (tip-off countdown + phase ribbon) ────────────────
-  offBody: {
-    minHeight: ms(86),
-    justifyContent: "center",
-    paddingVertical: s(4),
-  },
-  countBlock: {
-    alignItems: "center",
-  },
-  countLabel: {
-    color: Brand.vintageGold,
-    fontSize: ms(10.5),
-    letterSpacing: 2,
-  },
-  countLabelOnly: {
-    color: Brand.ecru,
-    fontSize: ms(14),
-    letterSpacing: 1.4,
-    textAlign: "center",
-  },
-  countNum: {
-    // The numerals face, not the display face: this is a countdown, so the
-    // digits change every tick and need uniform widths to hold still. Not
-    // Fonts.score either — the dot-matrix face is reserved for the actual score.
-    fontFamily: Fonts.mono,
-    color: Brand.ecru,
-    fontSize: ms(52),
-    // Generous line height so the numerals don't clip at the top; the empty
-    // descent slack that leaves below the number is reclaimed by the sub-line's
-    // negative margin rather than by squeezing this box.
-    lineHeight: ms(58),
-    letterSpacing: -0.5,
-    marginTop: s(1),
-    fontVariant: ["tabular-nums"],
-  },
-  countSub: {
-    color: Brand.ecruMuted,
-    fontSize: ms(11),
-    letterSpacing: 0.6,
-    marginTop: s(-12),
-  },
-  ribbon: {
-    marginTop: s(14),
-    paddingHorizontal: s(4),
-  },
-  ribbonNodesRow: {
-    position: "relative",
-    flexDirection: "row",
-    alignItems: "center",
-    height: ms(14),
-  },
-  ribbonBaseLine: {
-    position: "absolute",
-    top: "50%",
-    marginTop: -1,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: "rgba(233, 226, 203, 0.20)",
-  },
-  ribbonDoneLine: {
-    position: "absolute",
-    top: "50%",
-    marginTop: -1,
-    height: 2,
-    borderRadius: 1,
-    backgroundColor: Brand.vintageGold,
-  },
-  ribbonCol: {
-    flex: 1,
-    alignItems: "center",
-  },
-  node: {
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    backgroundColor: "rgba(233, 226, 203, 0.30)",
-  },
-  nodeDone: {
-    backgroundColor: Brand.vintageGold,
-  },
-  nodeActive: {
-    width: 13,
-    height: 13,
-    borderRadius: 7,
-    backgroundColor: Brand.vintageGold,
-    shadowColor: Brand.vintageGold,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7,
-    shadowRadius: 5,
-    elevation: 4,
-  },
-  ribbonLabelsRow: {
-    flexDirection: "row",
-    marginTop: s(7),
-  },
-  ribbonLabel: {
-    flex: 1,
-    textAlign: "center",
-    fontFamily: Fonts.varsityBold,
-    fontSize: ms(8.5),
-    letterSpacing: 0.6,
-    textTransform: "uppercase",
-    color: "rgba(233, 226, 203, 0.40)",
-  },
-  ribbonLabelDone: {
-    color: Brand.ecruMuted,
-  },
-  ribbonLabelActive: {
-    color: Brand.vintageGold,
   },
 
   // ── Eyebrow row ──────────────────────────────────────────────────────

@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { recordDeadLetter } from "../_shared/adminAlerts.ts";
 import { recordHeartbeat } from "../_shared/heartbeat.ts";
 import { jsonResponse, errorResponse } from "../_shared/http.ts";
 
@@ -25,8 +26,6 @@ const QUEUES = [
   "update_standings",
   "update_daily_records",
 ];
-
-const EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send";
 
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
@@ -193,65 +192,13 @@ async function moveToDeadLetter(
 
   await archiveMessage(queue, msgId);
 
-  // Record audit row + page admins. Failures here must NOT block the dead-letter
-  // path itself, so each call is independently try/catch'd.
-  try {
-    await supabase.from("dead_letter_alerts").insert({
-      original_queue: queue,
-      original_msg_id: msgId,
-      function_name: (message as any)?.function ?? null,
-      reason,
-      payload: message,
-    });
-  } catch (e) {
-    console.warn("dead_letter_alerts insert failed:", e instanceof Error ? e.message : e);
-  }
-
-  try {
-    await pushAdmins(
-      `Queue ${queue} dead-lettered`,
-      `msg #${msgId} (${(message as any)?.function ?? "unknown"}): ${reason}`,
-    );
-  } catch (e) {
-    console.warn("admin push failed:", e instanceof Error ? e.message : e);
-  }
-}
-
-async function pushAdmins(title: string, body: string) {
-  const { data: admins } = await supabase
-    .from("profiles")
-    .select("id")
-    .eq("is_admin", true);
-  if (!admins || admins.length === 0) return;
-
-  const adminIds = (admins as any[]).map(a => a.id);
-  const { data: tokens } = await supabase
-    .from("push_tokens")
-    .select("token")
-    .in("user_id", adminIds);
-  if (!tokens || tokens.length === 0) return;
-
-  const messages = (tokens as any[]).map(t => ({
-    to: t.token,
-    title,
-    body,
-    sound: "default",
-    priority: "high",
-    data: { screen: "activity", channelId: "commissioner" },
-    channelId: "commissioner",
-  }));
-
-  // Expo accepts up to 100 per request
-  for (let i = 0; i < messages.length; i += 100) {
-    const batch = messages.slice(i, i + 100);
-    try {
-      await fetch(EXPO_PUSH_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(batch),
-      });
-    } catch (err) {
-      console.warn("Expo push (admin) failed:", err);
-    }
-  }
+  await recordDeadLetter(supabase, {
+    originalQueue: queue,
+    originalMsgId: msgId,
+    functionName: (message as any)?.function ?? null,
+    reason,
+    payload: message,
+    pushTitle: `Queue ${queue} dead-lettered`,
+    pushBody: `msg #${msgId} (${(message as any)?.function ?? "unknown"}): ${reason}`,
+  });
 }

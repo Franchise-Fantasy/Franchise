@@ -1,6 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
+import { hasUnresolvedDeadLetter, recordDeadLetter } from '../_shared/adminAlerts.ts';
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 import { rearmPausedDraft } from '../_shared/draftResume.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
@@ -8,6 +9,13 @@ import { notifyTeams } from '../_shared/push.ts';
 import { isSlowClock, pickDeadlineMs } from '../../../utils/draft/pickClock.ts';
 import { isQuietNow } from '../../../utils/draft/quietHours.ts';
 import type { Database } from '../../../types/database.types.ts';
+
+// If a quiet-hours freeze fails to resume for this long past its window
+// closing, stop retrying every 5-minute cron tick (each attempt arms fresh
+// QStash messages) and dead-letter instead. No legitimate overnight window
+// runs anywhere near this long, so a resume still stuck here is unrecoverable
+// automatically — same rationale as sweep-stalled-drafts' GIVE_UP_MS.
+const RESUME_GIVE_UP_MS = 20 * 3_600_000;
 
 /**
  * Quiet-hours driver for slow (async) drafts. Called by pg_cron every 5 minutes.
@@ -92,6 +100,21 @@ Deno.serve(async (req) => {
         // extraMatch pins pause_reason so a manual commissioner pause (or one a
         // commissioner already resumed) is left untouched.
         if (!quiet && d.status === 'paused' && d.pause_reason === 'quiet_hours') {
+          const pausedAgeMs = d.paused_at ? now.getTime() - new Date(d.paused_at).getTime() : 0;
+          if (pausedAgeMs > RESUME_GIVE_UP_MS) {
+            if (await hasUnresolvedDeadLetter(supabaseAdmin, 'manage-draft-quiet-hours', d.id)) continue;
+            await recordDeadLetter(supabaseAdmin, {
+              originalQueue: 'manage-draft-quiet-hours',
+              originalMsgId: d.current_pick_number,
+              functionName: 'manage-draft-quiet-hours',
+              reason: `Draft stuck paused (quiet_hours) for over ${Math.round(RESUME_GIVE_UP_MS / 3_600_000)}h; giving up automatic resume`,
+              payload: { draft_id: d.id, league_id: d.league_id },
+              pushTitle: 'Draft stuck paused — needs attention',
+              pushBody: `Draft has been paused for quiet hours far longer than expected. Automatic resume gave up.`,
+            });
+            continue;
+          }
+
           const result = await rearmPausedDraft(supabaseAdmin, d, { pause_reason: 'quiet_hours' });
           if (!result.resumed) continue;
           resumed++;

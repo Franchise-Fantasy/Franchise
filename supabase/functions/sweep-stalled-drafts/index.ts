@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { hasUnresolvedDeadLetter, recordDeadLetter } from '../_shared/adminAlerts.ts';
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { scheduleAutodraft } from '../_shared/qstash.ts';
@@ -16,11 +17,23 @@ import type { Database } from '../../../types/database.types.ts';
  * current_pick_time_limit) passed more than GRACE_MS ago and republishes the
  * autodraft message. autodraft is idempotent, so racing a slow-but-alive
  * QStash delivery is harmless.
+ *
+ * If a draft never recovers (an abandoned/orphaned draft, or a real bug in
+ * autodraft that keeps it from ever advancing), re-arming every 5 minutes
+ * forever would silently burn the QStash daily message quota — this is
+ * exactly what a handful of abandoned test drafts did on 2026-07-25, exhausting
+ * the quota and 500ing every function that arms the pick clock. Past
+ * GIVE_UP_MS, stop re-arming and dead-letter instead (audit row + admin push,
+ * once — hasUnresolvedDeadLetter guards against re-alerting every tick).
  */
 
 // Past-deadline slack before we declare the chain dead. Covers QStash's normal
 // delivery latency (~0.5–1.5s) plus retry backoff on transient 5xx.
 const GRACE_MS = 120_000;
+
+// How long past GRACE_MS to keep re-arming before giving up (~12 attempts at
+// the 5-minute cron cadence) and paging an admin instead of retrying forever.
+const GIVE_UP_MS = 3_600_000;
 
 Deno.serve(async (req) => {
   try {
@@ -51,10 +64,29 @@ Deno.serve(async (req) => {
       const limitSeconds = d.current_pick_time_limit ?? d.time_limit;
       const deadline = new Date(d.current_pick_timestamp).getTime() + limitSeconds * 1000;
       return now > deadline + GRACE_MS;
+    }).map((d) => {
+      const limitSeconds = d.current_pick_time_limit ?? d.time_limit;
+      const deadline = new Date(d.current_pick_timestamp!).getTime() + limitSeconds * 1000;
+      return { draft: d, pastGraceMs: now - (deadline + GRACE_MS) };
     });
 
     let rearmed = 0;
-    for (const d of stalled) {
+    let deadLettered = 0;
+    for (const { draft: d, pastGraceMs } of stalled) {
+      if (pastGraceMs > GIVE_UP_MS) {
+        if (await hasUnresolvedDeadLetter(supabaseAdmin, 'sweep-stalled-drafts', d.id)) continue;
+        await recordDeadLetter(supabaseAdmin, {
+          originalQueue: 'sweep-stalled-drafts',
+          originalMsgId: d.current_pick_number,
+          functionName: 'autodraft',
+          reason: `Draft stalled >${Math.round(GIVE_UP_MS / 3_600_000)}h past grace at pick ${d.current_pick_number}; giving up automatic re-arm`,
+          payload: { draft_id: d.id, league_id: d.league_id, pick_number: d.current_pick_number },
+          pushTitle: 'Draft stuck — needs attention',
+          pushBody: `Pick ${d.current_pick_number} has been stalled for over an hour and automatic recovery gave up.`,
+        });
+        deadLettered++;
+        continue;
+      }
       try {
         // Re-fire the expired pick's autodraft immediately (2s delay). The
         // downstream chain re-arms itself: autodraft schedules the next pick's
@@ -72,7 +104,7 @@ Deno.serve(async (req) => {
     // here — we can't inspect QStash's queue. Deliberately not handled: the
     // reminder is best-effort by design; the autopick clock is the guarantee
     // this watchdog protects.
-    return jsonResponse({ checked: drafts?.length ?? 0, stalled: stalled.length, rearmed });
+    return jsonResponse({ checked: drafts?.length ?? 0, stalled: stalled.length, rearmed, deadLettered });
   } catch (error) {
     return handleError(error, 'sweep-stalled-drafts');
   }

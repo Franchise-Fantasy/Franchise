@@ -138,24 +138,24 @@ const BASKETBALL_STAT_TO_PROJ: Record<string, string> = {
 
 const BASKETBALL_DEFAULT_SCORING: ScoringCategory[] = [
   { stat_name: 'PTS', label: 'Points', point_value: 1 },
-  { stat_name: 'REB', label: 'Rebounds', point_value: 1.2 },
-  { stat_name: 'AST', label: 'Assists', point_value: 1.5 },
+  { stat_name: 'REB', label: 'Rebounds', point_value: 2 },
+  { stat_name: 'AST', label: 'Assists', point_value: 2 },
   { stat_name: 'STL', label: 'Steals', point_value: 3 },
   { stat_name: 'BLK', label: 'Blocks', point_value: 3 },
-  { stat_name: 'TO', label: 'Turnovers', point_value: -1 },
-  { stat_name: '3PM', label: '3-Pointers Made', point_value: 1 },
-  { stat_name: '3PA', label: '3-Pointers Attempted', point_value: -0.5 },
+  { stat_name: 'TO', label: 'Turnovers', point_value: -2 },
+  { stat_name: '3PM', label: '3-Pointers Made', point_value: 2.5 },
+  { stat_name: '3PA', label: '3-Pointers Attempted', point_value: -1 },
   { stat_name: 'FGM', label: 'Field Goals Made', point_value: 2 },
   { stat_name: 'FGA', label: 'Field Goals Attempted', point_value: -1 },
   { stat_name: 'FTM', label: 'Free Throws Made', point_value: 1 },
-  { stat_name: 'FTA', label: 'Free Throws Attempted', point_value: -1 },
+  { stat_name: 'FTA', label: 'Free Throws Attempted', point_value: -0.75 },
   // Personal fouls default to 0 (unscored) — the near-universal norm on
   // ESPN/Yahoo/Sleeper. A -1 default silently penalized fouls in leagues that
   // never scored them, most visibly on screenshot imports where an unread PF
   // stat kept this default. Leagues that DO penalize fouls set it in the editor.
   { stat_name: 'PF', label: 'Personal Fouls', point_value: 0 },
-  { stat_name: 'DD', label: 'Double Doubles', point_value: 0 },
-  { stat_name: 'TD', label: 'Triple Doubles', point_value: 0 },
+  { stat_name: 'DD', label: 'Double Doubles', point_value: 5 },
+  { stat_name: 'TD', label: 'Triple Doubles', point_value: 10 },
 ];
 
 const BASKETBALL_BOX_SCORE_ROWS: BoxScoreRow[] = [

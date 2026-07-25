@@ -41,6 +41,7 @@ import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { CoachMark } from "@/components/ui/CoachMark";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { InfoModal } from "@/components/ui/InfoModal";
+import { OffseasonEmptyState } from "@/components/ui/OffseasonEmptyState";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { ThemedView } from "@/components/ui/ThemedView";
 import { Colors } from "@/constants/Colors";
@@ -68,6 +69,7 @@ import {
   useSportToday,
 } from "@/utils/dates";
 import { getOffseasonMilestone } from "@/utils/league/offseasonState";
+import { calcRounds, getPlayoffRoundLabel } from "@/utils/league/playoff";
 import {
   categoryResultsToLines,
   formatTopCategory,
@@ -839,23 +841,36 @@ export default function MatchupScreen() {
     enabled: !isWeekly,
   });
 
-  const { data: seedMap } = useQuery({
+  const { data: seedData } = useQuery({
     queryKey: queryKeys.matchupSeeds(leagueId!, currentWeek?.week_number!),
     queryFn: async () => {
       // Find the playoff round: query any matchup in this schedule week
       const { data: matchups } = await supabase
         .from("league_matchups")
-        .select("playoff_round")
+        .select("playoff_round, playoff_bracket(is_third_place)")
         .eq("schedule_id", currentWeek!.id)
         .not("playoff_round", "is", null)
         .limit(1);
       const round = matchups?.[0]?.playoff_round;
-      if (!round) return new Map<string, number>();
-      return fetchTeamSeeds(leagueId!, league?.season ?? CURRENT_NBA_SEASON, round);
+      const isThirdPlace = matchups?.[0]?.playoff_bracket?.[0]?.is_third_place ?? false;
+      if (!round) return { seedMap: new Map<string, number>(), round: null, isThirdPlace };
+      const seedMap = await fetchTeamSeeds(
+        leagueId!,
+        league?.season ?? CURRENT_NBA_SEASON,
+        round,
+      );
+      return { seedMap, round, isThirdPlace };
     },
     enabled: !!leagueId && !!currentWeek?.is_playoff,
     staleTime: 1000 * 60 * 5,
   });
+  const seedMap = seedData?.seedMap;
+
+  const playoffRoundLabel = useMemo(() => {
+    if (!currentWeek?.is_playoff || !seedData?.round) return undefined;
+    const totalRounds = calcRounds(league?.playoff_teams ?? 8);
+    return getPlayoffRoundLabel(seedData.round, totalRounds, seedData.isThirdPlace);
+  }, [currentWeek?.is_playoff, seedData, league?.playoff_teams]);
 
   // Weekly acquisition limit — ACQ band under the score block shows
   // both teams' usage so users can compare opponents at a glance.
@@ -939,15 +954,29 @@ export default function MatchupScreen() {
   // the layout is reserved from the first frame.
   if (!weeksLoading && (!weeks || weeks.length === 0)) {
     return (
-      <ThemedView style={styles.center}>
-        <ThemedText type="defaultSemiBold">Season not started yet.</ThemedText>
-        <ThemedText
-          style={{ color: c.secondaryText, marginTop: 6, textAlign: "center" }}
-        >
-          {league?.imported_from
-            ? "The schedule generates automatically once every team has claimed its roster."
-            : "The schedule is generated automatically once the draft is complete."}
-        </ThemedText>
+      <ThemedView style={{ flex: 1 }}>
+        {league?.offseason_step ? (
+          <OffseasonEmptyState
+            title="Offseason."
+            subtitle="GAMES RETURN NEXT SEASON"
+            accessibilityLabel="It's the offseason. Games will return next season."
+          />
+        ) : (
+          <OffseasonEmptyState
+            icon="calendar-outline"
+            title="Season not started."
+            subtitle={
+              league?.imported_from
+                ? "SCHEDULE GENERATES ONCE EVERY TEAM CLAIMS ITS ROSTER"
+                : "SCHEDULE GENERATES ONCE THE DRAFT IS COMPLETE"
+            }
+            accessibilityLabel={
+              league?.imported_from
+                ? "Season not started yet. The schedule generates automatically once every team has claimed its roster."
+                : "Season not started yet. The schedule is generated automatically once the draft is complete."
+            }
+          />
+        )}
       </ThemedView>
     );
   }
@@ -1082,6 +1111,7 @@ export default function MatchupScreen() {
         weekLabel={weekLabel}
         dayLabel={formatDayLabel(selectedDate)}
         currentWeek={currentWeek}
+        playoffRoundLabel={playoffRoundLabel}
         seasonOpensLabel={seasonOpensLabel}
         offseason={heroOffseason}
         weekIsLive={weekIsLive}

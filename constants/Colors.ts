@@ -349,6 +349,7 @@ export const Fonts = {
   bodyMedium: "JustSans_500Medium",
   bodySemibold: "JustSans_600SemiBold",
   bodyBold: "JustSans_700Bold",
-  mono: "Fascond", // stat numerals — condensed, tabular
+  mono: "SpaceMono", // stat numerals — tabular; the original pre-overhaul face
+
   score: "DothedScore", // focal score only, >=30px (digits + separators only)
 } as const;

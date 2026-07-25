@@ -82,9 +82,11 @@ export function ProspectsTab() {
 
   const handleOpenProspect = useCallback(
     (p: ProspectCardData) => {
+      // Navigate by slug (the universal key) — resolves the profile even for a
+      // published prospect whose players row hasn't synced yet.
       router.push({
         pathname: '/prospect/[id]' as any,
-        params: { id: p.playerId || p.contentfulEntryId },
+        params: { id: p.slug },
       });
     },
     [router],
@@ -227,6 +229,7 @@ export function ProspectsTab() {
         </View>
       ) : (
         <FlatList
+          style={styles.list}
           data={filtered}
           keyExtractor={keyExtractor}
           renderItem={renderItem}
@@ -276,7 +279,10 @@ const styles = StyleSheet.create({
   eyebrowText: { fontSize: ms(10), letterSpacing: 1.4 },
 
   // Year selector — text + gold-underline active (mirrors ByYearTab)
-  yearSelector: { flexGrow: 0 },
+  // flexShrink:0 so the fixed header rows are never vertically compressed by a
+  // tall list sibling (a long "All" list did this, clipping the Alfa Slab
+  // year digits). The FlatList's flex:1 is the primary fix; this is a guard.
+  yearSelector: { flexGrow: 0, flexShrink: 0 },
   yearRow: {
     paddingHorizontal: s(16),
     paddingTop: s(2),
@@ -320,6 +326,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingTop: s(60),
+  },
+  // flex:1 so the list fills the remaining column space and scrolls internally
+  // instead of growing to its content height and squeezing the header rows.
+  list: {
+    flex: 1,
   },
   listContent: {
     paddingBottom: s(100),

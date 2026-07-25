@@ -8,8 +8,6 @@ import { Colors, Fonts, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
-import { DynastyScoreBadge } from './DynastyScoreBadge';
-
 interface ProspectBoardItemProps {
   /** User-rank position; rendered inside the row with the brand chrome. */
   rank: number;
@@ -17,8 +15,7 @@ interface ProspectBoardItemProps {
   name: string;
   position: string;
   school: string;
-  dynastyScore: number;
-  /** Staff rank for comparison badge */
+  /** Consensus staff rank (prospect_board.display_rank) for the comparison badge */
   staffRank?: number;
   /** User's current rank for this prospect (used for staff comparison) */
   userRank?: number;
@@ -34,7 +31,6 @@ function ProspectBoardItemBase({
   name,
   position,
   school,
-  dynastyScore,
   staffRank,
   userRank,
   drag,
@@ -108,9 +104,6 @@ function ProspectBoardItemBase({
             </Text>
           </View>
         </View>
-
-        {/* Dynasty score */}
-        {dynastyScore > 0 && <DynastyScoreBadge score={dynastyScore} />}
 
         {/* Staff comparison badge — mono numeric for tabular feel */}
         {comparisonIcon && staffRank !== undefined && (

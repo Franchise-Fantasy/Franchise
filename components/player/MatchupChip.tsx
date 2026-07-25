@@ -62,6 +62,7 @@ const styles = StyleSheet.create({
   },
   chipText: {
     fontSize: ms(9),
+    lineHeight: ms(11),
     letterSpacing: 1.0,
   },
 });

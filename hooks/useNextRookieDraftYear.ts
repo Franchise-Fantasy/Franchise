@@ -2,12 +2,14 @@ import { useQuery } from '@tanstack/react-query';
 
 import {
   getCurrentSeason,
+  getSeasonStart,
   parseSeasonStartYear,
   rookieDraftStartOffset,
   Sport,
 } from '@/constants/LeagueDefaults';
 import { useOptionalAppState } from '@/context/AppStateProvider';
 import { supabase } from '@/lib/supabase';
+import { getSportToday } from '@/utils/leagueTime';
 
 /**
  * The nearest draft class still open for the active league's rookie draft,
@@ -38,8 +40,26 @@ export function useNextRookieDraftYear(sport: Sport): number {
     staleTime: 1000 * 60,
   });
 
-  const startOffset = rookieDraftStartOffset(data?.offseason_step ?? null);
-  const currentStartYear = parseSeasonStartYear(data?.season ?? getCurrentSeason(sport));
+  const season = data?.season ?? getCurrentSeason(sport);
+  const offseasonStep = data?.offseason_step ?? null;
+  const currentStartYear = parseSeasonStartYear(season);
+
+  // The "+1 = next year's class" offset assumes `league.season` is the season
+  // being PLAYED right now. But season_config (and `advance-season`) flip
+  // `league.season` to the upcoming season months before it tips off — so in
+  // the pre-season window that season IS effectively "next year" already, and
+  // adding +1 overshoots to a class with no scouting data yet (empty Prospects
+  // tab). While the season hasn't started AND the league isn't mid-rookie-draft
+  // (offseason_step === null — the only case rookieDraftStartOffset returns +1
+  // for), hold the offset at 0 so the tab lands on the incoming class. A live
+  // offseason_step already resolves correctly, and this deliberately diverges
+  // from useDraftHub's mechanical pick-window offset, which must stay keyed on
+  // offseason_step so lottery-seeded picks never disappear.
+  const seasonStart = getSeasonStart(sport, season);
+  const seasonStarted = !seasonStart || getSportToday(sport) >= seasonStart;
+  const startOffset = seasonStarted || offseasonStep != null
+    ? rookieDraftStartOffset(offseasonStep)
+    : 0;
 
   return currentStartYear + startOffset;
 }

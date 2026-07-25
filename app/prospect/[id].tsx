@@ -14,8 +14,9 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { PremiumGate } from '@/components/account/PremiumGate';
 import { RichTextRenderer } from '@/components/cms/RichTextRenderer';
-import { LandingSpotBar } from '@/components/prospects/LandingSpotBar';
+import { ProspectMovementBadge } from '@/components/prospects/ProspectMovementBadge';
 import { ProspectNewsSection } from '@/components/prospects/ProspectNewsSection';
+import { RecentGamesSection } from '@/components/prospects/RecentGamesSection';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
@@ -44,12 +45,11 @@ export default function ProspectProfileScreen() {
   const { canAccess } = useSubscription();
   const isPremium = canAccess('prospects');
 
-  // The list can navigate here with either a players.id UUID (synced prospects)
-  // or a raw Contentful entry id (un-synced prospects, or browsing with no active
-  // league). Detect which so useProspect runs the right lookup — otherwise a
-  // Contentful id gets mis-queried as a player UUID and the profile 404s.
+  // The list navigates here with a player slug (the universal key); "My Board"
+  // only knows the players.id UUID. Detect which so useProspect runs the right
+  // lookup — a UUID is bridged to its slug first, a slug is used directly.
   const isUuid = UUID_RE.test(id ?? '');
-  const { data: prospect, isLoading } = useProspect(id, isUuid ? 'player' : 'contentful');
+  const { data: prospect, isLoading } = useProspect(id, isUuid ? 'player' : 'slug');
 
   if (isLoading) {
     return (
@@ -114,10 +114,10 @@ export default function ProspectProfileScreen() {
             >
               {eyebrowSegments.join(' · ')}
             </ThemedText>
-            {prospect.projectedDraftYear ? (
+            {prospect.draftYear ? (
               <View style={styles.draftPill}>
                 <ThemedText type="varsity" style={styles.draftPillText}>
-                  {`${prospect.projectedDraftYear} CLASS`}
+                  {`${prospect.draftYear} CLASS`}
                 </ThemedText>
               </View>
             ) : null}
@@ -148,13 +148,16 @@ export default function ProspectProfileScreen() {
             </View>
           </View>
 
-          {prospect.dynastyValueScore > 0 && (
+          {prospect.displayRank != null && (
             <View style={styles.statRow}>
-              <Text style={styles.statValue}>{prospect.dynastyValueScore}</Text>
+              <Text style={styles.statValue}>{`#${prospect.displayRank}`}</Text>
               <View style={styles.statDivider} />
               <ThemedText type="varsitySmall" style={styles.statLabel}>
-                Dynasty Score
+                Consensus Rank
               </ThemedText>
+              <View style={styles.movementSlot}>
+                <ProspectMovementBadge rankChange={prospect.rankChange} size="large" />
+              </View>
             </View>
           )}
         </View>
@@ -166,10 +169,7 @@ export default function ProspectProfileScreen() {
             { label: 'Height', value: prospect.height },
             { label: 'Weight', value: prospect.weight },
             { label: 'Class', value: prospect.classYear },
-            {
-              label: 'ESPN',
-              value: prospect.recruitingRank ? `#${prospect.recruitingRank}` : undefined,
-            },
+            { label: 'Team', value: prospect.currentTeam },
           ].map((stat, i) => (
             <View
               key={stat.label}
@@ -208,43 +208,8 @@ export default function ProspectProfileScreen() {
           </View>
         ) : null}
 
-        {/* External links (Hudl, X) */}
-        {(prospect.hudlUrl || prospect.xEmbedUrl) && (
-          <View style={[styles.linksRow, styles.sectionWrap]}>
-            {prospect.hudlUrl && (
-              <TouchableOpacity
-                style={[styles.linkChip, { backgroundColor: c.card, borderColor: c.border }]}
-                onPress={() => Linking.openURL(prospect.hudlUrl!)}
-                accessibilityRole="link"
-                accessibilityLabel="View Hudl profile"
-              >
-                <Ionicons name="play-circle-outline" size={16} color={c.gold} />
-                <ThemedText
-                  type="varsity"
-                  style={[styles.linkText, { color: c.text }]}
-                >
-                  Hudl Film
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-            {prospect.xEmbedUrl && (
-              <TouchableOpacity
-                style={[styles.linkChip, { backgroundColor: c.card, borderColor: c.border }]}
-                onPress={() => Linking.openURL(prospect.xEmbedUrl!)}
-                accessibilityRole="link"
-                accessibilityLabel="View scout clip on X"
-              >
-                <Ionicons name="logo-twitter" size={16} color={c.gold} />
-                <ThemedText
-                  type="varsity"
-                  style={[styles.linkText, { color: c.text }]}
-                >
-                  Scout Clip
-                </ThemedText>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
+        {/* Recent games — last 3 lines from ESPN (college / summer league / NBA) */}
+        <RecentGamesSection games={prospect.recentGames} />
 
         {/* Scouting report */}
         {prospect.scoutingReport && (
@@ -261,22 +226,6 @@ export default function ProspectProfileScreen() {
                     <View />
                   </PremiumGate>
                 </>
-              )}
-            </Section>
-          </View>
-        )}
-
-        {/* Landing spot projections */}
-        {prospect.projectedTeams.length > 0 && (
-          <View style={styles.sectionWrap}>
-            <Section title="Landing Spots">
-              {prospect.projectedTeams.map((spot, i) => (
-                <LandingSpotBar key={spot.team} spot={spot} index={i} />
-              ))}
-              {prospect.landingSpotAnalysis && isPremium && (
-                <View style={styles.analysisBlock}>
-                  <RichTextRenderer document={prospect.landingSpotAnalysis} />
-                </View>
               )}
             </Section>
           </View>
@@ -410,6 +359,9 @@ const styles = StyleSheet.create({
     fontSize: ms(10),
     letterSpacing: 1.2,
   },
+  movementSlot: {
+    marginLeft: s(12),
+  },
 
   // Quick stats bar — mono numerics + varsity caps. Top edge sits flush
   // against the hero's square bottom; only the bottom corners round so
@@ -464,29 +416,4 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Links
-  linksRow: {
-    flexDirection: 'row',
-    gap: s(8),
-  },
-  linkChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(6),
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    borderRadius: 10,
-    borderWidth: 1,
-  },
-  linkText: {
-    fontSize: ms(11),
-    letterSpacing: 1.0,
-  },
-
-  analysisBlock: {
-    marginTop: s(8),
-    paddingTop: s(8),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: 'rgba(128,128,128,0.25)',
-  },
 });

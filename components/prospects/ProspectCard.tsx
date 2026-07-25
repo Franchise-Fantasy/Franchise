@@ -9,7 +9,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ProspectCardData } from '@/types/prospect';
 import { ms, s } from '@/utils/scale';
 
-import { DynastyScoreBadge } from './DynastyScoreBadge';
+import { ProspectMovementBadge } from './ProspectMovementBadge';
 
 interface ProspectCardProps {
   prospect: ProspectCardData;
@@ -51,7 +51,7 @@ function ProspectCardBase({
       onPress={handlePress}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`${prospect.name}, ${prospect.position}, ${prospect.school}, dynasty score ${prospect.dynastyValueScore}`}
+      accessibilityLabel={`${prospect.name}, ${prospect.position}, ${prospect.school}, rank ${rank}`}
     >
       {/* Rank — Alfa Slab + thin gold side-rule (matches the ByYearTab
           pick-row treatment). The rule keeps tight visual rhythm with
@@ -96,9 +96,9 @@ function ProspectCardBase({
         </View>
       </View>
 
-      {/* Dynasty score pill */}
-      {prospect.dynastyValueScore > 0 && (
-        <DynastyScoreBadge score={prospect.dynastyValueScore} />
+      {/* Weekly movement (▲/▼/NEW) — only for prospects on the consensus board */}
+      {prospect.displayRank != null && (
+        <ProspectMovementBadge rankChange={prospect.rankChange} />
       )}
 
       {/* Add to board */}
@@ -140,7 +140,8 @@ export const ProspectCard = memo(ProspectCardBase, (prev, next) => (
   prev.prospect.school === next.prospect.school &&
   prev.prospect.classYear === next.prospect.classYear &&
   prev.prospect.photoUrl === next.prospect.photoUrl &&
-  prev.prospect.dynastyValueScore === next.prospect.dynastyValueScore
+  prev.prospect.displayRank === next.prospect.displayRank &&
+  prev.prospect.rankChange === next.prospect.rankChange
 ));
 
 const styles = StyleSheet.create({

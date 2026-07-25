@@ -8,7 +8,6 @@ import { CatAnalytics } from "@/components/analytics/CatAnalytics";
 import { PointsAgeAnalytics } from "@/components/analytics/PointsAgeAnalytics";
 import { PointsStrengthAnalytics } from "@/components/analytics/PointsStrengthAnalytics";
 import { TeamRail } from "@/components/analytics/TeamRail";
-import { CoachMark } from "@/components/ui/CoachMark";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { type PositionCurve } from "@/constants/agingCurves";
@@ -68,7 +67,6 @@ export default function AnalyticsScreen() {
     null,
   );
   const activeTeamId = (viewed?.leagueId === leagueId ? viewed.teamId : null) ?? teamId;
-  const isMyTeam = activeTeamId === teamId;
 
   // Pre-tipoff WNBA / first-month NBA / categories leagues all read 0 fpts
   // for current season. Pull last season's avg fpts as a fallback weight so
@@ -181,20 +179,6 @@ export default function AnalyticsScreen() {
         <View key={activeTeamId ?? "none"} style={styles.body}>
           {body}
         </View>
-
-        {/* First-visit hint for the scatter's tap + pinch gestures. */}
-        <CoachMark
-          id="analytics-chart"
-          text="Tap a dot for player details. Pinch to stretch an axis and pull clustered players apart."
-          bottom={16}
-          active={
-            isMyTeam &&
-            isDynasty &&
-            !isCategories &&
-            !isLoading &&
-            players.length >= 3
-          }
-        />
       </View>
     </SafeAreaView>
   );

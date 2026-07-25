@@ -756,6 +756,7 @@ export default function RootLayout() {
     Desporm: require("../assets/fonts/Desporm-Regular.ttf"),
     StonerSport: require("../assets/fonts/StonerSport-Regular.ttf"),
     Fascond: require("../assets/fonts/Fascond-Regular.ttf"),
+    SpaceMono: require("../assets/fonts/SpaceMono-Regular.ttf"),
     DothedScore: require("../assets/fonts/DothedPixel-Score.otf"),
     JustSans_400Regular: require("../assets/fonts/JUSTSans-Regular.ttf"),
     JustSans_500Medium: require("../assets/fonts/JUSTSans-Medium.ttf"),

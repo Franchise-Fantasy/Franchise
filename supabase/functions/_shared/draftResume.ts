@@ -41,8 +41,12 @@ export interface RearmResult {
  * in_progress draft with no clock. The atomic UPDATE is guarded by
  * `status='paused'` plus any `extraMatch` columns (the quiet-hours cron passes
  * `{ pause_reason: 'quiet_hours' }` so it only resumes freezes it created and
- * never a manual commissioner pause). Returns `resumed: false` when the guarded
- * update matched no row (a racer — e.g. the commissioner — resumed first).
+ * never a manual commissioner pause). QStash duplicate publishes are safe (see
+ * qstash.ts), so if the guarded update matches no row because a racer resumed
+ * first, that's treated as a successful resume rather than an error — we
+ * re-check the draft's live status and only report `resumed: false` if it's
+ * genuinely still paused (extraMatch rejected it, e.g. commissioner vs.
+ * quiet-hours-only cron).
  */
 export async function rearmPausedDraft(
   supabaseAdmin: SupabaseClient,
@@ -109,8 +113,24 @@ export async function rearmPausedDraft(
   const { data: updated, error: updateError } = await query.select('id');
   if (updateError) throw updateError;
 
+  let resumed = !!updated && updated.length > 0;
+  if (!resumed && Object.keys(extraMatch).length === 0) {
+    // Unscoped caller (the manual commissioner resume) with 0 rows matched —
+    // a racer (e.g. the quiet-hours cron) already resumed it first, which is
+    // fine since QStash duplicates are safe. Re-read the live status: if it's
+    // now in_progress, report success instead of a false "still paused" error.
+    // Scoped callers (extraMatch, e.g. the cron itself) keep strict semantics
+    // — 0 rows there means "someone else already handled this, don't re-fire."
+    const { data: current } = await supabaseAdmin
+      .from('drafts')
+      .select('status')
+      .eq('id', draft.id)
+      .maybeSingle();
+    resumed = current?.status === 'in_progress';
+  }
+
   return {
-    resumed: !!updated && updated.length > 0,
+    resumed,
     remainingSeconds,
     onClockTeamId,
     autopickTriggered,

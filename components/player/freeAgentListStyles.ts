@@ -193,21 +193,23 @@ export const freeAgentListStyles = StyleSheet.create({
   },
   statsPoints: {
     // Sized for the longest realistic suffixed line — `40.5P/12.4R/10.5A`
-    // (17 chars) in condensed mono ms(13) — across device scales. The stat
-    // line is subordinate to the gold FPTS headline stacked below it.
-    width: s(124),
+    // (17 chars) in SpaceMono ms(12) — across device scales. The stat line is
+    // subordinate to the gold FPTS headline stacked below it.
+    width: s(136),
   },
   statsCategories: {
-    // 5-stat slash line — `35.5/12.4/10.5/2.9/2.8` (22 chars) in mono ms(13).
-    // Kept as bare slashes (not suffixed like points mode) so the dense line
-    // stays on one row; the column key above labels PTS·REB·AST·STL·BLK.
-    width: s(160),
+    // 5-stat slash line — `35.5/12.4/10.5/2.9/2.8` (22 chars) in SpaceMono
+    // ms(12). Kept as bare slashes (not suffixed like points mode) so the dense
+    // line stays on one row; the column key above labels PTS·REB·AST·STL·BLK.
+    width: s(176),
   },
   statLine: {
-    // `Fascond` is a condensed face, so it reads small for its point size —
-    // bumped from ms(11) to ms(13) for legibility. Condensed glyphs are narrow
-    // enough that the wider line still fits the fixed stat-column widths below.
-    fontSize: ms(13),
+    // Rendered in the `mono` face (SpaceMono) — an open, tabular monospace that
+    // reads clearly at small sizes, so no extra tracking is needed (it inherits
+    // the base mono letterSpacing of 0.5). SpaceMono's normal advance width is
+    // wider than a condensed face, so the stat-column widths below are sized to
+    // fit the full suffixed line at this point size.
+    fontSize: ms(12),
     textAlign: "right" as const,
   },
   fptsValue: {

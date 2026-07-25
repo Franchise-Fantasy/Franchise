@@ -7,9 +7,14 @@ import { parseBody, z } from "../_shared/validate.ts";
 /**
  * sync-prospect — Contentful webhook handler
  *
- * Triggered on publish/unpublish of a "prospect" entry in Contentful.
+ * Triggered on publish/unpublish of a "prospectProfile" entry in Contentful.
  * Creates or updates the corresponding row in the `players` table so
  * prospects can be drafted in dynasty leagues before BDL assigns an ID.
+ *
+ * This is the bridge between the slug-keyed rankings pipeline and the app's
+ * UUID-keyed draft flow: it stamps `players.player_slug` from the entry's
+ * `slug` field so the board/rankings (joined on slug) resolve to a draftable
+ * `players.id`. draftYear is an integer field now (was the "2028+" string).
  *
  * Auth: CONTENTFUL_WEBHOOK_SECRET via X-Webhook-Secret header.
  * Deploy with verify_jwt=false (webhook calls, not user calls).
@@ -76,13 +81,13 @@ Deno.serve(async (req: Request) => {
 
     const position = field(fields, "position");
     const school = field(fields, "school");
-    const draftYear = field(fields, "projectedDraftYear");
-    const dynastyScore = field(fields, "dynastyValueScore");
+    const slug = field(fields, "slug");
+    const draftYear = field(fields, "draftYear");
 
-    // Parse draft year — Contentful sends "2025", "2026", "2027", "2028+"
+    // draftYear is a Contentful Integer field now; be defensive about strings.
     let nbaDraftYear: number | null = null;
-    if (draftYear) {
-      const parsed = parseInt(String(draftYear).replace("+", ""), 10);
+    if (draftYear != null) {
+      const parsed = parseInt(String(draftYear).replace(/\D/g, ""), 10);
       if (!isNaN(parsed)) nbaDraftYear = parsed;
     }
 
@@ -91,7 +96,10 @@ Deno.serve(async (req: Request) => {
       position: position ?? null,
       school: school ?? null,
       draft_year: nbaDraftYear,
-      dynasty_value_score: dynastyScore ?? null,
+      // The join bridge: the rankings pipeline + prospect_board join on slug,
+      // so stamping it here is what makes a published prospect resolve to a
+      // draftable players.id.
+      player_slug: slug ?? null,
       contentful_entry_id: entryId,
       is_prospect: true,
       rookie: true,

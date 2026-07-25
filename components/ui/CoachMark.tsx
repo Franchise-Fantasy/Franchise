@@ -18,6 +18,12 @@ interface CoachMarkProps {
   /** Distance from the bottom of the parent. Use this OR top. */
   bottom?: number;
   /**
+   * Render in normal document flow instead of as a floating overlay, so the hint
+   * sits between siblings (e.g. under a filter row, above a chart) and never
+   * covers the content it's describing. `top`/`bottom` are ignored when set.
+   */
+  inline?: boolean;
+  /**
    * Gate display until the hinted gesture actually applies (e.g. more than one
    * matchup exists). Defaults to true.
    */
@@ -30,7 +36,7 @@ interface CoachMarkProps {
  * e.g. a screen root). Fades in shortly after mount so it doesn't fight the
  * screen's own entrance, and persists "seen" on dismiss.
  */
-export function CoachMark({ id, text, top, bottom, active = true }: CoachMarkProps) {
+export function CoachMark({ id, text, top, bottom, inline = false, active = true }: CoachMarkProps) {
   const c = useColors();
   const { visible, dismiss } = useCoachMark(id);
 
@@ -40,11 +46,13 @@ export function CoachMark({ id, text, top, bottom, active = true }: CoachMarkPro
     <Animated.View
       entering={FadeIn.duration(350).delay(650)}
       exiting={FadeOut.duration(200)}
-      style={[styles.wrap, { top, bottom }]}
+      style={inline ? styles.wrapInline : [styles.wrap, { top, bottom }]}
       pointerEvents="box-none"
     >
       <View
-        style={[styles.card, { backgroundColor: c.text, borderColor: c.gold, ...cardShadow }]}
+        // `+ 'EE'` softens the near-black/ecru fill to ~93% so the pill reads as
+        // a callout rather than a hard slab over the cream page.
+        style={[styles.card, { backgroundColor: c.text + 'EE', borderColor: c.gold, ...cardShadow }]}
         accessibilityRole="alert"
       >
         <Ionicons name="bulb" size={ms(15)} color={c.gold} accessible={false} />
@@ -69,6 +77,12 @@ const styles = StyleSheet.create({
     right: s(16),
     alignItems: 'center',
     zIndex: 50,
+  },
+  wrapInline: {
+    alignSelf: 'stretch',
+    alignItems: 'center',
+    marginTop: s(2),
+    marginBottom: s(10),
   },
   card: {
     flexDirection: 'row',

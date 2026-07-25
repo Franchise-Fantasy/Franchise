@@ -39,6 +39,7 @@ import {
 } from "@/components/analytics/PointsAgeAnalyticsStyles";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { Badge, type BadgeVariant } from "@/components/ui/Badge";
+import { CoachMark } from "@/components/ui/CoachMark";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { type PositionCurve } from "@/constants/agingCurves";
@@ -730,6 +731,16 @@ export function PointsAgeAnalytics({
           />
         </TouchableOpacity>
       </View>
+
+      {/* First-visit hint for the scatter's tap + pinch gestures. Inline (under
+          the position chips, above the plot) so it never covers the dots it's
+          telling you to tap. Only on the user's own roster with enough players. */}
+      <CoachMark
+        id="analytics-chart"
+        text="Tap a dot for player details. Pinch to stretch an axis and pull clustered players apart."
+        inline
+        active={teamId === myTeamId && players.length >= 3}
+      />
 
       {/* ── Chart ── pinch an axis to stretch it; FIT returns to the full roster. ── */}
       <View style={styles.chartWrap}>

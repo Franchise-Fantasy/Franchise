@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -13,9 +12,9 @@ import {
 import { WeekRail, type RailWeek, type WeekStatus } from '@/components/scoreboard/WeekRail';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { OffseasonEmptyState } from '@/components/ui/OffseasonEmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Fonts } from '@/constants/Colors';
 import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
@@ -25,7 +24,7 @@ import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
 import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
 import { getSportToday } from '@/utils/leagueTime';
-import { ms, s } from '@/utils/scale';
+import { s } from '@/utils/scale';
 import { formatScore } from '@/utils/scoring/fantasyPoints';
 
 interface ScoreboardMatchup {
@@ -300,32 +299,11 @@ export default function ScoreboardScreen() {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <PageHeader title="Scoreboard" />
-        <View
-          style={styles.offseason}
-          accessible
-          accessibilityRole="text"
+        <OffseasonEmptyState
+          title="Offseason."
+          subtitle="GAMES RETURN NEXT SEASON"
           accessibilityLabel="It's the offseason. Games will return next season."
-        >
-          <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
-          <Ionicons
-            name="sunny-outline"
-            size={ms(40)}
-            color={c.secondaryText}
-            accessible={false}
-          />
-          <ThemedText
-            type="display"
-            style={[styles.emptyTitle, { color: c.text }]}
-          >
-            Offseason.
-          </ThemedText>
-          <ThemedText
-            type="varsitySmall"
-            style={[styles.emptySub, { color: c.secondaryText }]}
-          >
-            GAMES RETURN NEXT SEASON
-          </ThemedText>
-        </View>
+        />
       </SafeAreaView>
     );
   }
@@ -455,30 +433,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: s(40),
     gap: s(16),
-  },
-  offseason: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: s(32),
-    gap: s(10),
-  },
-  emptyRule: {
-    height: 2,
-    width: s(48),
-    marginBottom: s(8),
-  },
-  emptyTitle: {
-    fontFamily: Fonts.display,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.2,
-    textAlign: 'center',
-  },
-  emptySub: {
-    fontSize: ms(11),
-    letterSpacing: 1.3,
-    textAlign: 'center',
   },
   bracketBtnWrap: {
     alignItems: 'center',

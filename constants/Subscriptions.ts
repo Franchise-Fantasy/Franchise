@@ -28,9 +28,14 @@ export const FEATURE_TIERS: Record<string, SubscriptionTier> = {
   strength_of_schedule: 'pro',
   contender_score: 'pro',
 
-  // Pro features — Prospects
-  prospects: 'pro',
-  prospect_board: 'pro',
+  // Free — Prospects hub, personal board, and scouting reports are
+  // intentionally ungated for ALL users, including after PAYWALL_ENABLED flips
+  // on at launch. hasAccess(anyTier, 'free') is always true. Do NOT set these
+  // back to 'pro' without a deliberate product decision — every prospect
+  // surface (ProspectsTab, prospect-board, the detail scouting report) keys off
+  // these two entries via canAccess/PremiumGate.
+  prospects: 'free',
+  prospect_board: 'free',
 
   // Premium features
   age_curve: 'premium',
