@@ -37,8 +37,13 @@ export default function FeatureShowcase() {
   return (
     <section
       className="px-6 py-20 sm:py-28"
-      aria-label="Feature deep dives"
+      aria-labelledby="showcase-heading"
     >
+      {/* Visually hidden section heading — closes the h2→h3 gap for screen
+          readers and machine parsers without altering the visual design. */}
+      <h2 id="showcase-heading" className="sr-only">
+        Feature deep dives
+      </h2>
       <div className="mx-auto max-w-6xl space-y-8">
         {showcases.map((showcase, i) => {
           const p = palettes[i % palettes.length];

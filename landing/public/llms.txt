@@ -1,0 +1,36 @@
+# Franchise
+
+> Own the dynasty. Franchise is a dynasty-first, GM-style fantasy basketball platform — year-round and multi-sport (NBA and WNBA live; NFL, NHL, MLB in progress). Where traditional fantasy is seasonal, Franchise is built for leagues that come back every year.
+
+Franchise ("Franchise Fantasy") replicates a real General Manager experience. You don't just draft a team for one season — you build, manage, and evolve a franchise over time, with every roster and trade decision carrying weight across seasons. It supports dynasty, keeper, and redraft leagues, and consolidates what dynasty players normally juggle across spreadsheets, group chats, and side tools into one system.
+
+Status: currently in private beta (waitlist / TestFlight). iOS and Android will launch at the same time.
+
+## What makes Franchise different
+
+- **Real pick swaps & protections**: Trade swap rights separately from the pick itself, and set top-N protections — mechanics real dynasty leagues use.
+- **Multi-team trades**: Build deals across multiple teams to replicate trade-deadline and blockbuster moves, without a group text and a spreadsheet.
+- **A trade block that works**: Post who's available, see who's interested privately, and start a deal from there.
+- **Consistency scouting**: Know whether a player is steady or a rollercoaster before you trade for them, with per-category breakdowns for head-to-head leagues.
+- **Analytics that change decisions**: Home/away and back-to-back splits, category strengths ranked against the league, and aging curves built around your league's scoring settings — plus an adjustable game window (last 10 vs. season-long).
+- **Prospect boards**: Rank rookies your way, compare against staff consensus, and prep for drafts years before a class is eligible. Landing-spot odds for incoming prospects.
+- **Dynasty history**: Full league history with a trophy case and records, a head-to-head matrix across every season, draft-capital views by year and team, and an animated draft-lottery reveal.
+- **Commissioner tools**: Force moves, league announcements, division assignments, and trade reversals without digging through menus.
+- **Payments built in**: Track who's paid and nudge who hasn't, with Venmo and Cash App links ready to go.
+- **League import**: Bring over rosters, scoring settings, draft history, and league records so you don't have to start your league over from scratch.
+
+## Pages
+
+- [Home](https://franchisefantasy.co/): Overview and waitlist signup.
+- [FAQ](https://franchisefantasy.co/faq): What dynasty fantasy is, how Franchise compares to other platforms, supported sports, importing a league, and platform availability.
+- [Glossary](https://franchisefantasy.co/glossary): Definitions of dynasty fantasy terms (dynasty, keeper, redraft, pick swap, pick protection, trade block, consistency scouting, aging curve, prospect board, draft capital, taxi squad, and more).
+- [Dynasty vs. Redraft](https://franchisefantasy.co/dynasty-vs-redraft): An explainer comparing dynasty and redraft formats and who each suits.
+- [Privacy Policy](https://franchisefantasy.co/privacy)
+- [Terms of Service](https://franchisefantasy.co/terms)
+
+## Elsewhere
+
+- Instagram: https://www.instagram.com/Franchise_Fantasy
+- X: https://x.com/Franchise_App
+- Bluesky: https://bsky.app/profile/franchisefantasy.bsky.social
+- TikTok: https://www.tiktok.com/@FranchiseFantasy

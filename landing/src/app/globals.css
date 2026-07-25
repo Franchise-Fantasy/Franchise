@@ -76,10 +76,10 @@
   --color-t-on-dark: var(--text-on-dark);
   --color-b: var(--border);
   --color-b-strong: var(--border-strong);
-  --font-display: var(--font-alfa-slab-one);
-  --font-varsity: var(--font-oswald);
-  --font-sans: var(--font-inter);
-  --font-mono: var(--font-jetbrains-mono);
+  --font-display: var(--font-desporm);
+  --font-varsity: var(--font-stoner);
+  --font-sans: var(--font-just-sans);
+  --font-mono: var(--font-space-mono);
 }
 
 html {
@@ -89,31 +89,32 @@ html {
 body {
   background: var(--bg);
   color: var(--text-primary);
-  font-family: var(--font-inter), system-ui, sans-serif;
+  font-family: var(--font-just-sans), system-ui, sans-serif;
   font-size: 17px;
   line-height: 1.5;
   transition: background-color 0.3s, color 0.3s;
 }
 
-/* Varsity subhead — Oswald, bold, tight tracking per deck (0.04em) */
+/* Varsity subhead — StonerSport, the brand's varsity label face (already heavy,
+   so declared at weight 700; no faux-bold). Tight tracking per deck (0.04em). */
 .varsity {
-  font-family: var(--font-oswald), system-ui, sans-serif;
+  font-family: var(--font-stoner), system-ui, sans-serif;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-/* Display headline — Alfa Slab One, tight leading, subtle stat-block feel */
+/* Display headline — Desporm, tight leading, subtle stat-block feel */
 .display {
-  font-family: var(--font-alfa-slab-one), Georgia, serif;
+  font-family: var(--font-desporm), Georgia, serif;
   font-weight: 400;
   line-height: 0.95;
   letter-spacing: -0.005em;
 }
 
-/* Mono stats — JetBrains Mono with tabular figures */
+/* Mono stats — SpaceMono with tabular figures */
 .mono-stat {
-  font-family: var(--font-jetbrains-mono), ui-monospace, monospace;
+  font-family: var(--font-space-mono), ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
