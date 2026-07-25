@@ -66,6 +66,7 @@ Deno.serve(async (req) => {
         status: 'paused',
         paused_at: new Date().toISOString(),
         paused_remaining_ms: remainingMs,
+        pause_reason: 'commissioner',
       })
       .eq('id', draft_id)
       .eq('status', 'in_progress')

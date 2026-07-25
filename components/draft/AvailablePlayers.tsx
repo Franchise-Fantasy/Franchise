@@ -466,6 +466,16 @@ export function AvailablePlayers({
       // is toggled off or filters reorder the list.
       const boardRank = isRookieDraft ? boardRankMap.get(item.player_id) : undefined;
 
+      // Injury/status badge (OUT, QUES, PROB…) renders on the meta line beside
+      // the position, NOT inline with the name — inline it crushed the name
+      // column so tight the abbreviated "D. LastName" form still ellipsized to
+      // "D…". Below the name it has the full row width and the name keeps its.
+      const badgeEl = badge ? (
+        <View style={[styles.badge, { backgroundColor: badge.color }]} accessibilityElementsHidden importantForAccessibility="no">
+          <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
+        </View>
+      ) : null;
+
       return (
         <TouchableOpacity
           style={[styles.row, { borderBottomColor: c.border }]}
@@ -482,6 +492,7 @@ export function AvailablePlayers({
             // hears their board rank.
             (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
             `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
+            (badge ? `, ${badge.label}` : "") +
             (isProjected ? ", projected" : "") +
             (isCategories
               ? `, ${fixed1(item.avg_pts)} points, ${fixed1(item.avg_reb)} rebounds, ${fixed1(item.avg_ast)} assists, ${fixed1(item.avg_stl)} steals, ${fixed1(item.avg_blk)} blocks`
@@ -531,11 +542,6 @@ export function AvailablePlayers({
                 style={{ fontSize: ms(14) }}
                 containerStyle={{ flexShrink: 1 }}
               />
-              {badge && (
-                <View style={[styles.badge, { backgroundColor: badge.color }]} accessibilityLabel={badge.label}>
-                  <Text style={[styles.badgeText, { color: c.statusText }]}>{badge.label}</Text>
-                </View>
-              )}
             </View>
             {isCategories ? (
               // Category leagues: 5-cat slash + shooting line live UNDER the
@@ -547,6 +553,7 @@ export function AvailablePlayers({
                   <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
                     {formatPosition(item.position)}
                   </ThemedText>
+                  {badgeEl}
                   <ThemedText
                     type="mono"
                     style={[styles.catSlash, { color: c.text }]}
@@ -568,14 +575,21 @@ export function AvailablePlayers({
                 </ThemedText>
               </>
             ) : (
-              <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
-                {formatPosition(item.position)}
-              </ThemedText>
+              <View style={styles.posRow}>
+                <ThemedText style={[styles.posText, { color: c.secondaryText }]}>
+                  {formatPosition(item.position)}
+                </ThemedText>
+                {badgeEl}
+              </View>
             )}
           </View>
 
           <View style={styles.rightSide}>
-            {!isCategories && (
+            {/* Rookie drafts: prospects have no pro line, so the box-score /
+                FPTS column is always "—" / "0 FPTS" — a fixed, right-aligned
+                s(100) of dead space that crushed the name column. Drop it and
+                hand that width back to the name. */}
+            {!isCategories && !isRookieDraft && (
               <View style={[styles.stats, styles.statsPoints]}>
                 <ThemedText style={[styles.statLine, { color: c.secondaryText }]}>
                   {boxSlash}
@@ -739,9 +753,11 @@ export function AvailablePlayers({
             PTS / REB / AST / STL / BLK
           </ThemedText>
         </View>
-      ) : sport === "nfl" ? null : (
+      ) : sport === "nfl" || isRookieDraft ? null : (
         // NFL rows carry their units inline ("245.1Y 1.9TD") and the stat mix
         // varies by position, so a fixed column legend would be wrong — skip it.
+        // Rookie drafts drop the stat column entirely (no pro line), so its
+        // header goes too.
         <View style={[styles.colKey, { borderBottomColor: c.border }]}>
           <View style={[styles.colKeyStats, styles.statsPoints]}>
             <ThemedText
@@ -926,6 +942,13 @@ const styles = StyleSheet.create({
   posText: {
     fontSize: ms(11),
     marginTop: 1,
+  },
+  // FPTS rows: position + injury badge share the meta line under the name, so
+  // the badge no longer competes with the name for horizontal room.
+  posRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(4),
   },
   // Category rows: position + box-score slash share one line under the name,
   // and the name above gets the row's full width (no fixed right stat column).

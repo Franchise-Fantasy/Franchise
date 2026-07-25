@@ -49,20 +49,26 @@ interface PushMessage {
   priority?: 'default' | 'normal' | 'high';
 }
 
-export async function getTokensForUsers(
+/** A deliverable device: its push token plus the IANA zone to localize times in. */
+export interface TokenInfo {
+  token: string;
+  timezone: string | null;
+}
+
+export async function getTokenInfosForUsers(
   supabase: SupabaseClient,
   userIds: string[],
   category: NotifCategory,
   excludeUserIds?: string[],
   leagueId?: string,
-): Promise<string[]> {
+): Promise<TokenInfo[]> {
   const filtered = excludeUserIds?.length
     ? userIds.filter(id => !excludeUserIds.includes(id))
     : userIds;
   if (filtered.length === 0) return [];
   const { data, error } = await supabase
     .from('push_tokens')
-    .select('user_id, token, preferences, mute_all')
+    .select('user_id, token, timezone, preferences, mute_all')
     .in('user_id', filtered);
   if (error || !data) return [];
 
@@ -94,7 +100,31 @@ export async function getTokensForUsers(
       if (leagueOverride === false) return false;
       return true;
     })
-    .map((row: any) => row.token);
+    .map((row: any) => ({ token: row.token, timezone: row.timezone ?? null }));
+}
+
+export async function getTokensForUsers(
+  supabase: SupabaseClient,
+  userIds: string[],
+  category: NotifCategory,
+  excludeUserIds?: string[],
+  leagueId?: string,
+): Promise<string[]> {
+  return (await getTokenInfosForUsers(supabase, userIds, category, excludeUserIds, leagueId)).map(t => t.token);
+}
+
+export async function getTokenInfosForTeams(
+  supabase: SupabaseClient,
+  teamIds: string[],
+  category: NotifCategory,
+  excludeUserIds?: string[],
+  leagueId?: string,
+): Promise<TokenInfo[]> {
+  if (teamIds.length === 0) return [];
+  const { data: teams } = await supabase.from('teams').select('user_id, league_id').in('id', teamIds);
+  if (!teams || teams.length === 0) return [];
+  const resolvedLeagueId = leagueId ?? teams[0]?.league_id;
+  return getTokenInfosForUsers(supabase, teams.map((t: any) => t.user_id), category, excludeUserIds, resolvedLeagueId);
 }
 
 export async function getTokensForTeams(
@@ -104,11 +134,18 @@ export async function getTokensForTeams(
   excludeUserIds?: string[],
   leagueId?: string,
 ): Promise<string[]> {
-  if (teamIds.length === 0) return [];
-  const { data: teams } = await supabase.from('teams').select('user_id, league_id').in('id', teamIds);
+  return (await getTokenInfosForTeams(supabase, teamIds, category, excludeUserIds, leagueId)).map(t => t.token);
+}
+
+export async function getTokenInfosForLeague(
+  supabase: SupabaseClient,
+  leagueId: string,
+  category: NotifCategory,
+  excludeUserIds?: string[],
+): Promise<TokenInfo[]> {
+  const { data: teams } = await supabase.from('teams').select('user_id').eq('league_id', leagueId);
   if (!teams || teams.length === 0) return [];
-  const resolvedLeagueId = leagueId ?? teams[0]?.league_id;
-  return getTokensForUsers(supabase, teams.map((t: any) => t.user_id), category, excludeUserIds, resolvedLeagueId);
+  return getTokenInfosForUsers(supabase, teams.map((t: any) => t.user_id), category, excludeUserIds, leagueId);
 }
 
 export async function getTokensForLeague(
@@ -117,9 +154,7 @@ export async function getTokensForLeague(
   category: NotifCategory,
   excludeUserIds?: string[],
 ): Promise<string[]> {
-  const { data: teams } = await supabase.from('teams').select('user_id').eq('league_id', leagueId);
-  if (!teams || teams.length === 0) return [];
-  return getTokensForUsers(supabase, teams.map((t: any) => t.user_id), category, excludeUserIds, leagueId);
+  return (await getTokenInfosForLeague(supabase, leagueId, category, excludeUserIds)).map(t => t.token);
 }
 
 export async function sendPush(messages: PushMessage | PushMessage[]): Promise<string[]> {
@@ -154,9 +189,55 @@ async function cleanDeadTokens(supabase: SupabaseClient, tokens: string[]): Prom
   await supabase.from('push_tokens').delete().in('token', tokens);
 }
 
+/**
+ * Render a notification body per-recipient in that device's own timezone.
+ * The client sends a fully-rendered, zone-labeled `body` as the fallback (used
+ * for devices whose timezone we don't yet know); when `localize` is present the
+ * fan-out replaces the literal `{time}` token in `template` with `iso` rendered
+ * in each recipient's stored zone.
+ */
+export interface LocalizeTime {
+  /** UTC instant (ISO 8601) to render in each recipient's local zone. */
+  iso: string;
+  /** Body text containing a literal `{time}` placeholder. */
+  template: string;
+}
+
+/** Format a UTC instant in a specific IANA zone as e.g. "Sun, Jul 26, 11:00 AM PDT". */
+function renderTimeInZone(iso: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+    timeZone,
+  }).format(new Date(iso));
+}
+
+/**
+ * Body for one recipient. Falls back to the pre-rendered `fallbackBody` when the
+ * device timezone is unknown (old app build) or is not a valid IANA zone.
+ */
+function bodyForRecipient(
+  fallbackBody: string,
+  timezone: string | null,
+  localize?: LocalizeTime,
+): string {
+  if (!localize || !timezone) return fallbackBody;
+  try {
+    return localize.template.replace('{time}', renderTimeInZone(localize.iso, timezone));
+  } catch {
+    return fallbackBody;
+  }
+}
+
 export interface NotifyOptions {
   subtitle?: string;
   priority?: 'default' | 'normal' | 'high';
+  /** Localize a time in the body per recipient (see LocalizeTime). */
+  localize?: LocalizeTime;
 }
 
 export async function notifyTeams(
@@ -174,11 +255,12 @@ export async function notifyTeams(
     const { data: team } = await supabase.from('teams').select('league_id').eq('id', teamIds[0]).single();
     leagueId = team?.league_id;
   }
-  const tokens = await getTokensForTeams(supabase, teamIds, category, excludeUserIds, leagueId);
-  if (tokens.length === 0) return;
+  const infos = await getTokenInfosForTeams(supabase, teamIds, category, excludeUserIds, leagueId);
+  if (infos.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({
-    to, title, body,
+  const dead = await sendPush(infos.map(({ token, timezone }) => ({
+    to: token, title,
+    body: bodyForRecipient(body, timezone, opts?.localize),
     data: { ...data, league_id: leagueId, channelId },
     channelId,
     ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
@@ -197,11 +279,12 @@ export async function notifyLeague(
   excludeUserIds?: string[],
   opts?: NotifyOptions,
 ): Promise<void> {
-  const tokens = await getTokensForLeague(supabase, leagueId, category, excludeUserIds);
-  if (tokens.length === 0) return;
+  const infos = await getTokenInfosForLeague(supabase, leagueId, category, excludeUserIds);
+  if (infos.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({
-    to, title, body,
+  const dead = await sendPush(infos.map(({ token, timezone }) => ({
+    to: token, title,
+    body: bodyForRecipient(body, timezone, opts?.localize),
     data: { ...data, league_id: leagueId, channelId },
     channelId,
     ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),
@@ -224,11 +307,12 @@ export async function notifyUsers(
   excludeUserIds?: string[],
   opts?: NotifyOptions,
 ): Promise<void> {
-  const tokens = await getTokensForUsers(supabase, userIds, category, excludeUserIds, leagueId);
-  if (tokens.length === 0) return;
+  const infos = await getTokenInfosForUsers(supabase, userIds, category, excludeUserIds, leagueId);
+  if (infos.length === 0) return;
   const channelId = CHANNEL_MAP[category] ?? category;
-  const dead = await sendPush(tokens.map(to => ({
-    to, title, body,
+  const dead = await sendPush(infos.map(({ token, timezone }) => ({
+    to: token, title,
+    body: bodyForRecipient(body, timezone, opts?.localize),
     data: { ...data, league_id: leagueId, channelId },
     channelId,
     ...(opts?.subtitle ? { subtitle: opts.subtitle } : {}),

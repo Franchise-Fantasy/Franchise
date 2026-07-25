@@ -11,6 +11,19 @@ import { supabase } from './supabase';
 const EAS_PROJECT_ID = 'bc023770-8f00-49df-9fa0-0afdd24f6a44';
 const ASKED_KEY = '@notifications_asked';
 
+// The device's IANA timezone (e.g. "America/Los_Angeles"). Stored on the
+// push_tokens row so the server can localize time-bearing notification bodies
+// (draft times, reminders) to each recipient's own zone. Returns null on the
+// rare engine without a resolvable zone — the server then falls back to the
+// sender-zone-labeled string.
+function deviceTimezone(): string | null {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || null;
+  } catch {
+    return null;
+  }
+}
+
 export interface PushPreferences {
   draft: boolean;
   trades: boolean;
@@ -111,6 +124,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
       {
         user_id: userId,
         token: tokenResult.data,
+        timezone: deviceTimezone(),
         preferences: DEFAULT_PREFERENCES as unknown as Json,
       },
       { onConflict: 'user_id' },
@@ -238,16 +252,19 @@ export async function refreshPushToken(userId: string): Promise<void> {
     const { data: tokenData } = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
     const { data: existing } = await supabase
       .from('push_tokens')
-      .select('token')
+      .select('token, timezone')
       .eq('user_id', userId)
       .maybeSingle();
 
     if (!existing) return; // user hasn't opted in
-    if (existing.token === tokenData) return; // unchanged
+    const tz = deviceTimezone();
+    // Also re-sync timezone here so a user who traveled (token unchanged, zone
+    // changed) still gets time-bearing notifications localized correctly.
+    if (existing.token === tokenData && existing.timezone === tz) return; // unchanged
 
     await supabase
       .from('push_tokens')
-      .update({ token: tokenData })
+      .update({ token: tokenData, timezone: tz })
       .eq('user_id', userId);
   } catch {
     // Non-fatal — will retry next foreground

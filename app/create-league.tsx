@@ -124,6 +124,9 @@ const initialState: LeagueWizardState = {
   timePerPick: 90,
   accelerateAfterRound: null,
   acceleratedTimePerPick: 30,
+  quietHoursEnabled: false,
+  quietHoursStartMin: 180, // 3:00 AM ET
+  quietHoursEndMin: 480, // 8:00 AM ET
   maxDraftYears: 3,
   tradeVetoType: "League Vote",
   tradeReviewPeriodHours: 24,
@@ -806,7 +809,20 @@ export default function CreateLeague() {
       setLoading(false);
       return;
     }
-    void draftId;
+    // Overnight quiet hours (slow drafts only) isn't part of the setup_league
+    // draft payload — persist it onto the just-created startup draft. Best-effort:
+    // a failure here must not undo an otherwise-successful league creation.
+    if (state.quietHoursEnabled && isSlowClock(state.timePerPick) && draftId) {
+      const { error: quietErr } = await supabase
+        .from('drafts')
+        .update({
+          quiet_hours_enabled: true,
+          quiet_hours_start_min: state.quietHoursStartMin,
+          quiet_hours_end_min: state.quietHoursEndMin,
+        })
+        .eq('id', draftId as string);
+      if (quietErr) logger.warn('Persist draft quiet hours failed (non-fatal)', quietErr);
+    }
 
     AsyncStorage.removeItem(WIZARD_STORAGE_KEY).catch((e) =>
       logger.warn('Clear create-league wizard storage failed', e),

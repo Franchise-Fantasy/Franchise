@@ -65,7 +65,7 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
           pick_swap_season,
           pick_swap_round,
           players ( name, position, pro_team ),
-          draft_picks ( season, round, original_team_id )
+          draft_picks ( season, round, pick_number, original_team_id )
         `)
         .eq('proposal_id', proposal.id);
 
@@ -122,6 +122,7 @@ function useTradeByTransaction(transactionId: string, leagueId: string) {
           player_pro_team: player?.pro_team ?? null,
           pick_season: dp?.season ?? null,
           pick_round: dp?.round ?? null,
+          pick_number: dp?.pick_number ?? null,
           pick_original_team_name: dp?.original_team_id
             ? (teamNames[dp.original_team_id] ?? null)
             : null,

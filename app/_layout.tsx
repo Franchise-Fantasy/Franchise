@@ -498,6 +498,7 @@ function SeasonConfigHydrator() {
 function NotificationAndLinkHandler() {
   const router = useRouter();
   const session = useSession();
+  const authReady = useAuthInitialized();
   const { switchLeague, loading } = useAppState();
 
   // Track loading state via ref so async callbacks see the latest value
@@ -521,29 +522,42 @@ function NotificationAndLinkHandler() {
     async (response: Notifications.NotificationResponse) => {
       const responseId = response.notification.request.identifier;
       if (handledResponseIdRef.current === responseId) return;
-      handledResponseIdRef.current = responseId;
 
       const data = response.notification.request.content.data as
         | Record<string, string>
         | undefined;
       if (!data?.screen) return;
 
+      // Does this deep link need us to switch into the notification's league
+      // before navigating? A league-invite push (claim/create-team) targets a
+      // user who isn't a member yet, so its switch would (correctly) fail and
+      // bail — those flows land the non-member on the league itself.
+      const needsLeagueSwitch =
+        !!data.league_id &&
+        data.screen !== "claim-team" &&
+        data.screen !== "create-team";
+
+      // Cold start: the tap launches the app and this fires from
+      // getLastNotificationResponseAsync BEFORE auth has hydrated. If we
+      // claimed and navigated now, the league switch below would be skipped
+      // (no session yet) and we'd render against the stale favorite-league
+      // context — the bug where a trade push opened the wrong league's trade
+      // room. Bail WITHOUT claiming the response so the re-fire (deps include
+      // session + authReady) runs the switch once auth lands. Only defer while
+      // auth is still resolving; a genuinely logged-out user falls through to
+      // the normal auth-redirect path.
+      if (needsLeagueSwitch && !session?.user && !authReady) return;
+
+      handledResponseIdRef.current = responseId;
+
       // Claim the launch navigation so the index screen's auth redirect
       // doesn't replace our target on cold start — both effects fire in the
       // same tick when AppState finishes loading. Released once we navigate.
       setPendingDeepLink(true);
 
-      // A league-invite push targets a user who isn't a member yet, so the
-      // membership switch would (correctly) fail and bail — skip it for the
-      // claim/create flows, which handle a non-member landing on the league itself.
-      if (
-        data.screen !== "claim-team" &&
-        data.screen !== "create-team" &&
-        data.league_id &&
-        session?.user
-      ) {
+      if (needsLeagueSwitch && session?.user) {
         const ok = await switchLeagueContext(
-          data.league_id,
+          data.league_id!,
           session.user.id,
           switchLeague,
         );
@@ -631,7 +645,7 @@ function NotificationAndLinkHandler() {
         navigate();
       }
     },
-    [router, session?.user, switchLeague],
+    [router, session?.user, authReady, switchLeague],
   );
 
   // Cold-start: check if a notification response launched the app

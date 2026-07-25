@@ -3,6 +3,12 @@ import { useEffect, useState } from 'react';
 import { Alert, StyleSheet, View } from 'react-native';
 
 import { PickClockControl } from '@/components/draft/PickClockControl';
+import {
+  DEFAULT_QUIET_END_MIN,
+  DEFAULT_QUIET_START_MIN,
+  QuietHoursControl,
+  type QuietHoursValue,
+} from '@/components/draft/QuietHoursControl';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -29,6 +35,10 @@ interface CommishDraftControlsSheetProps {
   acceleratedTimeLimit: number | null;
   /** Draft status — drives the Pause / Resume control. */
   status: string;
+  /** Overnight quiet-hours config (slow drafts only). */
+  quietHoursEnabled: boolean;
+  quietHoursStartMin: number | null;
+  quietHoursEndMin: number | null;
 }
 
 /**
@@ -48,12 +58,20 @@ export function CommishDraftControlsSheet({
   accelerateAfterRound,
   acceleratedTimeLimit,
   status,
+  quietHoursEnabled,
+  quietHoursStartMin,
+  quietHoursEndMin,
 }: CommishDraftControlsSheetProps) {
   const c = useColors();
   const queryClient = useQueryClient();
   const [pickTime, setPickTime] = useState(timeLimit);
   const [accelAfterRound, setAccelAfterRound] = useState<number | null>(accelerateAfterRound);
   const [acceleratedTime, setAcceleratedTime] = useState(acceleratedTimeLimit ?? 30);
+  const [quiet, setQuiet] = useState<QuietHoursValue>({
+    enabled: quietHoursEnabled,
+    startMin: quietHoursStartMin ?? DEFAULT_QUIET_START_MIN,
+    endMin: quietHoursEndMin ?? DEFAULT_QUIET_END_MIN,
+  });
   const [saving, setSaving] = useState(false);
   const [pauseLoading, setPauseLoading] = useState(false);
 
@@ -82,8 +100,13 @@ export function CommishDraftControlsSheet({
       setPickTime(timeLimit);
       setAccelAfterRound(accelerateAfterRound);
       setAcceleratedTime(acceleratedTimeLimit ?? 30);
+      setQuiet({
+        enabled: quietHoursEnabled,
+        startMin: quietHoursStartMin ?? DEFAULT_QUIET_START_MIN,
+        endMin: quietHoursEndMin ?? DEFAULT_QUIET_END_MIN,
+      });
     }
-  }, [visible, timeLimit, accelerateAfterRound, acceleratedTimeLimit]);
+  }, [visible, timeLimit, accelerateAfterRound, acceleratedTimeLimit, quietHoursEnabled, quietHoursStartMin, quietHoursEndMin]);
 
   const accelEnabled = accelAfterRound != null;
   const slowDraft = isSlowClock(pickTime);
@@ -94,10 +117,19 @@ export function CommishDraftControlsSheet({
     accelEnabled && accelAfterRound! < rounds && !slowDraft ? accelAfterRound! : null;
   const effAccelTime = effAccelAfter != null ? Math.min(acceleratedTime, pickTime) : null;
 
+  // Quiet hours only apply to slow drafts. If the commish switches to a live
+  // clock mid-draft, force it off (mirrors the acceleration handling).
+  const effQuietEnabled = quiet.enabled && slowDraft;
+  const quietChanged =
+    effQuietEnabled !== quietHoursEnabled ||
+    (effQuietEnabled &&
+      (quiet.startMin !== quietHoursStartMin || quiet.endMin !== quietHoursEndMin));
+
   const changed =
     pickTime !== timeLimit ||
     effAccelAfter !== accelerateAfterRound ||
-    effAccelTime !== acceleratedTimeLimit;
+    effAccelTime !== acceleratedTimeLimit ||
+    quietChanged;
 
   async function handleSave() {
     if (!changed) {
@@ -111,6 +143,9 @@ export function CommishDraftControlsSheet({
         time_limit: pickTime,
         accelerate_after_round: effAccelAfter,
         accelerated_time_limit: effAccelTime,
+        quiet_hours_enabled: effQuietEnabled,
+        quiet_hours_start_min: quiet.startMin,
+        quiet_hours_end_min: quiet.endMin,
       })
       .eq('id', draftId);
     setSaving(false);
@@ -172,6 +207,8 @@ export function CommishDraftControlsSheet({
       )}
 
       <PickClockControl value={pickTime} onValueChange={setPickTime} />
+
+      {slowDraft && <QuietHoursControl value={quiet} onChange={setQuiet} />}
 
       {rounds > 1 && !slowDraft && (
         <>

@@ -173,20 +173,24 @@ export const rosterStyles = StyleSheet.create({
   slotFptsRow: {
     flexDirection: "row",
     alignItems: "baseline",
-    gap: s(6),
-    marginTop: s(3),
+    gap: s(7),
+    marginTop: s(4),
   },
   slotPosLabel: {
-    fontSize: ms(9.5),
-    letterSpacing: 1.0,
+    fontSize: ms(11.5),
+    letterSpacing: 0.8,
   },
   // Dim separator dot between the position and the average on the context line.
   slotPosDot: {
-    fontSize: ms(11),
+    fontSize: ms(12),
   },
+  // Season fpts-per-game — the value the eye should land on, so it's the
+  // largest, heaviest piece on the line. It carries the gold accent; the
+  // unit label beside it stays a quiet muted caption (slotPosLabel) so the
+  // number reads first instead of the pair blurring into one smudge.
   slotAvgFpts: {
     fontFamily: Fonts.mono,
-    fontSize: ms(13),
+    fontSize: ms(16),
     fontWeight: "700",
     letterSpacing: 0.4,
   },
@@ -218,8 +222,8 @@ export const rosterStyles = StyleSheet.create({
   // Mono stat line for past-day actuals — matches the Free Agents row pattern.
   slotStatLine: {
     fontFamily: Fonts.mono,
-    fontSize: ms(11),
-    lineHeight: ms(14),
+    fontSize: ms(12.5),
+    lineHeight: ms(16),
     letterSpacing: 0.4,
     marginTop: s(2),
   },

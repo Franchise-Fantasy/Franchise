@@ -458,13 +458,38 @@ export function RosterHero({
             Matchup hero. */}
         <View style={styles.eyebrowCenter}>
           {!isOffseason && weekly ? (
-            <ThemedText
-              type="varsity"
-              style={styles.eyebrowDate}
-              numberOfLines={1}
-            >
-              {(weekLabel ?? dayLabel).toUpperCase()}
-            </ThemedText>
+            onDatePress ? (
+              <TouchableOpacity
+                onPress={onDatePress}
+                style={styles.dateButton}
+                hitSlop={TAP_SLOP}
+                accessibilityRole="button"
+                accessibilityLabel={`${weekLabel ?? dayLabel}. Change week`}
+                accessibilityHint="Opens the week picker"
+              >
+                <ThemedText
+                  type="varsity"
+                  style={styles.eyebrowDate}
+                  numberOfLines={1}
+                >
+                  {(weekLabel ?? dayLabel).toUpperCase()}
+                </ThemedText>
+                <Ionicons
+                  name="chevron-down"
+                  size={ms(12)}
+                  color={Brand.ecruMuted}
+                  style={styles.dateCaret}
+                />
+              </TouchableOpacity>
+            ) : (
+              <ThemedText
+                type="varsity"
+                style={styles.eyebrowDate}
+                numberOfLines={1}
+              >
+                {(weekLabel ?? dayLabel).toUpperCase()}
+              </ThemedText>
+            )
           ) : !isOffseason &&
             (onDatePress ? (
               <TouchableOpacity

@@ -21,8 +21,9 @@ import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import { runOnJS } from "react-native-reanimated";
 import { SafeAreaView } from "react-native-safe-area-context";
 
-import { formatWeekRange, useWeeks } from "@/components/matchup/matchupData";
+import { useWeeks } from "@/components/matchup/matchupData";
 import { OnCourtDot } from "@/components/matchup/PlayerCell";
+import { WeekScheduleModal } from "@/components/matchup/WeekScheduleModal";
 import { WeekSummarySheet } from "@/components/matchup/WeekSummarySheet";
 import { CompareBar } from "@/components/player/CompareBar";
 import { FptsBreakdownModal } from "@/components/player/FptsBreakdownModal";
@@ -1528,6 +1529,13 @@ export default function RosterScreen() {
     weeks && currentWeek ? weeks.findIndex((w) => w.id === currentWeek.id) : -1;
   const canGoBackWeek = weekIdx > 0;
   const canGoForwardWeek = weekIdx >= 0 && weekIdx < (weeks?.length ?? 0) - 1;
+
+  // Daily sports step day-by-day, but forward stops at the season's last
+  // scheduled day. Without this a user can walk off the end of the schedule
+  // into the dead-offseason hero, which hides BOTH nav arrows — stranding them
+  // there with no way back. (weeks is ordered ascending by week_number.)
+  const seasonLastDay = weeks?.length ? weeks[weeks.length - 1].end_date : null;
+  const canGoForwardDay = !seasonLastDay || selectedDate < seasonLastDay;
   const navigateWeek = (delta: -1 | 1) => {
     if (!weeks || weekIdx < 0) return;
     const target = weeks[weekIdx + delta];
@@ -1547,24 +1555,28 @@ export default function RosterScreen() {
       return;
     }
     if (delta === -1 && !canGoBack) return;
+    if (delta === 1 && !canGoForwardDay) return;
     setSelectedDate(addDays(selectedDate, delta));
   };
 
   // Hero nav — weekly sports step week-to-week; daily sports step day-to-day.
   const heroCanGoBack = isWeekly ? canGoBackWeek : canGoBack;
-  const heroCanGoForward = isWeekly ? canGoForwardWeek : true;
+  const heroCanGoForward = isWeekly ? canGoForwardWeek : canGoForwardDay;
   const onHeroPrev = () =>
     isWeekly
       ? navigateWeek(-1)
       : canGoBack && setSelectedDate(addDays(selectedDate, -1));
   const onHeroNext = () =>
-    isWeekly ? navigateWeek(1) : setSelectedDate(addDays(selectedDate, 1));
+    isWeekly
+      ? navigateWeek(1)
+      : canGoForwardDay && setSelectedDate(addDays(selectedDate, 1));
   // No "jump to today" for weekly — the current week is a week, not a day.
   const onHeroGoToToday = isWeekly ? undefined : () => setSelectedDate(today);
+  // Weekly-sport hero label — the week number ("Week 1"), matching the matchup
+  // page. The WK chip already carries the number too, but the center label
+  // stays a week identity rather than a single day.
   const weekLabel =
-    isWeekly && currentWeek
-      ? formatWeekRange(currentWeek.start_date, currentWeek.end_date)
-      : undefined;
+    isWeekly && currentWeek ? `Week ${currentWeek.week_number}` : undefined;
   const dayPan = Gesture.Pan()
     .activeOffsetX([-15, 15])
     .failOffsetY([-12, 12])
@@ -2065,7 +2077,10 @@ export default function RosterScreen() {
       <RosterHero
         selectedDate={selectedDate}
         today={today}
-        canGoBack={canGoBack}
+        weekly={isWeekly}
+        weekLabel={weekLabel}
+        canGoBack={heroCanGoBack}
+        canGoForward={heroCanGoForward}
         isPastDate={isPastDate}
         isToday={isToday}
         currentWeek={currentWeek}
@@ -2082,11 +2097,9 @@ export default function RosterScreen() {
         lineupDay={heroLineupDay}
         rosterStats={heroRosterStats}
         lastSeason={lastSeason}
-        onPrevDay={() =>
-          canGoBack && setSelectedDate(addDays(selectedDate, -1))
-        }
-        onNextDay={() => setSelectedDate(addDays(selectedDate, 1))}
-        onGoToToday={() => setSelectedDate(today)}
+        onPrevDay={onHeroPrev}
+        onNextDay={onHeroNext}
+        onGoToToday={onHeroGoToToday}
         onDatePress={currentWeek ? () => setShowDayPicker(true) : undefined}
         onWeekPress={currentWeek ? () => setShowWeekSummary(true) : undefined}
         headerRight={
@@ -2311,7 +2324,26 @@ export default function RosterScreen() {
         message="Tap the position label (PG, SG, UTIL, BE, etc.) — or long-press a player — to open the move menu. From there you can swap slots, bench a starter, activate from IR, or move someone to the taxi squad. Tapping the player itself opens their details."
       />
 
-      {currentWeek && (
+      {/* Weekly sports pick a WEEK (dates live in the picker); daily sports
+          pick a DAY within the current week. */}
+      {currentWeek && isWeekly && (
+        <WeekScheduleModal
+          visible={showDayPicker}
+          weeks={weeks ?? []}
+          currentWeek={currentWeek}
+          today={today}
+          colors={{
+            background: c.background,
+            border: c.border,
+            card: c.card,
+            accent: c.accent,
+            secondaryText: c.secondaryText,
+          }}
+          onClose={() => setShowDayPicker(false)}
+          onSelectDate={(d) => setSelectedDate(d)}
+        />
+      )}
+      {currentWeek && !isWeekly && (
         <RosterDayPicker
           visible={showDayPicker}
           onClose={() => setShowDayPicker(false)}

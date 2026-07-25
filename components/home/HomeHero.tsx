@@ -2,6 +2,7 @@ import { Image } from 'expo-image';
 import { useEffect, useRef, type ReactNode } from 'react';
 import { Animated, StyleSheet, TouchableOpacity, View } from 'react-native';
 
+import { TeamLogo } from '@/components/team/TeamLogo';
 import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand } from '@/constants/Colors';
@@ -37,13 +38,13 @@ export type HomeHeroVariant =
       kind: 'season_complete';
       leagueName: string;
       season: string | number;
-      // Champion team name/tricode to surface in the eyebrow (e.g.
-      // "Season 2025-26 · Champion · LAL"). Null if we can't resolve
-      // the champion yet.
-      championName: string | null;
+      // Champion team — surfaced in the crown strip at the bottom of the
+      // hero (logo + full name + View Bracket). Null if we can't resolve
+      // the champion yet, in which case the strip is omitted.
+      champion: { name: string; tricode: string | null; logoKey: string | null } | null;
       // User's team — if they're in this league, we show their final
-      // record in the stat row. Otherwise the stat row falls back to
-      // the trophy "View Champion" treatment.
+      // record in the stat row. Otherwise the stat row is omitted (the
+      // champion strip carries the View Bracket affordance).
       myTeam?: HomeHeroTeam | null;
       // Commissioner-only CTA to transition into the offseason.
       action?: { label: string; onPress: () => void } | null;
@@ -399,13 +400,7 @@ function SeasonComplete({
 }: {
   variant: Extract<HomeHeroVariant, { kind: 'season_complete' }>;
 }) {
-  const { season, championName, myTeam, action } = variant;
-
-  // Eyebrow now carries the champion callout (moved up from the stat
-  // row). Falls back to "Final" when we don't know the champion yet.
-  const eyebrowSegments = championName
-    ? [shortSeason(season), `Champion · ${championName}`]
-    : [shortSeason(season), 'Final'];
+  const { season, champion, myTeam, action } = variant;
 
   const wins = myTeam?.wins ?? 0;
   const losses = myTeam?.losses ?? 0;
@@ -413,46 +408,73 @@ function SeasonComplete({
   const record = ties > 0 ? `${wins}-${losses}-${ties}` : `${wins}-${losses}`;
 
   return (
-    <>
-      <EyebrowRow
-        segments={eyebrowSegments}
-        rightSlot={
-          action ? (
+    // Two-column layout spanning the full card height: the eyebrow, title and
+    // record run down the left; the champion crown (and the commissioner's
+    // Advance-Season CTA) occupy the top-right corner — level with the eyebrow,
+    // filling the card's otherwise-empty right half without growing its height.
+    // The whole hero taps through to the bracket, so the champion block is a
+    // visual affordance, not its own touch target.
+    <View style={styles.completeBody}>
+      <View style={styles.completeMain}>
+        <EyebrowRow segments={[shortSeason(season), 'Final']} />
+
+        <ThemedText type="display" style={[styles.tricode, styles.titleText]} numberOfLines={2}>
+          Season{'\n'}Complete.
+        </ThemedText>
+
+        {myTeam && (
+          <View style={styles.statRow}>
+            <ThemedText type="mono" style={styles.statValue}>
+              {record}
+            </ThemedText>
+            <View style={styles.statDivider} />
+            <ThemedText type="varsitySmall" style={styles.statLabel}>
+              Your Record
+            </ThemedText>
+          </View>
+        )}
+      </View>
+
+      {/* Top-right column: commissioner CTA above the champion crown. Champion
+          is omitted until it resolves from the finalized bracket. */}
+      {(action || champion) && (
+        <View style={styles.championBlock}>
+          {action && (
             <OutlinePill
               label={action.label}
               onPress={action.onPress}
               accessibilityLabel={action.label}
             />
-          ) : undefined
-        }
-      />
-
-      <ThemedText type="display" style={[styles.tricode, styles.titleText]} numberOfLines={2}>
-        Season{'\n'}Complete.
-      </ThemedText>
-
-      {/* Stat row shows the user's final record when they're in the
-          league; falls back to a trophy + View Champion hint for
-          observers. Either way the top-level tap opens the bracket. */}
-      {myTeam ? (
-        <View style={styles.statRow}>
-          <ThemedText type="mono" style={styles.statValue}>
-            {record}
-          </ThemedText>
-          <View style={styles.statDivider} />
-          <ThemedText type="varsitySmall" style={styles.statLabel}>
-            Your Record
-          </ThemedText>
-        </View>
-      ) : (
-        <View style={styles.statRow}>
-          <IconSymbol name="trophy.fill" size={16} color={Brand.vintageGold} />
-          <ThemedText type="varsitySmall" style={[styles.statLabel, { marginLeft: s(8) }]}>
-            View Champion
-          </ThemedText>
+          )}
+          {champion && (
+            <>
+              <View style={styles.championLabelRow}>
+                <IconSymbol name="trophy.fill" size={11} color={Brand.vintageGold} />
+                <ThemedText type="varsitySmall" style={styles.championLabel}>
+                  Champion
+                </ThemedText>
+              </View>
+              <View style={styles.championTeamRow}>
+                <TeamLogo
+                  logoKey={champion.logoKey}
+                  teamName={champion.name}
+                  tricode={champion.tricode ?? undefined}
+                  size="small"
+                />
+                <ThemedText
+                  type="defaultSemiBold"
+                  style={styles.championName}
+                  numberOfLines={1}
+                  ellipsizeMode="tail"
+                >
+                  {champion.name}
+                </ThemedText>
+              </View>
+            </>
+          )}
         </View>
       )}
-    </>
+    </View>
   );
 }
 
@@ -962,6 +984,52 @@ const styles = StyleSheet.create({
   },
   statLabel: {
     color: Brand.ecruMuted,
+  },
+  // Season-complete body: title/record column on the left, champion crown on
+  // the right — filling the card's otherwise-empty right half instead of
+  // stacking a full-width strip below (which grew the card's height).
+  completeBody: {
+    flexDirection: 'row',
+    // Top-align both columns so the champion crown sits in the true top-right
+    // corner, level with the eyebrow — clear of the F crest watermark's dense
+    // lower-right strokes, where it was hard to read.
+    alignItems: 'flex-start',
+    gap: s(12),
+  },
+  completeMain: {
+    flex: 1.5,
+    minWidth: 0,
+  },
+  championBlock: {
+    flex: 1,
+    minWidth: 0,
+    alignItems: 'flex-end',
+    gap: s(6),
+  },
+  championLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+  },
+  championLabel: {
+    color: Brand.vintageGold,
+    fontSize: ms(10),
+    letterSpacing: 0.8,
+  },
+  // Row hugs the right edge; the name flexShrinks + ellipsizes so a long team
+  // name can't shove the logo off the card.
+  championTeamRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: s(8),
+    maxWidth: '100%',
+  },
+  championName: {
+    color: Brand.ecru,
+    fontSize: ms(15),
+    flexShrink: 1,
+    textAlign: 'right',
   },
   // Offseason pip stepper — filled dots trail the current step, hollow
   // dots wait ahead. Gold for completed/current, ecru-faint for upcoming.

@@ -18,6 +18,14 @@ interface DraftState {
    *  on the on-the-clock pick so resume can continue from there. */
   paused_at?: string | null;
   paused_remaining_ms?: number | null;
+  /** Why the draft is paused: 'commissioner' (manual) or 'quiet_hours' (the
+   *  nightly auto-freeze). NULL when running. */
+  pause_reason?: 'commissioner' | 'quiet_hours' | null;
+  /** Overnight quiet hours (slow drafts): when enabled the clock freezes daily
+   *  between start/end minute-of-day (ET) so nobody is auto-drafted at 3am. */
+  quiet_hours_enabled?: boolean | null;
+  quiet_hours_start_min?: number | null;
+  quiet_hours_end_min?: number | null;
   /** Snapshot of time_limit captured when the current pick started, so a
    *  mid-draft pick-time change only affects future picks. Falls back to
    *  time_limit when absent (pre-migration / pre-deploy). */
@@ -32,6 +40,9 @@ interface DraftState {
   draft_date?: string;
   season?: string;
   initial_draft_order?: string;
+  /** The live column on `drafts` (stored lowercase). The legacy `snake`
+   *  boolean below predates it; read `draft_type` for the current shape. */
+  draft_type?: 'snake' | 'linear';
   snake?: boolean;
 }
 

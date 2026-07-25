@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
+import type { ReactNode } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
@@ -17,8 +18,6 @@ import { ms, s } from "@/utils/scale";
 interface PlayerDetailHeaderProps {
   player: PlayerSeasonStats;
   sport: Sport;
-  /** Pro-team games played so far this season — the GP denominator. */
-  teamGamesPlayed: number | undefined;
   /** Player news flags a minutes restriction. */
   hasMinutesRestriction: boolean;
   ownership: {
@@ -34,6 +33,8 @@ interface PlayerDetailHeaderProps {
   canTrade: boolean;
   onTrade: () => void;
   onClose: () => void;
+  /** Overall/position rank pills, shown under the close button. Null hides them. */
+  rankBadges?: ReactNode;
 }
 
 /**
@@ -45,7 +46,6 @@ interface PlayerDetailHeaderProps {
 export function PlayerDetailHeader({
   player,
   sport,
-  teamGamesPlayed,
   hasMinutesRestriction,
   ownership,
   lock,
@@ -54,6 +54,7 @@ export function PlayerDetailHeader({
   canTrade,
   onTrade,
   onClose,
+  rankBadges,
 }: PlayerDetailHeaderProps) {
   const c = useColors();
   const injury = getInjuryBadge(player.status);
@@ -128,10 +129,7 @@ export function PlayerDetailHeader({
             numberOfLines={1}
           >
             {player.pro_team} · {formatPosition(player.position)}
-            {player.birthdate ? ` · ${calculateAge(player.birthdate)}Y` : ""}
-            {" · "}
-            {player.games_played}
-            {teamGamesPlayed ? `/${teamGamesPlayed}` : ""} GP
+            {player.birthdate ? ` · ${Math.floor(calculateAge(player.birthdate))}Y` : ""}
           </ThemedText>
         </View>
 
@@ -178,15 +176,18 @@ export function PlayerDetailHeader({
         </View>
       </View>
 
-      <TouchableOpacity
-        onPress={onClose}
-        hitSlop={8}
-        style={styles.closeBtn}
-        accessibilityRole="button"
-        accessibilityLabel="Close player details"
-      >
-        <Ionicons name="close" size={ms(24)} color={c.secondaryText} />
-      </TouchableOpacity>
+      <View style={styles.rightCol}>
+        <TouchableOpacity
+          onPress={onClose}
+          hitSlop={8}
+          style={styles.closeBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Close player details"
+        >
+          <Ionicons name="close" size={ms(24)} color={c.secondaryText} />
+        </TouchableOpacity>
+        {rankBadges && <View style={styles.headerRanks}>{rankBadges}</View>}
+      </View>
     </View>
   );
 }
@@ -276,8 +277,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: s(16),
   },
+  rightCol: {
+    alignItems: "flex-end",
+    marginLeft: s(8),
+    gap: s(10),
+  },
   closeBtn: {
     padding: s(2),
-    marginLeft: s(8),
+  },
+  headerRanks: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(6),
   },
 });

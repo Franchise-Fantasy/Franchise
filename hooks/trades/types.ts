@@ -12,6 +12,10 @@ export interface TradeItemRow {
   player_pro_team: string | null;
   pick_season: string | null;
   pick_round: number | null;
+  /** Overall pick number (`draft_picks.pick_number`) so the row can read
+   *  "2026 2nd · Pick 13". Null until the draft order is set (lottery /
+   *  advance-season / import) — the label then omits the number. */
+  pick_number: number | null;
   pick_original_team_name: string | null;
   /** Protection THIS trade adds to the pick (null if none). */
   protection_threshold: number | null;

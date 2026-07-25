@@ -1,6 +1,6 @@
 /**
- * Dependency Risk — what % of a team's total fantasy production
- * comes from their top 3 players.
+ * Dependency Risk — what share of a team's production comes from its top 3
+ * players.
  *
  * Uses games-weighted total FPTS (avg × games_played) so that
  * a star who missed 20 games registers as less of a dependency
@@ -10,8 +10,10 @@
  * Categories leagues: composite stat contribution (counting stats
  * + attempt volume − turnovers) × games played.
  *
- * Thresholds are adaptive: computed relative to the league's actual
- * distribution rather than hardcoded percentages.
+ * Risk labels are assigned *relative to the rest of the league* by rank on
+ * the top-3 share (`assignDependencyLevels`) — so the card always shows a
+ * spread (most- to least-concentrated). Ranking by rank-fraction thirds (not
+ * the raw min/max range) keeps a single outlier from collapsing everyone else.
  */
 
 import type { LeaguePlayerWithTeam } from '@/hooks/useLeagueRosterStats';
@@ -20,7 +22,7 @@ import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 export interface DependencyResult {
   teamId: string;
-  /** 0–1, fraction of total production from top 3 */
+  /** 0–1, fraction of total production from top 3 (shown on the bar) */
   topThreePct: number;
   /** Names of the top 3 producers */
   topThreePlayers: string[];
@@ -28,13 +30,48 @@ export interface DependencyResult {
   totalContributors: number;
 }
 
-export interface DependencyThresholds {
-  /** Above this = high risk (top third of league) */
-  high: number;
-  /** Above this = moderate risk (middle third) */
-  moderate: number;
-  /** League average dependency % */
-  leagueAvg: number;
+export type DependencyLevel = 'high' | 'moderate' | 'deep';
+
+/**
+ * Assign each team a risk level relative to the rest of its league, ranked by
+ * top-3 share. The producing teams are split into rank-fraction thirds: top
+ * third → high, middle → moderate, bottom → deep. This always yields a spread
+ * (there's a most- and least-concentrated team), and colors track the % shown
+ * so equal %s always share a color.
+ *
+ * Teams with no production default to `deep` — there's nothing to concentrate —
+ * and are excluded from the ranking. With fewer than three producing teams
+ * there's no meaningful spread to draw, so everyone is `deep` rather than
+ * fabricating risk from a two-team sample.
+ */
+export function assignDependencyLevels(
+  results: DependencyResult[],
+): Map<string, DependencyLevel> {
+  const levels = new Map<string, DependencyLevel>();
+
+  const producing = results
+    .filter((r) => r.topThreePct > 0)
+    .sort((a, b) => b.topThreePct - a.topThreePct);
+
+  // Zero-production teams default to deep.
+  for (const r of results) {
+    if (r.topThreePct <= 0) levels.set(r.teamId, 'deep');
+  }
+
+  const n = producing.length;
+  if (n < 3) {
+    for (const r of producing) levels.set(r.teamId, 'deep');
+    return levels;
+  }
+
+  producing.forEach((r, i) => {
+    const frac = i / (n - 1); // 0 = most concentrated, 1 = least
+    const level: DependencyLevel =
+      frac < 1 / 3 ? 'high' : frac > 2 / 3 ? 'deep' : 'moderate';
+    levels.set(r.teamId, level);
+  });
+
+  return levels;
 }
 
 /**
@@ -109,24 +146,4 @@ export function computeDependencyRisk(
   }
 
   return results;
-}
-
-/**
- * Compute adaptive thresholds based on the league's actual distribution.
- * Splits the range into thirds: bottom = deep, middle = moderate, top = fragile.
- */
-export function computeDependencyThresholds(results: DependencyResult[]): DependencyThresholds {
-  if (results.length === 0) return { high: 0.65, moderate: 0.55, leagueAvg: 0 };
-
-  const pcts = results.map(r => r.topThreePct).sort((a, b) => a - b);
-  const min = pcts[0];
-  const max = pcts[pcts.length - 1];
-  const range = max - min;
-  const leagueAvg = pcts.reduce((a, b) => a + b, 0) / pcts.length;
-
-  return {
-    high: min + range * 0.67,
-    moderate: min + range * 0.33,
-    leagueAvg,
-  };
 }

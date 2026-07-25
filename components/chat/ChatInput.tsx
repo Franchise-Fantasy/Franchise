@@ -167,6 +167,7 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
         multiline
         maxLength={2000}
         returnKeyType="default"
+        hideAccessory
         accessibilityLabel="Type a message"
       />
       <Animated.View style={sendAnimStyle}>

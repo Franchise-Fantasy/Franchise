@@ -25,7 +25,8 @@ import { useColors } from "@/hooks/useColors";
 import { useDraftTimer } from "@/hooks/useDraftTimer";
 import { supabase, uniqueChannelTopic } from "@/lib/supabase";
 import { DraftState, Pick } from "@/types/draft";
-import { formatClockRemaining, formatPickClock } from "@/utils/draft/pickClock";
+import { formatPickClock } from "@/utils/draft/pickClock";
+import { formatMinuteOfDay } from "@/utils/draft/quietHours";
 import { ms, s } from "@/utils/scale";
 
 
@@ -138,9 +139,6 @@ export function DraftOrder({
   const [currentPickTimestamp, setCurrentPickTimestamp] = useState<
     string | undefined
   >(draftState?.current_pick_timestamp);
-  const [timeUntilDraft, setTimeUntilDraft] = useState<string | null>(null);
-  const startDraftCalledRef = useRef(false);
-
   // update this whenever draftState changes
   useEffect(() => {
     if (draftState?.current_pick_timestamp) {
@@ -148,42 +146,15 @@ export function DraftOrder({
     }
   }, [draftState?.current_pick_timestamp, draftState?.current_pick_number]);
 
-  // Countdown to draft start; triggers in_progress transition when it hits zero
-  useEffect(() => {
-    if (draftState?.status !== "pending" || !draftState?.draft_date) {
-      setTimeUntilDraft(null);
-      return;
-    }
-
-    const tick = async () => {
-      const remaining = new Date(draftState.draft_date!).getTime() - Date.now();
-      if (remaining <= 0) {
-        setTimeUntilDraft(null);
-        if (startDraftCalledRef.current) return;
-        // Fast-path: any league member present can kick off start-draft once
-        // the scheduled time hits. The pg_cron job `auto-start-pending-drafts`
-        // is the safety net for the case where nobody is in the room — it
-        // fires every minute. Server enforces league membership + draft_date.
-        startDraftCalledRef.current = true;
-        await supabase.auth.refreshSession();
-        await supabase.functions.invoke("start-draft", {
-          body: { draft_id: draftId },
-        });
-        queryClient.invalidateQueries({ queryKey: queryKeys.draftState(draftId) });
-      } else {
-        setTimeUntilDraft(formatClockRemaining(remaining));
-      }
-    };
-
-    tick();
-    const interval = setInterval(tick, 1000);
-    return () => {
-      clearInterval(interval);
-      startDraftCalledRef.current = false;
-    };
-  }, [draftState?.status, draftState?.draft_date, draftId, queryClient]);
-
   const isPaused = draftState?.status === "paused";
+  // An overnight quiet-hours freeze reads differently from a commissioner pause:
+  // it's expected, self-resolving, and worth telling members when the clock wakes.
+  const isQuietPause = isPaused && draftState?.pause_reason === "quiet_hours";
+  const pausedLabel = isQuietPause ? "Quiet Hours" : "Paused";
+  const quietResumeText =
+    isQuietPause && draftState?.quiet_hours_end_min != null
+      ? `Resumes ${formatMinuteOfDay(draftState.quiet_hours_end_min)} ET`
+      : "—";
   // Use the timer hook with the fetched draft state. While paused, freeze it at
   // the snapshotted remaining ms instead of ticking against a stale timestamp.
   const { display: countdown, expired: countdownExpired } = useDraftTimer(
@@ -543,17 +514,15 @@ export function DraftOrder({
     // anchor of the board, so it gets a panel that never scrolls away.
     const status: { label: string; value: string; live: boolean } = !onClock
       ? { label: "Draft Complete", value: "—", live: false }
-      : timeUntilDraft !== null
-        ? { label: "Draft Starts", value: timeUntilDraft, live: false }
-        : isPaused
-          ? { label: "Paused", value: "—", live: false }
-          : draftState?.status !== "in_progress"
-            ? { label: "Starting", value: "—", live: false }
-            : autopickTeamIds.has(onClock.current_team_id)
-              ? { label: "On the Clock", value: "Autopick", live: true }
-              : countdownExpired
-                ? { label: "On the Clock", value: "Pick is in", live: true }
-                : { label: "On the Clock", value: countdown, live: true };
+      : isPaused
+        ? { label: pausedLabel, value: quietResumeText, live: false }
+        : draftState?.status !== "in_progress"
+          ? { label: "Starting", value: "—", live: false }
+          : autopickTeamIds.has(onClock.current_team_id)
+            ? { label: "On the Clock", value: "Autopick", live: true }
+            : countdownExpired
+              ? { label: "On the Clock", value: "Pick is in", live: true }
+              : { label: "On the Clock", value: countdown, live: true };
 
     return (
       <View style={[deskStyles.strip, { borderBottomColor: colors.border, backgroundColor: colors.cardAlt }]}>
@@ -797,25 +766,22 @@ export function DraftOrder({
                     Autopick
                   </ThemedText>
                 ) : isCurrentOnTheClock && !isFlashing ? (
-                  timeUntilDraft !== null ? (
-                    <ThemedText
-                      type="varsitySmall"
-                      style={[styles.startsText, { color: secondaryColor }]}
-                    >
-                      Starts {timeUntilDraft}
-                    </ThemedText>
-                  ) : isPaused ? (
+                  isPaused ? (
                     <ThemedText
                       type="varsity"
                       style={[styles.pausedText, { color: colors.gold }]}
-                      accessibilityLabel="Draft paused"
+                      accessibilityLabel={
+                        isQuietPause
+                          ? `Quiet hours — ${quietResumeText}`
+                          : "Draft paused"
+                      }
                     >
-                      Paused
+                      {pausedLabel}
                     </ThemedText>
                   ) : draftState?.status !== "in_progress" ? (
-                    // Pending but past draft_date — server-side cron is on its
-                    // way to flip status. Render nothing rather than a stale
-                    // 00:00 / "Pick is in".
+                    // Transient non-live status while a pick is on the clock
+                    // (e.g. mid status-flip). Render nothing rather than a
+                    // stale 00:00 / "Pick is in".
                     null
                   ) : countdownExpired ? (
                     <ThemedText
@@ -1016,10 +982,6 @@ const styles = StyleSheet.create({
   },
   pausedText: {
     fontSize: ms(11),
-    letterSpacing: 1.2,
-  },
-  startsText: {
-    fontSize: ms(10),
     letterSpacing: 1.2,
   },
 });

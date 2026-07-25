@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -41,18 +41,34 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
   const [editPosLimits, setEditPosLimits] = useState<PositionLimits>({});
   const [saving, setSaving] = useState(false);
 
+  // Guards against re-hydrating over in-progress edits on a background refetch,
+  // and (with the `rosterConfig` gate) against seeding from an unresolved query.
+  const hydrated = useRef(false);
+
   useEffect(() => {
-    if (visible && rosterConfig) {
-      const merged = getDefaultRosterSlots(sport).map((d) => {
-        const existing = rosterConfig.find((r) => r.position === d.position);
-        return { position: d.position, slot_count: existing?.slot_count ?? 0 };
-      });
-      setEditRoster(merged);
-      setEditPosLimits(positionLimits && typeof positionLimits === 'object' ? { ...positionLimits } : {});
+    if (!visible) {
+      hydrated.current = false;
+      return;
     }
-  }, [visible, sport]);
+    // `rosterConfig` is a SEPARATE async query and can be null on the first
+    // render after opening. Seeding then leaves editRoster empty and never
+    // re-syncs (so the slot steppers all read 0), and a Save would run
+    // replace_roster_config with an empty row set — wiping the league's entire
+    // roster configuration. Wait for the query to resolve.
+    if (hydrated.current || !rosterConfig) return;
+    hydrated.current = true;
+
+    const merged = getDefaultRosterSlots(sport).map((d) => {
+      const existing = rosterConfig.find((r) => r.position === d.position);
+      return { position: d.position, slot_count: existing?.slot_count ?? 0 };
+    });
+    setEditRoster(merged);
+    setEditPosLimits(positionLimits && typeof positionLimits === 'object' ? { ...positionLimits } : {});
+  }, [visible, sport, rosterConfig, positionLimits]);
 
   async function handleSave() {
+    // Never persist un-hydrated state: an empty save wipes the roster config.
+    if (!rosterConfig) return;
     setSaving(true);
     const rows = editRoster
       .filter((r) => r.slot_count > 0)

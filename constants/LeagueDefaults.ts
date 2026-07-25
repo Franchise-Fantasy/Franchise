@@ -118,6 +118,12 @@ export const LEAGUE_TYPE_DISPLAY: Record<string, string> = {
 };
 
 export const DRAFT_TYPE_OPTIONS = ['Snake', 'Linear'] as const;
+
+/** Display label for the lowercase `drafts.draft_type` DB value. */
+export function formatDraftType(draftType: string | null | undefined): string {
+  return draftType === 'linear' ? 'Linear' : 'Snake';
+}
+
 // Pick clock bounds, in seconds. Tap-typing into the NumberStepper clamps to
 // the same range — kept wide so async/snail drafts can sit at the cap.
 export const TIME_PER_PICK_MIN = 15;
@@ -739,6 +745,11 @@ export interface LeagueWizardState {
   accelerateAfterRound?: number | null;
   /** Seconds-per-pick once past `accelerateAfterRound` (only used when set). */
   acceleratedTimePerPick?: number;
+  /** Overnight quiet hours for slow (async) drafts: freeze the clock nightly
+   *  between start/end minute-of-day (ET) so nobody is auto-drafted at 3am. */
+  quietHoursEnabled: boolean;
+  quietHoursStartMin: number;
+  quietHoursEndMin: number;
   maxDraftYears: number;
   tradeVetoType: TradeVetoOption;
   tradeReviewPeriodHours: number;

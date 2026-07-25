@@ -15,8 +15,9 @@ import { type ScoringWeight } from "@/types/player";
 import { fetchStandingsTeams } from "@/utils/league/standingsQueries";
 import { ms, s } from "@/utils/scale";
 import {
+  assignDependencyLevels,
   computeDependencyRisk,
-  computeDependencyThresholds,
+  type DependencyLevel,
 } from "@/utils/scoring/dependencyRisk";
 
 interface DependencyRiskCardProps {
@@ -66,21 +67,27 @@ export function DependencyRiskCard({
     return computeDependencyRisk(allPlayers, weights, scoringType, sport);
   }, [allPlayers, weights, scoringType, sport]);
 
+  // Sorted by top-3 share (most concentrated first) so the bars descend and the
+  // color ramp reads top-to-bottom in lock-step with the % shown.
   const depSorted = useMemo(
     () => [...depResults].sort((a, b) => b.topThreePct - a.topThreePct),
     [depResults],
   );
 
-  const depThresholds = useMemo(
-    () => computeDependencyThresholds(depResults),
-    [depResults],
-  );
+  // Risk level per team, ranked relative to the rest of the league.
+  const depLevels = useMemo(() => assignDependencyLevels(depResults), [depResults]);
 
-  function depColor(pct: number): string {
-    if (pct >= depThresholds.high) return c.danger;
-    if (pct >= depThresholds.moderate) return c.warning;
+  function depColor(level: DependencyLevel | undefined): string {
+    if (level === "high") return c.danger;
+    if (level === "moderate") return c.warning;
     return c.success;
   }
+
+  const levelWord: Record<DependencyLevel, string> = {
+    high: "high concentration",
+    moderate: "moderate concentration",
+    deep: "deep roster",
+  };
 
   return (
     <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
@@ -102,7 +109,8 @@ export function DependencyRiskCard({
         </TouchableOpacity>
       </View>
       <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-        Share of season production from each team's top 3 players
+        Share of season production from each team's top 3 — the most
+        concentrated rosters in your league are flagged
       </ThemedText>
 
       {depSorted.length === 0 ? (
@@ -115,14 +123,15 @@ export function DependencyRiskCard({
           if (!team) return null;
           const isViewed = r.teamId === teamId;
           const pct = Math.round(r.topThreePct * 100);
-          const color = depColor(r.topThreePct);
+          const level = depLevels.get(r.teamId);
+          const color = depColor(level);
           return (
             <ListRow
               key={r.teamId}
               index={idx}
               total={depSorted.length}
               isActive={isViewed}
-              accessibilityLabel={`${team.name}, ${pct}% from top 3: ${r.topThreePlayers.join(", ")}`}
+              accessibilityLabel={`${team.name}, ${pct}% from top 3, ${level ? levelWord[level] : "deep roster"}: ${r.topThreePlayers.join(", ")}`}
             >
               <ThemedText
                 style={[styles.teamName, { color: c.text, fontWeight: isViewed ? "700" : "500" }]}
@@ -145,21 +154,18 @@ export function DependencyRiskCard({
         title="Dependency Risk"
       >
         <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-          Dependency Risk measures how much of a team's total season production is
-          concentrated in their top 3 players, weighted by games played.
+          The bar shows how much of a team's season production comes from its top
+          3 players, weighted by games played.
         </ThemedText>
         <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-          Teams labeled <ThemedText style={{ fontWeight: "700", color: c.text }}>High</ThemedText>{" "}
-          are more fragile — if a key player gets injured or rests, the team's output drops
-          significantly.
-        </ThemedText>
-        <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-          Teams labeled <ThemedText style={{ fontWeight: "700", color: c.text }}>Deep</ThemedText>{" "}
-          have balanced rosters that can absorb injuries and rest days more easily.
-        </ThemedText>
-        <ThemedText style={[styles.modalBody, { color: c.secondaryText }]}>
-          Labels are relative to your league — "High" means higher concentration than most teams
-          in this league.
+          Colors are ranked relative to your league — the teams leaning hardest
+          on their top 3 are{" "}
+          <ThemedText style={{ fontWeight: "700", color: c.text }}>High</ThemedText>{" "}
+          (more fragile: an injury or rest day hits their output harder), and the
+          most balanced are{" "}
+          <ThemedText style={{ fontWeight: "700", color: c.text }}>Deep</ThemedText>.
+          So this always highlights the relative risk within your league, even
+          when every roster is fairly balanced.
         </ThemedText>
       </InfoModal>
     </View>
@@ -173,6 +179,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(14),
     paddingTop: s(12),
     paddingBottom: s(10),
+    // Breathing room from the chart / footnote above it.
+    marginTop: s(18),
     marginBottom: s(14),
   },
   eyebrowRow: {

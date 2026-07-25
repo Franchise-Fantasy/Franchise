@@ -18,7 +18,6 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { OfflineDraftEntryModal } from '@/components/commissioner/OfflineDraftEntryModal';
 import { AnalyticsPreviewCard } from '@/components/home/AnalyticsPreviewCard';
-import { ChampionCard } from '@/components/home/ChampionCard';
 import { DeclareKeepersSheet } from '@/components/home/DeclareKeepersSheet';
 import { HomeAnnouncementBanner } from '@/components/home/HomeAnnouncementBanner';
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
@@ -428,10 +427,10 @@ export default function HomeScreen() {
   const isSeasonComplete =
     !isOffseason && (playoffsComplete || !!league?.champion_team_id);
 
-  // Resolve the champion team's display fields once for both the hero eyebrow
-  // and the ChampionCard. Prefer the live bracket winner (available before
-  // advance-season runs); fall back to champion_team_id for the brief window
-  // where it's set but we're still painting season_complete.
+  // Resolve the champion team's display fields for the hero's crown strip.
+  // Prefer the live bracket winner (available before advance-season runs);
+  // fall back to champion_team_id for the brief window where it's set but
+  // we're still painting season_complete.
   const champion = useMemo(() => {
     const id = championId ?? league?.champion_team_id ?? null;
     if (!id) return null;
@@ -456,15 +455,15 @@ export default function HomeScreen() {
     if (activeDraftLoading || bracketLoading) return null;
 
     if (isSeasonComplete) {
-      // Eyebrow shows the champion's tricode; the ChampionCard below the hero
-      // carries the full name + logo. Both read from the shared `champion`.
-      const championName = champion?.tricode ?? champion?.name ?? null;
-
+      // The champion crown strip inside the hero carries the logo + full
+      // name + View Bracket (folded in from the old standalone ChampionCard).
       return {
         kind: 'season_complete',
         leagueName: league.name,
         season: league.season,
-        championName,
+        champion: champion
+          ? { name: champion.name, tricode: champion.tricode, logoKey: champion.logoKey }
+          : null,
         myTeam,
         action: isCommissioner
           ? { label: 'Advance Season', onPress: offseasonActions.advanceSeason }
@@ -645,14 +644,15 @@ export default function HomeScreen() {
         router.push('/playoff-bracket');
         break;
       case 'draft_pending':
-        // Once the draft is live, the whole hero drops straight into the room.
-        // The draft hub is a dynasty/future-picks surface that doesn't exist in
-        // redraft leagues, so it's the wrong target mid-draft.
-        if (activeDraft?.status === 'in_progress') {
-          onEnterDraft();
-        } else {
-          router.push('/draft-hub' as never);
-        }
+        // Offline drafts are recorded by hand via the "Enter Results" pill, not
+        // the live room, so the card body isn't a navigation target for them.
+        if (activeDraft?.is_offline) break;
+        // The room owns every other started-or-scheduled state: a live draft
+        // drops straight into the board, and a scheduled-but-not-started one
+        // lands on the pre-draft lobby (countdown + settings). The dynasty-only
+        // draft hub is a future-picks asset surface, not a draft-day
+        // destination, so it's reached from nav — not this hero.
+        onEnterDraft();
         break;
       case 'invite_needed':
         router.push('/league-info' as never);
@@ -752,10 +752,12 @@ export default function HomeScreen() {
 
     // Notify the rest of the league that a time is set — the home hero has no
     // live link to the drafts table, so without this members sit on a stale
-    // hero until they reopen/refresh. The time is shown in the commissioner's
-    // zone WITH a label so it reads unambiguously across timezones. Best-effort:
-    // a push failure must never block scheduling (send-notification excludes the
-    // caller and respects each member's notification prefs).
+    // hero until they reopen/refresh. `localize_time` lets the server render the
+    // time in EACH recipient's own zone; `body` is the fallback for devices
+    // whose timezone we don't yet know (older build), and it keeps the
+    // commissioner-zone label so it's still unambiguous. Best-effort: a push
+    // failure must never block scheduling (send-notification excludes the caller
+    // and respects each member's notification prefs).
     try {
       await supabase.functions.invoke('send-notification', {
         body: {
@@ -764,6 +766,10 @@ export default function HomeScreen() {
           title: 'Draft Scheduled',
           body: `The ${activeDraft.type} draft is set for ${formatDateTimeWithZone(rounded)}.`,
           data: { screen: 'home', draft_date: startTime },
+          localize_time: {
+            iso: startTime,
+            template: `The ${activeDraft.type} draft is set for {time}.`,
+          },
         },
       });
     } catch (e) {
@@ -1000,14 +1006,6 @@ export default function HomeScreen() {
                           rostersPending={rostersPending}
                         />
                       )}
-                      {isSeasonComplete && champion && (
-                        <ChampionCard
-                          teamName={champion.name}
-                          logoKey={champion.logoKey}
-                          tricode={champion.tricode}
-                          season={league.season}
-                        />
-                      )}
                     </>
                   )}
                   {isOffseason ? (
@@ -1060,18 +1058,6 @@ export default function HomeScreen() {
               />
             )}
 
-            {/* Season's over but the commissioner hasn't advanced yet — crown
-                the champion right under the hero, above analytics + Explore, so
-                the title is the first thing you see (the hero only carries a
-                small tricode, and the offseason UI hasn't taken over yet). */}
-            {isSeasonComplete && champion && (
-              <ChampionCard
-                teamName={champion.name}
-                logoKey={champion.logoKey}
-                tricode={champion.tricode}
-                season={league.season}
-              />
-            )}
             {/* Manual draft order — commissioner-only modal. Rendered
                 here so it lives at the page root and reliably captures
                 taps from the hero's "Set Order" pill. */}

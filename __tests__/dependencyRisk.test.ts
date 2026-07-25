@@ -1,6 +1,14 @@
 import type { LeaguePlayerWithTeam } from '@/hooks/useLeagueRosterStats';
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { computeDependencyRisk, computeDependencyThresholds } from '@/utils/scoring/dependencyRisk';
+import {
+  assignDependencyLevels,
+  computeDependencyRisk,
+  type DependencyResult,
+} from '@/utils/scoring/dependencyRisk';
+
+function makeResult(teamId: string, topThreePct: number): DependencyResult {
+  return { teamId, topThreePct, topThreePlayers: [], totalContributors: 0 };
+}
 
 function makePlayer(overrides: Partial<PlayerSeasonStats & { team_id: string; name: string }> = {}): LeaguePlayerWithTeam {
   return {
@@ -93,27 +101,62 @@ describe('computeDependencyRisk — categories leagues', () => {
   });
 });
 
-describe('computeDependencyThresholds', () => {
-  it('falls back to default thresholds for empty input', () => {
-    const t = computeDependencyThresholds([]);
-    expect(t.high).toBe(0.65);
-    expect(t.moderate).toBe(0.55);
-    expect(t.leagueAvg).toBe(0);
+describe('assignDependencyLevels', () => {
+  it('ranks the real WNBA example into a 1 / 2 / 1 spread by top-3 %', () => {
+    const levels = assignDependencyLevels([
+      makeResult('BOS', 0.48),
+      makeResult('LPS', 0.41),
+      makeResult('BUS', 0.41),
+      makeResult('SPO', 0.39),
+    ]);
+    expect(levels.get('BOS')).toBe('high');
+    expect(levels.get('SPO')).toBe('deep');
+    expect(levels.get('LPS')).toBe('moderate');
+    expect(levels.get('BUS')).toBe('moderate');
   });
 
-  it('places high above 67% of range and moderate above 33%', () => {
-    const results = [
-      { teamId: 'a', topThreePct: 0.40, topThreePlayers: [], totalContributors: 5 },
-      { teamId: 'b', topThreePct: 0.50, topThreePlayers: [], totalContributors: 5 },
-      { teamId: 'c', topThreePct: 0.60, topThreePlayers: [], totalContributors: 5 },
-      { teamId: 'd', topThreePct: 0.70, topThreePlayers: [], totalContributors: 5 },
-      { teamId: 'e', topThreePct: 0.85, topThreePlayers: [], totalContributors: 5 },
-    ];
-    const t = computeDependencyThresholds(results);
-    expect(t.leagueAvg).toBeCloseTo(0.61, 2);
-    // range = 0.85 - 0.40 = 0.45; high = 0.40 + 0.45 * 0.67 ≈ 0.70; moderate = 0.40 + 0.45 * 0.33 ≈ 0.55.
-    expect(t.high).toBeCloseTo(0.4015 + 0.30, 1);
-    expect(t.moderate).toBeLessThan(t.high);
-    expect(t.moderate).toBeGreaterThan(0.4);
+  it('gives equal %s the same color', () => {
+    const levels = assignDependencyLevels([
+      makeResult('a', 0.60),
+      makeResult('b', 0.41),
+      makeResult('c', 0.41),
+      makeResult('d', 0.30),
+    ]);
+    // The two 0.41 teams must never split across colors.
+    expect(levels.get('b')).toBe(levels.get('c'));
+  });
+
+  it('always produces at least one high and one deep (relative, not absolute)', () => {
+    // Even when every share is near-balanced, ranking spreads them.
+    const levels = assignDependencyLevels([
+      makeResult('a', 0.40),
+      makeResult('b', 0.42),
+      makeResult('c', 0.44),
+    ]);
+    expect(levels.get('c')).toBe('high');
+    expect(levels.get('b')).toBe('moderate');
+    expect(levels.get('a')).toBe('deep');
+  });
+
+  it('treats zero-production teams as deep and excludes them from the ranking', () => {
+    const levels = assignDependencyLevels([
+      makeResult('a', 0.70),
+      makeResult('b', 0.55),
+      makeResult('c', 0.45),
+      makeResult('empty', 0),
+    ]);
+    expect(levels.get('empty')).toBe('deep');
+    // Ranking runs over the 3 producing teams only.
+    expect(levels.get('a')).toBe('high');
+    expect(levels.get('c')).toBe('deep');
+  });
+
+  it('does not fabricate risk with fewer than three producing teams', () => {
+    const levels = assignDependencyLevels([
+      makeResult('a', 0.80),
+      makeResult('b', 0.40),
+    ]);
+    expect(levels.get('a')).toBe('deep');
+    expect(levels.get('b')).toBe('deep');
   });
 });

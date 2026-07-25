@@ -51,12 +51,6 @@ export const playerDetailStyles = StyleSheet.create({
     gap: s(10),
     flexShrink: 1,
   },
-  rankBadges: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(6),
-    flexShrink: 0,
-  },
   goldRule: {
     height: 2,
     width: s(18),

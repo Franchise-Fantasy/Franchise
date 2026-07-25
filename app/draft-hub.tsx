@@ -6,6 +6,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ByTeamTab } from '@/components/draft-hub/ByTeamTab';
 import { ByYearTab } from '@/components/draft-hub/ByYearTab';
 import { ProspectsTab } from '@/components/draft-hub/ProspectsTab';
+import { UpcomingDraftCard } from '@/components/draft-hub/UpcomingDraftCard';
 import { LotteryResolutionSummary } from '@/components/lottery/LotteryResolutionSummary';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -65,6 +66,9 @@ export default function DraftHub() {
           they don't stretch across the full content area (which leaves big empty
           gutters). No effect on native. */}
       <View style={styles.body}>
+      {/* Next draft at a glance — schedule + settings. Null when no active draft. */}
+      {leagueId ? <UpcomingDraftCard leagueId={leagueId} /> : null}
+
       {/* Tabs */}
       <View style={styles.tabBar}>
         <SegmentedControl options={TABS} selectedIndex={tab} onSelect={setTab} />

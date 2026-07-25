@@ -225,6 +225,7 @@ export const queryKeys = {
   playerProjections: (sport: string, horizon: string) =>
     ["playerProjections", sport, horizon] as const,
   activeDraft: (leagueId: string) => ["activeDraft", leagueId] as const,
+  upcomingDraft: (leagueId: string) => ["upcomingDraft", leagueId] as const,
   leagueDraftOrder: (leagueId: string) =>
     ["leagueDraftOrder", leagueId] as const,
   draftSlotsAssigned: (draftId: string) =>

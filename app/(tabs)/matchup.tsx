@@ -350,10 +350,11 @@ export default function MatchupScreen() {
           : today;
     setSelectedDate(landing);
   };
+  // Weekly-sport hero label — the week number ("Week 1"); the date range lives
+  // in the schedule dropdown (onSchedulePress). Playoff weeks keep their own
+  // numbering.
   const weekLabel =
-    isWeekly && currentWeek
-      ? formatWeekRange(currentWeek.start_date, currentWeek.end_date)
-      : undefined;
+    isWeekly && currentWeek ? `Week ${currentWeek.week_number}` : undefined;
 
   // Schedule exists but the selected day is before tip-off (the draft-day gap
   // before opening night) — flips the hero from "OFFSEASON" to "UPCOMING".

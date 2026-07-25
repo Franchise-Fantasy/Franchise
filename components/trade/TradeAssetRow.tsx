@@ -75,7 +75,7 @@ export function TradeAssetRow({
 
   // ─── Draft pick ────────────────────────────────────────────
   if (item.draft_pick_id || item.pick_season) {
-    const label = formatPickLabel(item.pick_season!, item.pick_round!);
+    const label = formatPickLabel(item.pick_season!, item.pick_round!, item.pick_number);
     const via = item.pick_original_team_name ? `via ${item.pick_original_team_name}` : null;
     // A pick already carrying a protection this trade isn't the source of —
     // shown so the deciding manager sees the reversion right on the pick.

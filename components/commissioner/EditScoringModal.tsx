@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -52,35 +52,52 @@ export function EditScoringModal({ visible, onClose, leagueId, sport, scoring, s
   const [editCategories, setEditCategories] = useState<{ stat_name: string; is_enabled: boolean; inverse: boolean }[]>([]);
   const [saving, setSaving] = useState(false);
 
+  // Prevents a background query refetch from clobbering in-progress edits, and
+  // (with the `scoring` gate below) prevents seeding from an unresolved query.
+  const hydrated = useRef(false);
+
   useEffect(() => {
-    if (visible && scoring) {
-      if (isCategories) {
-        const merged = DEFAULT_CATEGORIES.map((d) => {
-          const existing = scoring.find((s) => s.stat_name === d.stat_name);
-          return {
-            stat_name: d.stat_name,
-            is_enabled: existing?.is_enabled ?? d.is_enabled,
-            inverse: d.inverse,
-          };
-        });
-        setEditCategories(merged);
-      } else {
-        // Seed from the LEAGUE'S sport sheet, not the NBA one — see the `sport`
-        // prop doc. Any stat the league already scores that isn't in the sheet
-        // is preserved rather than dropped on save.
-        const merged = defaultScoring.map((d) => {
-          const existing = scoring.find((s) => s.stat_name === d.stat_name);
-          return { stat_name: d.stat_name, point_value: existing?.point_value ?? d.point_value };
-        });
-        const extras = scoring
-          .filter((s) => !defaultScoring.some((d) => d.stat_name === s.stat_name))
-          .map((s) => ({ stat_name: s.stat_name, point_value: s.point_value }));
-        setEditScoring([...merged, ...extras]);
-      }
+    if (!visible) {
+      hydrated.current = false;
+      return;
     }
-  }, [visible]);
+    // `scoring` comes from a SEPARATE async query and can be null on the first
+    // render after opening. Seeding then would leave editScoring/editCategories
+    // empty and never re-sync (dep is `[visible, scoring]`), and Save would run
+    // replace_scoring_settings with an empty row set — wiping every scoring
+    // setting the league configured in the wizard. Wait for it to resolve.
+    if (hydrated.current || !scoring) return;
+    hydrated.current = true;
+
+    if (isCategories) {
+      const merged = DEFAULT_CATEGORIES.map((d) => {
+        const existing = scoring.find((s) => s.stat_name === d.stat_name);
+        return {
+          stat_name: d.stat_name,
+          is_enabled: existing?.is_enabled ?? d.is_enabled,
+          inverse: d.inverse,
+        };
+      });
+      setEditCategories(merged);
+    } else {
+      // Seed from the LEAGUE'S sport sheet, not the NBA one — see the `sport`
+      // prop doc. Any stat the league already scores that isn't in the sheet
+      // is preserved rather than dropped on save.
+      const merged = defaultScoring.map((d) => {
+        const existing = scoring.find((s) => s.stat_name === d.stat_name);
+        return { stat_name: d.stat_name, point_value: existing?.point_value ?? d.point_value };
+      });
+      const extras = scoring
+        .filter((s) => !defaultScoring.some((d) => d.stat_name === s.stat_name))
+        .map((s) => ({ stat_name: s.stat_name, point_value: s.point_value }));
+      setEditScoring([...merged, ...extras]);
+    }
+  }, [visible, scoring]);
 
   async function handleSave() {
+    // Never persist un-hydrated state: without the source rows an empty save
+    // would blow away the league's scoring via replace_scoring_settings.
+    if (!scoring) return;
     setSaving(true);
 
     const rows = isCategories

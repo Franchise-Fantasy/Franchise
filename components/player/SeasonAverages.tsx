@@ -371,7 +371,7 @@ export function SeasonAverages({
           <View style={styles.fptsCallout}>
             {trend && <Ionicons name={trend.icon} size={ms(15)} color={trend.color} />}
             <ThemedText type="mono" style={[styles.fptsValue, { color: c.accent }]}>
-              {Math.round(active.fpts * 10) / 10}
+              {active.fpts.toFixed(1)}
             </ThemedText>
             <ThemedText type="varsitySmall" style={[styles.fptsLabel, { color: c.secondaryText }]}>
               FPTS/G

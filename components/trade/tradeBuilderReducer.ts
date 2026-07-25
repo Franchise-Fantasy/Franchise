@@ -147,6 +147,7 @@ export function tradeBuilderReducer(state: TradeState, action: TradeAction): Tra
             season: item.pick_season ?? '',
             round: item.pick_round ?? 1,
             original_team_name: item.pick_original_team_name ?? '',
+            display_pick: item.pick_number ?? null,
             estimated_fpts: estimatePickFpts(item.pick_round ?? 1),
             to_team_id: item.to_team_id,
             protection_threshold: item.protection_threshold ?? undefined,

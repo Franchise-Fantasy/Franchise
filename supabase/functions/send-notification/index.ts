@@ -18,6 +18,13 @@ const Body = z.object({
   title: z.string().min(1),
   body: z.string().min(1),
   data: z.record(z.unknown()).optional(),
+  // Optional per-recipient time localization. `body` is the fallback (used for
+  // devices whose timezone we don't know); when present, each recipient's body
+  // is `template` with `{time}` rendered in their own stored zone.
+  localize_time: z.object({
+    iso: z.string().datetime(),
+    template: z.string().min(1),
+  }).optional(),
 });
 
 Deno.serve(async (req: Request) => {
@@ -37,7 +44,7 @@ Deno.serve(async (req: Request) => {
     const rateLimited = await checkRateLimit(supabaseAdmin, user.id, 'send-notification');
     if (rateLimited) return rateLimited;
 
-    const { league_id, team_ids, category, title, body, data } = parseBody(Body, await req.json());
+    const { league_id, team_ids, category, title, body, data, localize_time } = parseBody(Body, await req.json());
 
     // Verify caller is a member of this league
     const { data: callerTeam } = await supabaseAdmin
@@ -57,10 +64,11 @@ Deno.serve(async (req: Request) => {
 
     // Send to specific teams or entire league, excluding the caller
     const excludeUserIds = [user.id];
+    const opts = localize_time ? { localize: localize_time } : undefined;
     if (team_ids && Array.isArray(team_ids) && team_ids.length > 0) {
-      await notifyTeams(supabaseAdmin, team_ids, category, prefixedTitle, body, data, excludeUserIds);
+      await notifyTeams(supabaseAdmin, team_ids, category, prefixedTitle, body, data, excludeUserIds, opts);
     } else {
-      await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data, excludeUserIds);
+      await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data, excludeUserIds, opts);
     }
 
     return jsonResponse({ ok: true });

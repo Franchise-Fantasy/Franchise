@@ -971,9 +971,13 @@ export type Database = {
           is_offline: boolean
           league_id: string
           offline_picks: Json | null
+          pause_reason: string | null
           paused_at: string | null
           paused_remaining_ms: number | null
           picks_per_round: number | null
+          quiet_hours_enabled: boolean
+          quiet_hours_end_min: number | null
+          quiet_hours_start_min: number | null
           rounds: number | null
           season: string | null
           status: string | null
@@ -993,9 +997,13 @@ export type Database = {
           is_offline?: boolean
           league_id: string
           offline_picks?: Json | null
+          pause_reason?: string | null
           paused_at?: string | null
           paused_remaining_ms?: number | null
           picks_per_round?: number | null
+          quiet_hours_enabled?: boolean
+          quiet_hours_end_min?: number | null
+          quiet_hours_start_min?: number | null
           rounds?: number | null
           season?: string | null
           status?: string | null
@@ -1015,9 +1023,13 @@ export type Database = {
           is_offline?: boolean
           league_id?: string
           offline_picks?: Json | null
+          pause_reason?: string | null
           paused_at?: string | null
           paused_remaining_ms?: number | null
           picks_per_round?: number | null
+          quiet_hours_enabled?: boolean
+          quiet_hours_end_min?: number | null
+          quiet_hours_start_min?: number | null
           rounds?: number | null
           season?: string | null
           status?: string | null
@@ -5275,6 +5287,7 @@ export type Database = {
         Row: {
           mute_all: boolean
           preferences: Json
+          timezone: string | null
           token: string
           updated_at: string | null
           user_id: string
@@ -5282,6 +5295,7 @@ export type Database = {
         Insert: {
           mute_all?: boolean
           preferences?: Json
+          timezone?: string | null
           token: string
           updated_at?: string | null
           user_id: string
@@ -5289,6 +5303,7 @@ export type Database = {
         Update: {
           mute_all?: boolean
           preferences?: Json
+          timezone?: string | null
           token?: string
           updated_at?: string | null
           user_id?: string

@@ -1,5 +1,5 @@
 import { useRouter } from 'expo-router';
-import { useMemo, type ReactNode } from 'react';
+import { useMemo } from 'react';
 import { Platform, StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { AgeSpectrum } from '@/components/analytics/AgeSpectrum';
@@ -32,8 +32,11 @@ import { ThemedText } from '../ui/ThemedText';
 
 /**
  * Analytics preview — one solid card matching the rest of the home
- * surfaces (no nested pill sub-cards). Two columns separated by a thin
- * rule: a primary stat on the left, a framing counterpart on the right.
+ * surfaces (no nested pill sub-cards). Two symmetric stat columns
+ * separated by a thin rule sit up top, with the "full breakdown"
+ * affordance pinned to the header's top-right. The dynasty view then
+ * runs its age spectrum full-width across the card's bottom instead of
+ * hanging it off one column (which made the right side top-heavy).
  * A heritage-gold notch up top echoes the hero's gold notch. It stays
  * in the gold family on purpose — out of the sport-accent (red/green)
  * range — so it never collides with the danger/success stat colors
@@ -170,6 +173,17 @@ export function AnalyticsPreviewCard({
         ? !!profile && profile.totalWithAge >= 3
         : !!strength);
 
+  // Only the dynasty age view carries the full-width spectrum strip. A dynasty
+  // *categories* league renders the strongest/weakest columns instead, so it
+  // must not also grow the card for a graph it never shows.
+  const isAgeView = isDynasty && !isCategories;
+  const showSpectrum =
+    !isLoading &&
+    isAgeView &&
+    !!comparison &&
+    !!profile &&
+    profile.totalWithAge >= 3;
+
   const CardWrapper = hasData ? TouchableOpacity : View;
   const wrapperProps = hasData
     ? {
@@ -202,11 +216,26 @@ export function AnalyticsPreviewCard({
             ...cardShadow,
             // Android elevation renders a hard halo on tinted bg; iOS shadow is fine
             ...(Platform.OS === 'android' && { elevation: 0 }),
+            // Only the age view reserves room for the spectrum strip. The
+            // two-column-only views (categories, roster strength) hug their
+            // content instead of floating it in a tall, half-empty card.
+            minHeight: isAgeView ? s(120) : s(92),
           },
         ]}
         {...wrapperProps}
       >
         <View style={[styles.topRule, { backgroundColor: c.heritageGold }]} />
+
+        {/* Subtle disclosure affordance — the whole card is tappable, so a
+            corner chevron reads "there's more" without stealing a row. */}
+        {hasData && (
+          <IconSymbol
+            name="chevron.right"
+            size={14}
+            color={c.secondaryText}
+            style={styles.cornerChevron}
+          />
+        )}
 
         {/* Fixed-height content well. All states (loading/empty/data)
             render into the same reserved box so the card doesn't flicker
@@ -286,30 +315,22 @@ export function AnalyticsPreviewCard({
                 bigColor={c.text}
                 subColor={c.secondaryText}
                 labelColor={c.secondaryText}
-                footer={
-                  comparison ? (
-                    <AgeSpectrum
-                      compact
-                      profiles={comparison.allProfiles}
-                      teamId={teamId}
-                      rank={comparison.weightedAgeRank}
-                    />
-                  ) : undefined
-                }
               />
             </View>
           )}
         </View>
 
-        {hasData && (
-          <View style={styles.tapHint}>
-            <ThemedText
-              type="varsitySmall"
-              style={[styles.tapHintText, { color: c.secondaryText }]}
-            >
-              Tap for full breakdown
-            </ThemedText>
-            <IconSymbol name="arrow.right" size={12} color={c.secondaryText} />
+        {/* Age spectrum runs full-width across the card's bottom (age view
+            only). Rendered outside the content well so it spans both
+            columns rather than hanging off the right one. */}
+        {showSpectrum && comparison && (
+          <View style={styles.spectrumWrap}>
+            <AgeSpectrum
+              compact
+              profiles={comparison.allProfiles}
+              teamId={teamId}
+              rank={comparison.weightedAgeRank}
+            />
           </View>
         )}
       </CardWrapper>
@@ -324,7 +345,6 @@ function Column({
   labelColor,
   bigColor,
   subColor,
-  footer,
 }: {
   label: string;
   bigValue: string;
@@ -332,8 +352,6 @@ function Column({
   labelColor: string;
   bigColor: string;
   subColor: string;
-  /** Optional element below the sub-value — the age spectrum uses it. */
-  footer?: ReactNode;
 }) {
   return (
     <View style={styles.column}>
@@ -352,7 +370,6 @@ function Column({
           {subValue}
         </ThemedText>
       )}
-      {footer !== undefined && <View style={styles.colFooter}>{footer}</View>}
     </View>
   );
 }
@@ -379,9 +396,9 @@ const styles = StyleSheet.create({
     paddingTop: s(18),
     paddingBottom: s(12),
     overflow: 'hidden',
-    // Match the data-state height so loading/empty/data renders don't
-    // reflow the surrounding scroll.
-    minHeight: s(120),
+    // minHeight is applied inline — it depends on whether the spectrum strip
+    // renders (age view) or not (categories / strength). Keeping it out of the
+    // static style avoids a tall, half-empty card in the two-column views.
   },
   topRule: {
     position: 'absolute',
@@ -426,18 +443,14 @@ const styles = StyleSheet.create({
     fontSize: ms(10),
     letterSpacing: 0.3,
   },
-  colFooter: {
-    alignSelf: 'stretch',
-    marginTop: s(6),
+  cornerChevron: {
+    position: 'absolute',
+    top: s(12),
+    right: s(12),
+    opacity: 0.6,
   },
-  tapHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(5),
+  spectrumWrap: {
     marginTop: s(14),
-  },
-  tapHintText: {
-    fontSize: ms(9.5),
   },
   placeholderText: {
     fontSize: ms(13),

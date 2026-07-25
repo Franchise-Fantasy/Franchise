@@ -12,6 +12,7 @@ import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
+import { isQuietNow } from '../../../utils/draft/quietHours.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
@@ -38,7 +39,7 @@ Deno.serve(async (req)=>{
     const [teamResult, draftResult, alreadyRosteredResult, leagueResult, configResult] =
       await Promise.all([
         supabaseAdmin.from('teams').select('id').eq('league_id', league_id).eq('user_id', user.id).single(),
-        supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, type, status').eq('id', draft_id).single(),
+        supabaseAdmin.from('drafts').select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, type, status, pause_reason, quiet_hours_enabled, quiet_hours_start_min, quiet_hours_end_min').eq('id', draft_id).single(),
         supabaseAdmin.from('league_players').select('id').eq('league_id', league_id).eq('player_id', player_id).limit(1),
         supabaseAdmin.from('leagues').select('position_limits, name').eq('id', league_id).single(),
         supabaseAdmin.from('league_roster_config').select('position, slot_count').eq('league_id', league_id),
@@ -50,7 +51,10 @@ Deno.serve(async (req)=>{
     const { data: draft, error: draftError } = draftResult;
     if (draftError || !draft) throw new HttpError('Draft not found.', 404);
 
-    if (draft.status === 'paused') {
+    // A commissioner pause hard-blocks picks; a quiet-hours freeze does NOT —
+    // an eager GM can still get ahead overnight (the freeze only stops the
+    // clock/autopick). pause_reason distinguishes the two.
+    if (draft.status === 'paused' && draft.pause_reason !== 'quiet_hours') {
       throw new HttpError('The draft is paused.', 409);
     }
 
@@ -120,49 +124,71 @@ Deno.serve(async (req)=>{
     // out of the scheduling block so the push copy below can reference it.
     const nextLimit = effectiveTimeLimit(nextPickNumber, draft);
 
+    // If this eager pick landed inside the overnight quiet window, the NEXT pick
+    // must not run its clock or ping anyone at 3am — freeze it exactly like the
+    // manage-draft-quiet-hours cron would (status='paused', reason='quiet_hours',
+    // full clock snapshotted) and arm NOTHING. The window-exit cron re-arms it
+    // at wake time. (execute_draft_pick keeps status via `ELSE status`, so a
+    // pick made while already quiet-paused stays paused; this update also covers
+    // the &lt;5-min gap where the window just opened but the cron hasn't frozen yet.)
+    const nextQuiet = !isDraftComplete && isQuietNow(draft, new Date());
+
     // The next pick's team feeds BOTH the autopick check and the your-turn
     // push — fetch it once (it used to be fetched twice).
     let nextPickTeamId: string | null = null;
     if (!isDraftComplete) {
       try {
-        // Check if the next team has autopick enabled — if so, fire immediately
-        let delay = nextLimit;
-        let nextIsAutopick = false;
         const { data: nextPick } = await supabaseAdmin
           .from('draft_picks')
           .select('current_team_id')
           .eq('draft_id', draft_id)
           .eq('pick_number', nextPickNumber)
           .single();
+        nextPickTeamId = nextPick?.current_team_id ?? null;
 
-        if (nextPick) {
-          nextPickTeamId = nextPick.current_team_id;
-          const { data: teamStatus } = await supabaseAdmin
-            .from('draft_team_status')
-            .select('autopick_on')
-            .eq('draft_id', draft_id)
-            .eq('team_id', nextPick.current_team_id)
-            .maybeSingle();
-
-          if (teamStatus?.autopick_on) {
-            delay = 1;
-            nextIsAutopick = true;
-          }
-        }
-
-        // Independent of each other — run together: the autodraft timer, the
-        // slow-draft reminder, and the clock snapshot (so a mid-draft time
-        // change only affects future picks; on-the-clock pick keeps its clock).
-        await Promise.all([
-          scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick),
-          nextIsAutopick
-            ? Promise.resolve()
-            : schedulePickReminder(draft_id, nextPickNumber, nextLimit),
-          supabaseAdmin
+        if (nextQuiet) {
+          await supabaseAdmin
             .from('drafts')
-            .update({ current_pick_time_limit: nextLimit })
-            .eq('id', draft_id),
-        ]);
+            .update({
+              status: 'paused',
+              pause_reason: 'quiet_hours',
+              paused_at: new Date().toISOString(),
+              paused_remaining_ms: nextLimit * 1000,
+              current_pick_time_limit: nextLimit,
+            })
+            .eq('id', draft_id);
+        } else {
+          // Check if the next team has autopick enabled — if so, fire immediately
+          let delay = nextLimit;
+          let nextIsAutopick = false;
+          if (nextPickTeamId) {
+            const { data: teamStatus } = await supabaseAdmin
+              .from('draft_team_status')
+              .select('autopick_on')
+              .eq('draft_id', draft_id)
+              .eq('team_id', nextPickTeamId)
+              .maybeSingle();
+
+            if (teamStatus?.autopick_on) {
+              delay = 1;
+              nextIsAutopick = true;
+            }
+          }
+
+          // Independent of each other — run together: the autodraft timer, the
+          // slow-draft reminder, and the clock snapshot (so a mid-draft time
+          // change only affects future picks; on-the-clock pick keeps its clock).
+          await Promise.all([
+            scheduleAutodraft(draft_id, nextPickNumber, delay, nextIsAutopick),
+            nextIsAutopick
+              ? Promise.resolve()
+              : schedulePickReminder(draft_id, nextPickNumber, nextLimit),
+            supabaseAdmin
+              .from('drafts')
+              .update({ current_pick_time_limit: nextLimit })
+              .eq('id', draft_id),
+          ]);
+        }
       } catch (schedErr) {
         console.warn('Failed to schedule autodraft (non-fatal):', schedErr);
       }
@@ -174,7 +200,9 @@ Deno.serve(async (req)=>{
       const ln = leagueResult.data?.name ?? 'Your League';
 
       if (!isDraftComplete) {
-        if (nextPickTeamId) {
+        // Don't ping the next GM "your turn" at 3am — the clock is frozen until
+        // the quiet window ends; the window-exit cron sends the wake-up push.
+        if (nextPickTeamId && !nextQuiet) {
           deferWork(notifyTeams(supabaseAdmin, [nextPickTeamId], 'draft',
             isRookieDraft ? `${ln} — Rookie Draft: Your pick!` : `${ln} — Your turn to pick!`,
             isSlowClock(nextLimit)

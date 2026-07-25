@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -8,6 +8,12 @@ import {
 
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
 import { PickClockControl } from '@/components/draft/PickClockControl';
+import {
+  DEFAULT_QUIET_END_MIN,
+  DEFAULT_QUIET_START_MIN,
+  QuietHoursControl,
+  type QuietHoursValue,
+} from '@/components/draft/QuietHoursControl';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -44,6 +50,9 @@ interface EditDraftSettingsModalProps {
     accelerate_after_round: number | null;
     accelerated_time_limit: number | null;
     status: string | null;
+    quiet_hours_enabled?: boolean | null;
+    quiet_hours_start_min?: number | null;
+    quiet_hours_end_min?: number | null;
   } | null;
   teamCount: number;
 }
@@ -77,22 +86,38 @@ export function EditDraftSettingsModal({
   const [lotteryDraws, setLotteryDraws] = useState(4);
   const [lotteryOdds, setLotteryOdds] = useState<number[] | null>(null);
   const [draftPickTrading, setDraftPickTrading] = useState(false);
+  const [quiet, setQuiet] = useState<QuietHoursValue>({
+    enabled: false,
+    startMin: DEFAULT_QUIET_START_MIN,
+    endMin: DEFAULT_QUIET_END_MIN,
+  });
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => {
-    if (!visible || !league) return;
+  // Guards against re-hydrating while the modal is open: a background query
+  // refetch (e.g. app foreground) would otherwise clobber the commissioner's
+  // in-progress edits. Reset when the modal closes so the next open re-seeds.
+  const hydrated = useRef(false);
 
-    setDraftType(
-      draft
-        ? draft.draft_type.charAt(0).toUpperCase() + draft.draft_type.slice(1)
-        : 'Snake'
-    );
+  useEffect(() => {
+    if (!visible) {
+      hydrated.current = false;
+      return;
+    }
+    // Wait for BOTH async queries to resolve before seeding local state. The
+    // `draft` row (from the leagueDraft query) can still be null on the first
+    // render after opening; hydrating then would seed timePick=90 (a "regular"
+    // Live clock) and never re-sync when draft arrived — and Save would write
+    // that 90 back, silently reverting a saved slow-draft clock to regular.
+    if (hydrated.current || !league || !draft) return;
+    hydrated.current = true;
+
+    setDraftType(draft.draft_type.charAt(0).toUpperCase() + draft.draft_type.slice(1));
     setInitialOrder(INITIAL_DRAFT_ORDER_DISPLAY[league.initial_draft_order] ?? 'Random');
-    setTimePick(draft?.time_limit ?? 90);
-    const enabled = draft?.accelerate_after_round != null && draft?.accelerated_time_limit != null;
+    setTimePick(draft.time_limit ?? 90);
+    const enabled = draft.accelerate_after_round != null && draft.accelerated_time_limit != null;
     setAccelEnabled(enabled);
-    setAccelAfterRound(draft?.accelerate_after_round ?? 5);
-    setAccelTime(draft?.accelerated_time_limit ?? 30);
+    setAccelAfterRound(draft.accelerate_after_round ?? 5);
+    setAccelTime(draft.accelerated_time_limit ?? 30);
     setMaxYears(league.max_future_seasons ?? 3);
     setRookiePickTime(league.rookie_pick_time_limit ?? 120);
     setRookieRounds(league.rookie_draft_rounds ?? 2);
@@ -100,7 +125,12 @@ export function EditDraftSettingsModal({
     setLotteryDraws(league.lottery_draws ?? 4);
     setLotteryOdds(league.lottery_odds ?? null);
     setDraftPickTrading(league.draft_pick_trading_enabled ?? false);
-  }, [visible]);
+    setQuiet({
+      enabled: draft.quiet_hours_enabled ?? false,
+      startMin: draft.quiet_hours_start_min ?? DEFAULT_QUIET_START_MIN,
+      endMin: draft.quiet_hours_end_min ?? DEFAULT_QUIET_END_MIN,
+    });
+  }, [visible, draft, league]);
 
   const pt = league?.playoff_teams ?? Math.min(
     2 ** (league?.playoff_weeks ?? 3),
@@ -143,6 +173,9 @@ export function EditDraftSettingsModal({
     const accelActive =
       accelEnabled && canAccelerate && accelAfterRound < totalRounds && !isSlowClock(timePick);
 
+    // Quiet hours only apply to slow (async) drafts — force off on a live clock.
+    const quietActive = quiet.enabled && isSlowClock(timePick);
+
     const { error: draftErr } = await supabase
       .from('drafts')
       .update({
@@ -150,6 +183,9 @@ export function EditDraftSettingsModal({
         time_limit: timePick,
         accelerate_after_round: accelActive ? accelAfterRound : null,
         accelerated_time_limit: accelActive ? Math.min(accelTime, timePick) : null,
+        quiet_hours_enabled: quietActive,
+        quiet_hours_start_min: quiet.startMin,
+        quiet_hours_end_min: quiet.endMin,
       })
       .eq('id', draft.id);
 
@@ -231,6 +267,9 @@ export function EditDraftSettingsModal({
 
       {/* Time Per Pick */}
       <PickClockControl value={timePick} onValueChange={setTimePick} />
+
+      {/* Overnight quiet hours — slow (async) drafts only */}
+      {isSlowClock(timePick) && <QuietHoursControl value={quiet} onChange={setQuiet} />}
 
       {/* Speed up later rounds — never offered for slow (async) drafts */}
       {canAccelerate && !isSlowClock(timePick) && (

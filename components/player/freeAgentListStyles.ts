@@ -76,8 +76,8 @@ export const freeAgentListStyles = StyleSheet.create({
     alignItems: "flex-end",
   },
   colKeyText: {
-    fontSize: ms(10),
-    letterSpacing: 1.2,
+    fontSize: ms(11),
+    letterSpacing: 1,
     textAlign: "right" as const,
   },
   // Width-matched spacer for the row's round add-button column (28pt button + 0pt gap-equivalent).
@@ -193,18 +193,21 @@ export const freeAgentListStyles = StyleSheet.create({
   },
   statsPoints: {
     // Sized for the longest realistic suffixed line — `40.5P/12.4R/10.5A`
-    // (17 chars) in mono ms(11) — across device scales. The stat line is
-    // subordinate to the gold FPTS headline stacked below it.
-    width: s(116),
+    // (17 chars) in condensed mono ms(13) — across device scales. The stat
+    // line is subordinate to the gold FPTS headline stacked below it.
+    width: s(124),
   },
   statsCategories: {
-    // 5-stat slash line — `35.5/12.4/10.5/2.9/2.8` (22 chars) in mono ms(11).
+    // 5-stat slash line — `35.5/12.4/10.5/2.9/2.8` (22 chars) in mono ms(13).
     // Kept as bare slashes (not suffixed like points mode) so the dense line
     // stays on one row; the column key above labels PTS·REB·AST·STL·BLK.
     width: s(160),
   },
   statLine: {
-    fontSize: ms(11),
+    // `Fascond` is a condensed face, so it reads small for its point size —
+    // bumped from ms(11) to ms(13) for legibility. Condensed glyphs are narrow
+    // enough that the wider line still fits the fixed stat-column widths below.
+    fontSize: ms(13),
     textAlign: "right" as const,
   },
   fptsValue: {
@@ -217,7 +220,7 @@ export const freeAgentListStyles = StyleSheet.create({
     fontSize: ms(9.5),
   },
   catLine: {
-    fontSize: ms(10),
+    fontSize: ms(11),
     marginTop: 1,
   },
   addButton: {

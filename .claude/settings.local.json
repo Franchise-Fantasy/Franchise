@@ -756,7 +756,19 @@
       "Bash(gem install *)",
       "Bash(sudo -n true)",
       "Bash(curl -sS -o /dev/null -w \"rubygems:%{http_code}\\\\n\" https://rubygems.org)",
-      "Bash(curl -sS -o /dev/null -w \"mise:%{http_code}\\\\n\" https://mise.run)"
+      "Bash(curl -sS -o /dev/null -w \"mise:%{http_code}\\\\n\" https://mise.run)",
+      "WebFetch(domain:support.claude.com)",
+      "WebFetch(domain:claude.com)",
+      "Bash(node -e \"const l=require\\('./package-lock.json'\\); const keys=Object.keys\\(l.packages||{}\\); const self=keys.find\\(k=>k.endsWith\\('node_modules/expo-glass-effect'\\)\\); console.log\\('locked pkg key:', self\\); for\\(const k of keys\\){const p=l.packages[k]; if\\(p&&p.dependencies&&p.dependencies['expo-glass-effect']\\){console.log\\('required by:', k||'\\(root\\)', '->', p.dependencies['expo-glass-effect']\\);}}\")",
+      "Bash(grep -v \"set-state-in-effect\\\\|Avoid calling setState\\\\|Effects are intended\\\\|Update external\\\\|Subscribe for\\\\|Calling setState synchronously\\\\|react.dev\\\\|cascading\\\\|^\\\\s*$\\\\|^\\\\s*\\\\*\\\\|^\\\\s*[0-9]* |\")",
+      "Bash(echo \"lint exit: $?\")",
+      "Bash(supabase projects *)",
+      "Bash(ls \"/Users/joe/Desktop/Franchise Wiki\" 2>/dev/null && echo \"WIKI FOUND\" || echo \"wiki path not present on this machine \\(Windows OneDrive path in CLAUDE.md\\)\"; echo \"---new+modified files---\"; cd /Users/joe/Desktop/Franchise; git status --short | grep -iE 'quiet|draftResume|draft' )",
+      "Bash(grep -rnE \"^\\\\s*<TextInput\\\\s*$\" app/ components/ --include=\"*.tsx\")",
+      "Bash(npx --yes supabase@latest --version)",
+      "Bash(grep -v \"set-state-in-effect\\\\|refs during render\\\\|Cannot access ref\\\\|Cannot update ref\\\\|react-hooks\\\\|Effects are intended\\\\|body of an effect\\\\|Update external\\\\|Subscribe for\\\\|Calling setState\\\\|React refs are\\\\|Refs should\\\\|^\\\\s*[0-9]* |\\\\|^\\\\s*>\\\\|^\\\\s*\\\\^\\\\|^$\\\\|react.dev\\\\|not recommended\\\\|state management\")",
+      "Bash(npx --yes supabase@latest projects list)",
+      "Bash(npx --yes supabase@latest functions deploy manage-draft-quiet-hours make-draft-pick pause-draft resume-draft --no-verify-jwt --project-ref iuqbossmnsezzgocpcbo)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

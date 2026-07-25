@@ -1,10 +1,9 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
-import { effectiveTimeLimit } from '../_shared/draftClock.ts';
+import { rearmPausedDraft } from '../_shared/draftResume.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
-import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
@@ -52,70 +51,23 @@ Deno.serve(async (req) => {
       throw new HttpError(`Draft is not paused (status: ${draft.status}).`, 409);
     }
 
-    // Restore the clock. If an in-flight autodraft advanced the pick AFTER the
-    // pause was recorded (a pause that raced a firing autopick), the snapshot is
-    // for a pick that's already done — current_pick_timestamp will be newer than
-    // paused_at. In that case give the now-current pick a fresh full clock
-    // rather than the dead pick's leftover time. Otherwise continue from the
-    // snapshot (at least 1s so QStash always re-arms).
-    const pickAdvancedAfterPause =
-      !!draft.current_pick_timestamp && !!draft.paused_at &&
-      new Date(draft.current_pick_timestamp).getTime() > new Date(draft.paused_at).getTime();
-    const remainingSeconds = pickAdvancedAfterPause
-      ? effectiveTimeLimit(draft.current_pick_number, draft)
-      : Math.max(1, Math.ceil((draft.paused_remaining_ms ?? draft.time_limit * 1000) / 1000));
-
-    // If the team on the clock has autopick on, fire its pick immediately.
-    let delay = remainingSeconds;
-    let autopickTriggered = false;
-    const { data: onClockPick } = await supabaseAdmin
-      .from('draft_picks')
-      .select('current_team_id')
-      .eq('draft_id', draft_id)
-      .eq('pick_number', draft.current_pick_number)
-      .maybeSingle();
-    if (onClockPick) {
-      const { data: teamStatus } = await supabaseAdmin
-        .from('draft_team_status')
-        .select('autopick_on')
-        .eq('draft_id', draft_id)
-        .eq('team_id', onClockPick.current_team_id)
-        .maybeSingle();
-      if (teamStatus?.autopick_on) {
-        delay = 1;
-        autopickTriggered = true;
-      }
-    }
-
-    // Arm the fresh QStash timer BEFORE flipping status, so resume is
-    // all-or-nothing: if this throws, the draft stays paused and the
-    // commissioner just retries — there is never an in_progress draft with no
-    // clock. (QStash's min delay is 1s and the flip below is sub-millisecond, so
-    // the timer can't fire before the flip. If the flip itself then fails, the
-    // armed timer harmlessly no-ops via the autodraft pause guard.)
-    await scheduleAutodraft(draft_id, draft.current_pick_number, delay, autopickTriggered);
-    // Slow drafts: re-arm the reminder against the restored remaining clock
-    // (only fires when the remainder itself is still slow-scale).
-    if (!autopickTriggered) {
-      await schedulePickReminder(draft_id, draft.current_pick_number, remainingSeconds);
-    }
-
-    const now = new Date().toISOString();
-    // Atomic transition — only resume a draft that is still paused.
-    const { data: updated, error: updateError } = await supabaseAdmin
-      .from('drafts')
-      .update({
-        status: 'in_progress',
-        current_pick_timestamp: now,
-        current_pick_time_limit: remainingSeconds,
-        paused_at: null,
-        paused_remaining_ms: null,
-      })
-      .eq('id', draft_id)
-      .eq('status', 'paused')
-      .select('id');
-    if (updateError) throw updateError;
-    if (!updated || updated.length === 0) {
+    // Restore the clock + flip back to in_progress (arms QStash before the flip
+    // for all-or-nothing semantics). A commissioner can resume any pause,
+    // including a quiet-hours freeze — no extraMatch guard. Note: if this is
+    // still inside the quiet window, the manage-draft-quiet-hours cron will
+    // re-freeze within ~5 min; that's the documented v1 behavior.
+    const { resumed, remainingSeconds } = await rearmPausedDraft(supabaseAdmin, {
+      id: draft_id,
+      current_pick_number: draft.current_pick_number,
+      current_pick_timestamp: draft.current_pick_timestamp,
+      paused_at: draft.paused_at,
+      paused_remaining_ms: draft.paused_remaining_ms,
+      time_limit: draft.time_limit,
+      picks_per_round: draft.picks_per_round,
+      accelerate_after_round: draft.accelerate_after_round,
+      accelerated_time_limit: draft.accelerated_time_limit,
+    });
+    if (!resumed) {
       throw new HttpError('Draft is no longer paused.', 409);
     }
 

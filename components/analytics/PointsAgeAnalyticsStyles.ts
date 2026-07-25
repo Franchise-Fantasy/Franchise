@@ -9,8 +9,16 @@ import { ms, s } from "@/utils/scale";
 export const CHART_HEIGHT = s(400);
 
 export const styles = StyleSheet.create({
+  // Fills the analytics body so the floating detail card can pin to its bottom.
+  root: {
+    flex: 1,
+  },
   scrollContent: {
     paddingBottom: s(32),
+  },
+  // Extra bottom room while the floating detail tray occupies the lower band.
+  scrollContentWithDetail: {
+    paddingBottom: s(150),
   },
 
   // Narrative Card — mirrors AnalyticsPreviewCard chrome
@@ -152,24 +160,36 @@ export const styles = StyleSheet.create({
     fontSize: ms(9),
   },
 
-  // Detail Card — gold-rule eyebrow + Alfa Slab name + Badge.
-  detailCard: {
+  // Floating Detail Card — pinned to the bottom of the viewport, over the
+  // chart, so a tapped dot pops into view regardless of scroll position. The
+  // wrapper is an opaque, page-colored tray filling the lower band: it occludes
+  // whatever content (footnote / dependency-risk) scrolls behind the card, so
+  // the card never visually collides with it. bg is set inline (theme-aware).
+  floatingDetail: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    paddingTop: s(14),
+    paddingBottom: s(10),
+    paddingHorizontal: s(2),
+  },
+  floatingDetailInner: {
     borderWidth: 1,
     borderRadius: 12,
     padding: s(14),
-    marginBottom: s(8),
-    marginTop: s(8),
-    // Floor sits just above the natural populated-content height so the card
-    // doesn't resize between the empty hint and a player. minHeight (not a
-    // fixed height) still lets it grow gracefully under large-font settings.
-    minHeight: s(118),
-    justifyContent: "center",
   },
+  // Detail Card interior — gold-rule eyebrow + Alfa Slab name + Badge.
   detailEyebrowRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(8),
+    justifyContent: "space-between",
     marginBottom: s(8),
+  },
+  detailEyebrowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
   },
   detailRule: {
     height: 2,
@@ -218,17 +238,6 @@ export const styles = StyleSheet.create({
     flexDirection: "row",
     gap: s(8),
     marginTop: s(8),
-  },
-  detailHintWrap: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingVertical: s(20),
-  },
-  detailHint: {
-    fontSize: ms(10),
-    letterSpacing: 1.2,
-    textAlign: "center",
   },
 
   // Info modal content (rendered inside shared InfoModal)

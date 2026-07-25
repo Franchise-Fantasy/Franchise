@@ -2,6 +2,7 @@ import { StyleSheet, View } from 'react-native';
 
 import { LotteryOddsEditor } from '@/components/create-league/LotteryOddsEditor';
 import { PickClockControl } from '@/components/draft/PickClockControl';
+import { QuietHoursControl } from '@/components/draft/QuietHoursControl';
 import { FieldGroup } from '@/components/ui/FieldGroup';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -72,6 +73,21 @@ export function StepDraft({ state, onChange, hideStartupDraft }: StepDraftProps)
           value={state.timePerPick}
           onValueChange={(v) => onChange('timePerPick', v)}
         />
+
+        {slowDraft && (
+          <QuietHoursControl
+            value={{
+              enabled: state.quietHoursEnabled,
+              startMin: state.quietHoursStartMin,
+              endMin: state.quietHoursEndMin,
+            }}
+            onChange={(next) => {
+              onChange('quietHoursEnabled', next.enabled);
+              onChange('quietHoursStartMin', next.startMin);
+              onChange('quietHoursEndMin', next.endMin);
+            }}
+          />
+        )}
 
         {totalRounds > 1 && !slowDraft && (
           <>

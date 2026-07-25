@@ -1681,7 +1681,6 @@ export function PlayerDetailModal({
         <PlayerDetailHeader
           player={player}
           sport={sport}
-          teamGamesPlayed={teamGamesPlayed}
           hasMinutesRestriction={hasMinutesRestriction}
           ownership={{
             isOnMyTeam,
@@ -1698,6 +1697,17 @@ export function PlayerDetailModal({
           canTrade={canTrade}
           onTrade={handleTradePress}
           onClose={handleClose}
+          rankBadges={
+            rankings && !isCategories ? (
+              <>
+                <Badge label={`#${rankings.overallRank} OVR`} variant="gold" />
+                <Badge
+                  label={`#${rankings.positionRank} ${rankings.primaryPosition}`}
+                  variant="neutral"
+                />
+              </>
+            ) : null
+          }
         />
 
         <NextGameProjStrip
@@ -1745,15 +1755,6 @@ export function PlayerDetailModal({
                   AVERAGES
                 </ThemedText>
               </View>
-              {rankings && !isCategories && (
-                <View style={styles.rankBadges}>
-                  <Badge label={`#${rankings.overallRank} OVR`} variant="gold" />
-                  <Badge
-                    label={`#${rankings.positionRank} ${rankings.primaryPosition}`}
-                    variant="neutral"
-                  />
-                </View>
-              )}
             </View>
             <SeasonAverages
               player={player}

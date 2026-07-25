@@ -42,7 +42,7 @@ import { Badge, type BadgeVariant } from "@/components/ui/Badge";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { type PositionCurve } from "@/constants/agingCurves";
-import { Brand, cardShadow } from "@/constants/Colors";
+import { Brand, cardShadow, cardShadowMedium } from "@/constants/Colors";
 import { getCurrentSeason, type Sport } from "@/constants/LeagueDefaults";
 import { useColors } from "@/hooks/useColors";
 import { useColorScheme } from "@/hooks/useColorScheme";
@@ -556,9 +556,16 @@ export function PointsAgeAnalytics({
   }
 
   return (
+    <View style={styles.root}>
     <ScrollView
       style={{ flex: 1 }}
-      contentContainerStyle={styles.scrollContent}
+      contentContainerStyle={[
+        styles.scrollContent,
+        // While the floating detail tray is up, reserve room so the last
+        // content (dependency risk) can scroll clear above it instead of
+        // sitting hidden behind it.
+        displayedPlayer ? styles.scrollContentWithDetail : null,
+      ]}
       showsVerticalScrollIndicator={false}
     >
       {/* ── Narrative Card ── matches AnalyticsPreviewCard chrome
@@ -1071,99 +1078,6 @@ export function PointsAgeAnalytics({
       ) : null}
       </View>
 
-      {/* ── Player Detail Card (always same size) — gold rule
-          eyebrow + Alfa Slab name + Badge for bucket. ── */}
-      <View
-        style={[
-          styles.detailCard,
-          {
-            backgroundColor: c.card,
-            borderColor: c.border,
-            ...cardShadow,
-          },
-        ]}
-      >
-        {displayedPlayer ? (
-          <TouchableOpacity
-            activeOpacity={0.7}
-            onPress={() => {
-              const full = players?.find(
-                (p) => p.player_id === displayedPlayer.playerId,
-              );
-              if (full) setModalPlayer(full);
-            }}
-            accessibilityRole="button"
-            accessibilityLabel={`View ${displayedPlayer.name} details`}
-          >
-            <Animated.View style={detailStyle}>
-              <View style={styles.detailEyebrowRow}>
-                <View style={[styles.detailRule, { backgroundColor: c.gold }]} />
-                <ThemedText
-                  type="varsitySmall"
-                  style={[styles.detailEyebrow, { color: c.secondaryText }]}
-                >
-                  PLAYER DETAIL
-                </ThemedText>
-              </View>
-
-              <View style={styles.detailHeader}>
-                <View style={styles.detailHeaderLeft}>
-                  <ThemedText
-                    type="display"
-                    style={[styles.detailName, { color: c.text }]}
-                    numberOfLines={1}
-                  >
-                    {displayedPlayer.name}
-                  </ThemedText>
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[styles.detailMeta, { color: c.secondaryText }]}
-                  >
-                    {displayedPlayer.position} · AGE {displayedPlayer.age}
-                  </ThemedText>
-                  <View style={styles.detailBadges}>
-                    <Badge
-                      label={
-                        ageBucket(displayedPlayer.age, sport) === 'rising'
-                          ? 'RISING'
-                          : ageBucket(displayedPlayer.age, sport) === 'prime'
-                            ? 'PRIME'
-                            : 'VETERAN'
-                      }
-                      variant={bucketBadgeVariant(ageBucket(displayedPlayer.age, sport))}
-                      size="small"
-                    />
-                  </View>
-                </View>
-                <View style={styles.detailFpts}>
-                  <ThemedText
-                    type="display"
-                    style={[styles.detailFptsValue, { color: c.text }]}
-                  >
-                    {displayedPlayer.avgFpts}
-                  </ThemedText>
-                  <ThemedText
-                    type="varsitySmall"
-                    style={[styles.detailFptsLabel, { color: c.secondaryText }]}
-                  >
-                    FPTS/G
-                  </ThemedText>
-                </View>
-              </View>
-            </Animated.View>
-          </TouchableOpacity>
-        ) : (
-          <View style={styles.detailHintWrap}>
-            <ThemedText
-              type="varsitySmall"
-              style={[styles.detailHint, { color: c.secondaryText }]}
-            >
-              TAP A PLAYER TO SEE DETAILS
-            </ThemedText>
-          </View>
-        )}
-      </View>
-
       {profile.totalWithAge < (players?.length ?? 0) && (
         <Text style={[styles.footnote, { color: c.secondaryText }]}>
           {profile.totalWithAge} of {players?.length} players have age
@@ -1255,6 +1169,104 @@ export function PointsAgeAnalytics({
         onClose={() => setModalPlayer(null)}
       />
     </ScrollView>
+
+      {/* ── Floating Player Detail ── pinned to the bottom of the viewport
+          (outside the ScrollView) so a tapped dot always pops into view no
+          matter how far the chart is scrolled. The opaque tray occludes the
+          content behind it so nothing collides with the card. Tap the card to
+          open the full player modal; the ✕ (or tapping the dot / another dot)
+          dismisses. Only mounted while a player is selected. */}
+      {displayedPlayer ? (
+        <Animated.View
+          style={[
+            styles.floatingDetail,
+            { backgroundColor: c.background },
+            detailStyle,
+          ]}
+        >
+          <TouchableOpacity
+            activeOpacity={0.85}
+            style={[
+              styles.floatingDetailInner,
+              { backgroundColor: c.card, borderColor: c.border, ...cardShadowMedium },
+            ]}
+            onPress={() => {
+              const full = players?.find(
+                (p) => p.player_id === displayedPlayer.playerId,
+              );
+              if (full) setModalPlayer(full);
+            }}
+            accessibilityRole="button"
+            accessibilityLabel={`View ${displayedPlayer.name} details`}
+          >
+            <View style={styles.detailEyebrowRow}>
+              <View style={styles.detailEyebrowLeft}>
+                <View style={[styles.detailRule, { backgroundColor: c.gold }]} />
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.detailEyebrow, { color: c.secondaryText }]}
+                >
+                  PLAYER DETAIL
+                </ThemedText>
+              </View>
+              <TouchableOpacity
+                onPress={() => setSelectedPlayer(null)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                accessibilityRole="button"
+                accessibilityLabel="Close player detail"
+              >
+                <Ionicons name="close" size={ms(16)} color={c.secondaryText} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.detailHeader}>
+              <View style={styles.detailHeaderLeft}>
+                <ThemedText
+                  type="display"
+                  style={[styles.detailName, { color: c.text }]}
+                  numberOfLines={1}
+                >
+                  {displayedPlayer.name}
+                </ThemedText>
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.detailMeta, { color: c.secondaryText }]}
+                >
+                  {displayedPlayer.position} · AGE {displayedPlayer.age}
+                </ThemedText>
+                <View style={styles.detailBadges}>
+                  <Badge
+                    label={
+                      ageBucket(displayedPlayer.age, sport) === 'rising'
+                        ? 'RISING'
+                        : ageBucket(displayedPlayer.age, sport) === 'prime'
+                          ? 'PRIME'
+                          : 'VETERAN'
+                    }
+                    variant={bucketBadgeVariant(ageBucket(displayedPlayer.age, sport))}
+                    size="small"
+                  />
+                </View>
+              </View>
+              <View style={styles.detailFpts}>
+                <ThemedText
+                  type="display"
+                  style={[styles.detailFptsValue, { color: c.text }]}
+                >
+                  {displayedPlayer.avgFpts}
+                </ThemedText>
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.detailFptsLabel, { color: c.secondaryText }]}
+                >
+                  FPTS/G
+                </ThemedText>
+              </View>
+            </View>
+          </TouchableOpacity>
+        </Animated.View>
+      ) : null}
+    </View>
   );
 }
 

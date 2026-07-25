@@ -1,7 +1,8 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, FlatList, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
@@ -11,6 +12,7 @@ import { PresenceListSheet, type PresenceEntry } from '@/components/chat/Presenc
 import { AvailablePlayers } from '@/components/draft/AvailablePlayers';
 import { CommishDraftControlsSheet } from '@/components/draft/CommishDraftControlsSheet';
 import { DraftChatModal } from '@/components/draft/DraftChatModal';
+import { DraftLobby } from '@/components/draft/DraftLobby';
 import { DraftOrder, PresenceTeam } from '@/components/draft/DraftOrder';
 import { DraftQueue } from '@/components/draft/DraftQueue';
 import { TeamRoster } from '@/components/draft/TeamRoster';
@@ -34,6 +36,7 @@ import { setDraftRoomOpen } from '@/lib/activeScreen';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { CurrentPick, DraftState } from '@/types/draft';
+import { formatMinuteOfDay } from '@/utils/draft/quietHours';
 import { ms, s } from '@/utils/scale';
 
 type ViewMode = 'players' | 'roster' | 'queue' | 'trades';
@@ -122,6 +125,10 @@ function RailTab({
     </Pressable>
   );
 }
+
+/** The draft hasn't started yet — the room shows the lobby, not the board. */
+const isPreDraftStatus = (status: DraftState['status'] | undefined) =>
+  status === 'pending' || status === 'unscheduled';
 
 /** Label-over-value stat in the desktop header's center meta cluster. */
 function DeskMetaItem({
@@ -216,11 +223,17 @@ export default function DraftRoomScreen() {
       if (error) throw error;
       return data as unknown as DraftState;
     },
-    // Seeded from initData above; only refetches if realtime invalidates
+    // Seeded from initData above; only refetches if realtime invalidates.
     enabled: !!initData,
+    // While the draft hasn't started, DraftOrder's realtime channel isn't
+    // mounted (the lobby renders instead), so poll as a backstop to catch the
+    // pending→in_progress flip — the countdown-expiry invalidation is the
+    // primary trigger; this covers a missed tick or a cron/other-member start.
+    refetchInterval: (query) => (isPreDraftStatus(query.state.data?.status) ? 15_000 : false),
   });
 
   const isDraftComplete = draftState?.status === 'complete';
+  const isPreDraft = isPreDraftStatus(draftState?.status);
 
   // Shared realtime subscription for league_players changes (draft picks, etc.)
   useRosterChanges(draftData?.league_id ?? null);
@@ -338,6 +351,19 @@ export default function DraftRoomScreen() {
   // Autopick is purely user-controlled. Local state is the source of truth.
 
   const isMyTurn = currentPick?.current_team_id === teamData?.id;
+
+  // On-the-clock cue. The "Your turn to pick!" push is silently muted while the
+  // draft room is open (app/_layout.tsx), and the pre-draft lobby lives inside
+  // this room — so the first picker (and anyone whose turn comes up in-app) gets
+  // no signal from the push. Fire a haptic + toast on each new pick that's mine.
+  const announcedPickRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (draftState?.status !== 'in_progress' || !isMyTurn || !currentPick) return;
+    if (announcedPickRef.current === currentPick.id) return;
+    announcedPickRef.current = currentPick.id;
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    showToast('info', "You're on the clock — make your pick!");
+  }, [draftState?.status, isMyTurn, currentPick, showToast]);
 
   const handleAutopickToggle = async () => {
     if (!teamData?.id) return;
@@ -548,7 +574,7 @@ export default function DraftRoomScreen() {
             {/* Right: who's here (avatars + count) → autopick toggle → commish →
                 chat, in that priority order. */}
             <View style={styles.deskHeaderRight}>
-              {!isDraftComplete && teamData && (
+              {!isDraftComplete && !isPreDraft && teamData && (
                 <TouchableOpacity
                   style={styles.deskPresence}
                   onPress={() => setShowPresenceList(true)}
@@ -677,7 +703,7 @@ export default function DraftRoomScreen() {
               <Ionicons name="chatbubble-ellipses-outline" size={20} color={colors.icon} />
             </TouchableOpacity>
           )}
-          {!isDraftComplete && teamData && (
+          {!isDraftComplete && !isPreDraft && teamData && (
             <PresenceAvatars
               onlineTeams={otherTeams}
               teamLogoMap={presenceLogoMap}
@@ -694,6 +720,16 @@ export default function DraftRoomScreen() {
       </ThemedView>
 
       <View style={styles.content}>
+        {isPreDraft && draftState ? (
+          <View style={[styles.contentCap, isDesktop && styles.contentCapDesktop]}>
+            <DraftLobby
+              draft={draftState}
+              draftId={draftId}
+              isRookieDraft={isRookieDraft}
+              draftPickTradingEnabled={draftPickTradingEnabled}
+            />
+          </View>
+        ) : (
         <View style={[styles.contentCap, isDesktop && styles.contentCapDesktop]}>
         {/* Pick strip stays mounted even after the draft completes so the
             last pick is visible. The completion notice renders below the
@@ -728,7 +764,9 @@ export default function DraftRoomScreen() {
         )}
 
         {/* Paused banner — shown to everyone in the room (not just the
-            commissioner) so nobody thinks the clock is broken. */}
+            commissioner) so nobody thinks the clock is broken. An overnight
+            quiet-hours freeze gets its own copy: it's expected, self-resolving,
+            and picks are still allowed. */}
         {draftState?.status === 'paused' && (
           <View style={[styles.completeNotice, { backgroundColor: colors.card, borderBottomColor: colors.border }]}>
             <View style={[styles.completeRule, { backgroundColor: colors.gold }]} />
@@ -738,12 +776,16 @@ export default function DraftRoomScreen() {
                 style={[styles.completeEyebrow, { color: colors.gold }]}
                 accessibilityRole="header"
               >
-                Draft Paused
+                {draftState.pause_reason === 'quiet_hours' ? 'Quiet Hours' : 'Draft Paused'}
               </ThemedText>
               <ThemedText style={[styles.completeNoticeSubtitle, { color: colors.secondaryText }]} numberOfLines={1}>
-                {teamData?.isCommissioner
-                  ? 'Resume from Commissioner Controls.'
-                  : 'The commissioner paused the draft.'}
+                {draftState.pause_reason === 'quiet_hours'
+                  ? draftState.quiet_hours_end_min != null
+                    ? `Clock's paused overnight — resumes ${formatMinuteOfDay(draftState.quiet_hours_end_min)} ET. You can still pick.`
+                    : "Clock's paused overnight. You can still pick."
+                  : teamData?.isCommissioner
+                    ? 'Resume from Commissioner Controls.'
+                    : 'The commissioner paused the draft.'}
               </ThemedText>
             </View>
           </View>
@@ -905,6 +947,7 @@ export default function DraftRoomScreen() {
           </>
         )}
         </View>
+        )}
       </View>
 
       {/* Presence list — same BottomSheet treatment as the league chat
@@ -978,6 +1021,9 @@ export default function DraftRoomScreen() {
           accelerateAfterRound={draftState.accelerate_after_round ?? null}
           acceleratedTimeLimit={draftState.accelerated_time_limit ?? null}
           status={draftState.status}
+          quietHoursEnabled={draftState.quiet_hours_enabled ?? false}
+          quietHoursStartMin={draftState.quiet_hours_start_min ?? null}
+          quietHoursEndMin={draftState.quiet_hours_end_min ?? null}
         />
       )}
     </SafeAreaView>
