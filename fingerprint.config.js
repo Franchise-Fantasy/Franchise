@@ -25,6 +25,15 @@
  * project — `ios/**` and `android/**` are already ignored above), so it has no
  * business gating OTA compatibility.
  *
+ * NOTE: `PackageJsonScriptsAll` also belongs here (dev/CI scripts like
+ * `typecheck:edge` are fingerprint sources with no native effect, and editing
+ * them orphans OTAs the same way — it stranded iOS build 64735ba7). It is
+ * deliberately NOT enabled right now: adding it changes the computed hash, which
+ * would break OTA delivery to the *currently installed* build (66e1b39c…, built
+ * before the skip existed). Re-add `'PackageJsonScriptsAll'` to sourceSkips in
+ * the SAME commit as the next `eas build`, so the new binary bakes in the stable
+ * hash. See the OTA-rescue notes.
+ *
  * @type {import('@expo/fingerprint').Config}
  */
 module.exports = {

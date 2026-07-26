@@ -23,6 +23,9 @@ export interface ProspectCardData {
   currentTeam?: string;
   /** prospect_rankings.updated_at — drives the "Updated …" freshness eyebrow. */
   lastUpdated?: string;
+  /** Already on a roster in the viewer's active league — the card stays visible
+   *  (scouting data doesn't stop being interesting) but can't be boarded. */
+  isRostered?: boolean;
 }
 
 /** Full prospect data for the profile screen. */

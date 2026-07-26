@@ -53,6 +53,10 @@ interface AvailablePlayersProps {
   currentPick: { id: string; current_team_id: string } | null;
   teamId: string;
   isRookieDraft?: boolean;
+  /** Calendar year of the draft class this rookie draft is for (e.g. 2026),
+   *  derived from `drafts.season`. Required when `isRookieDraft` — it scopes
+   *  the pool to that one class. */
+  rookieClassYear?: number;
   addToQueue?: (playerId: string) => void;
   queuedPlayerIds?: Set<string>;
 }
@@ -63,6 +67,7 @@ export function AvailablePlayers({
   currentPick,
   teamId,
   isRookieDraft,
+  rookieClassYear,
   addToQueue,
   queuedPlayerIds,
 }: AvailablePlayersProps) {
@@ -148,7 +153,7 @@ export function AvailablePlayers({
   );
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
-    queryKey: [...queryKeys.availablePlayers(leagueId), sport],
+    queryKey: [...queryKeys.availablePlayers(leagueId), sport, rookieClassYear ?? null],
     queryFn: async () => {
       const { data: draftedPlayers, error: draftedError } = await supabase
         .from("league_players")
@@ -164,11 +169,15 @@ export function AvailablePlayers({
         .eq("sport", sport)
         .order("avg_pts", { ascending: false });
 
-      // Rookie drafts: only show rookies. Initial drafts: anyone on a real
-      // team's roster (works year-round; `games_played > 0` would hide
-      // everyone during the offseason — WNBA April–May, NBA June–September).
+      // Rookie drafts: only THIS draft's class. `draft_year` is the class
+      // filter, not the `rookie` boolean — that column is only set on rows the
+      // prospect CMS created, so it both misses half of a real draft class and
+      // stays true for prospects 2-4 classes out (which would put every future
+      // high-schooler in the pool). Initial drafts: anyone on a real team's
+      // roster (works year-round; `games_played > 0` would hide everyone
+      // during the offseason — WNBA April–May, NBA June–September).
       if (isRookieDraft) {
-        query = query.eq("rookie", true);
+        query = query.eq("draft_year", rookieClassYear!);
       } else {
         query = query.not("pro_team", "is", null);
       }
@@ -185,7 +194,9 @@ export function AvailablePlayers({
       if (error) throw error;
       return data as PlayerSeasonStats[];
     },
-    enabled: !!leagueId,
+    // A rookie draft can't build its pool until the class year resolves —
+    // running without it would fetch the whole league-wide player pool.
+    enabled: !!leagueId && (!isRookieDraft || !!rookieClassYear),
     staleTime: 1000 * 60 * 5,
   });
 

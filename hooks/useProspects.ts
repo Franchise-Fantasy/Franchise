@@ -50,13 +50,16 @@ export function useProspects(draftYear: string, enabled: boolean = true) {
         .eq('draft_year', draftYearInt);
       if (bErr) throw bErr;
 
-      // Prospect rows carry the slug bridge; resolves to a draftable players.id.
+      // The slug bridge; resolves to a draftable players.id. Keyed on the slug
+      // alone, NOT is_prospect/status: once a prospect is drafted into the
+      // league their row becomes a normal active player, and gating on
+      // status='prospect' silently dropped the playerId (breaking "add to
+      // board" and every board entry pointing at them).
       const { data: prospects, error: pErr } = await supabase
         .from('players')
         .select('id, player_slug')
         .eq('sport', sport)
-        .eq('is_prospect', true)
-        .eq('status', 'prospect');
+        .not('player_slug', 'is', null);
       if (pErr) throw pErr;
 
       let rosteredIds: Set<string> = new Set();
@@ -87,16 +90,22 @@ export function useProspects(draftYear: string, enabled: boolean = true) {
     return contentfulQuery.data
       .map(card => {
         const b = boardBySlug.get(card.slug);
+        const playerId = playerBySlug.get(card.slug) ?? '';
         return {
           ...card,
-          playerId: playerBySlug.get(card.slug) ?? '',
+          playerId,
           displayRank: b?.display_rank ?? undefined,
           rankChange: b ? b.rank_change : undefined,
           currentTeam: b?.team ?? card.currentTeam,
           lastUpdated: b?.updated_at ?? undefined,
+          // Flagged, NOT filtered out: a prospect drafted into the NBA shares
+          // one players row with their pro self, so dropping rostered cards
+          // would erase most of a class from the hub the moment leagues
+          // drafted it — and silently delete those entries from My Board,
+          // which resolves its rows through this list.
+          isRostered: !!playerId && rosteredIds.has(playerId),
         };
       })
-      .filter(card => !card.playerId || !rosteredIds.has(card.playerId))
       // Ranked prospects first (by consensus rank); unranked fall to the bottom.
       .sort((a, b) => (a.displayRank ?? Infinity) - (b.displayRank ?? Infinity));
   })();

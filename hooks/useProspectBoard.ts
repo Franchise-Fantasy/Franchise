@@ -24,19 +24,30 @@ export function useProspectBoard(userId: string | undefined, enabled: boolean = 
   });
 }
 
-/** Reorder the board after drag-and-drop. Batch-updates rank values. */
+/**
+ * Reorder the board after drag-and-drop. Takes the FULL board in its new order
+ * (the screen shows one draft class at a time — see prospect-board's
+ * handleDragEnd) and writes only the rows whose rank actually moved, so a drag
+ * inside one class doesn't fire an update per row on a 200-player board.
+ */
 export function useReorderBoard(userId: string | undefined) {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (orderedPlayerIds: string[]) => {
-      const updates = orderedPlayerIds.map((playerId, index) =>
-        supabase
-          .from('prospect_boards')
-          .update({ rank: index + 1, updated_at: new Date().toISOString() })
-          .eq('user_id', userId!)
-          .eq('player_id', playerId),
-      );
+      const current = qc.getQueryData<ProspectBoardRow[]>(queryKeys.prospectBoard(userId!)) ?? [];
+      const currentRank = new Map(current.map(r => [r.player_id, r.rank]));
+
+      const updates = orderedPlayerIds
+        .map((playerId, index) => ({ playerId, rank: index + 1 }))
+        .filter(u => currentRank.get(u.playerId) !== u.rank)
+        .map(u =>
+          supabase
+            .from('prospect_boards')
+            .update({ rank: u.rank, updated_at: new Date().toISOString() })
+            .eq('user_id', userId!)
+            .eq('player_id', u.playerId),
+        );
       const results = await Promise.all(updates);
       const failed = results.find(r => r.error);
       if (failed?.error) throw failed.error;

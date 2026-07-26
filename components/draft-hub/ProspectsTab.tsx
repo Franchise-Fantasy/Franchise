@@ -106,7 +106,9 @@ export function ProspectsTab() {
         prospect={item}
         rank={index + 1}
         onOpenProspect={handleOpenProspect}
-        onAddProspectToBoard={item.playerId ? handleAddProspectToBoard : undefined}
+        onAddProspectToBoard={
+          item.playerId && !item.isRostered ? handleAddProspectToBoard : undefined
+        }
         alreadyOnBoard={!!item.playerId && boardPlayerIds.has(item.playerId)}
       />
     ),

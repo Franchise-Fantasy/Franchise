@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { CORS_HEADERS } from "../_shared/cors.ts";
 import { handleError, jsonResponse, errorResponse } from "../_shared/http.ts";
+import { normalizeName } from "../_shared/normalize.ts";
 import { parseBody, z } from "../_shared/validate.ts";
 
 /**
@@ -38,6 +39,66 @@ function field(fields: Record<string, any>, key: string): any {
   // Contentful sends { "en-US": value } when localized
   if (typeof val === "object" && "en-US" in val) return val["en-US"];
   return val;
+}
+
+type ExistingPlayer = { id: string; pro_team: string | null };
+
+// sport-scope: the lookups below are all .eq('sport','nba') or keyed on a
+// unique contentful_entry_id — the Contentful prospect pipeline is NBA-only.
+
+/**
+ * The `players` row this entry belongs to, if one already exists. Matched in
+ * order of decreasing confidence: the Contentful entry id, then the slug, then
+ * name + draft class.
+ *
+ * The name fallback is what stops a CMS re-seed from minting a second row for
+ * a player who is already in the app: re-created entries carry NEW entry ids,
+ * and a prospect who has since been drafted was created by the pro sync with
+ * no slug at all. Both happened on 2026-07-25 and put ~62 players in the 2026
+ * rookie draft pool twice.
+ */
+async function findExistingPlayer(
+  entryId: string,
+  slug: string | null,
+  name: string,
+  draftYear: number | null,
+): Promise<ExistingPlayer | null> {
+  // sport-scope: every lookup below is scoped to the NBA prospect pipeline
+  const byEntry = await supabase
+    .from("players")
+    .select("id, pro_team")
+    .eq("contentful_entry_id", entryId)
+    .maybeSingle();
+  if (byEntry.error) throw byEntry.error;
+  if (byEntry.data) return byEntry.data;
+
+  if (slug) {
+    const bySlug = await supabase
+      .from("players")
+      .select("id, pro_team")
+      .eq("sport", "nba")
+      .eq("player_slug", slug)
+      .maybeSingle();
+    if (bySlug.error) throw bySlug.error;
+    if (bySlug.data) return bySlug.data;
+  }
+
+  if (draftYear == null) return null;
+  // Compare with the SAME normalizer sync-players matches on, so "Morez
+  // Johnson Jr." (CMS) and "Morez Johnson" (pro feed) resolve to one row.
+  // Matching in JS, not with ilike: a Contentful name can contain `%`/`_`,
+  // which ilike would treat as wildcards.
+  const classRows = await supabase
+    .from("players")
+    .select("id, pro_team, name")
+    .eq("sport", "nba")
+    .eq("draft_year", draftYear);
+  if (classRows.error) throw classRows.error;
+
+  const target = normalizeName(name);
+  const matches = (classRows.data ?? []).filter((p) => normalizeName(p.name) === target);
+  // Two players of the same name in one class is possible; don't guess.
+  return matches.length === 1 ? matches[0] : null;
 }
 
 Deno.serve(async (req: Request) => {
@@ -91,32 +152,48 @@ Deno.serve(async (req: Request) => {
       if (!isNaN(parsed)) nbaDraftYear = parsed;
     }
 
+    const existing = await findExistingPlayer(entryId, slug ?? null, name, nbaDraftYear);
+    // A prospect who has already been drafted into the league is a real player
+    // now: the pro sync owns their name, position, team and injury status. Only
+    // stamp the CMS bridge fields on them — writing status:'prospect' back over
+    // an active pro would hide them from every roster surface.
+    const graduated = !!existing?.pro_team;
+
     const playerRow = {
-      name,
-      position: position ?? null,
-      school: school ?? null,
-      draft_year: nbaDraftYear,
       // The join bridge: the rankings pipeline + prospect_board join on slug,
       // so stamping it here is what makes a published prospect resolve to a
       // draftable players.id.
       player_slug: slug ?? null,
       contentful_entry_id: entryId,
+      school: school ?? null,
+      draft_year: nbaDraftYear,
       is_prospect: true,
-      rookie: true,
-      status: "prospect",
       // Explicit, not the column DEFAULT — the Contentful prospect pipeline
       // is NBA-only.
       sport: "nba",
       updated_at: new Date().toISOString(),
+      ...(graduated ? {} : {
+        name,
+        position: position ?? null,
+        rookie: true,
+        status: "prospect",
+      }),
     };
 
-    // Upsert: match on contentful_entry_id (unique key)
     // sport-scope: playerRow carries sport:'nba' explicitly (built above)
-    const { data, error } = await supabase
-      .from("players")
-      .upsert(playerRow, { onConflict: "contentful_entry_id" })
-      .select("id, name")
-      .single();
+    const { data, error } = existing
+      ? await supabase
+          .from("players")
+          .update(playerRow)
+          .eq("id", existing.id)
+          .select("id, name")
+          .single()
+      // sport-scope: playerRow carries sport:'nba' explicitly (built above)
+      : await supabase
+          .from("players")
+          .insert(playerRow)
+          .select("id, name")
+          .single();
 
     if (error) {
       throw error;

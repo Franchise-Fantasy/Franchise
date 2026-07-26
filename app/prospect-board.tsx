@@ -94,11 +94,21 @@ export default function ProspectBoardScreen() {
       .filter(Boolean) as BoardEntry[];
   }, [boardRows, allProspects]);
 
+  // The board is one global ranking, but this screen only ever shows a single
+  // draft class. Splice the reordered subset back into the full board at the
+  // slots it already occupied — passing just the visible ids would renumber
+  // them 1..N and collide with (or leapfrog) every other class's ranks.
   const handleDragEnd = useCallback(
     ({ data }: { data: BoardEntry[] }) => {
-      reorder(data.map(e => e.playerId));
+      const moved = data.map(e => e.playerId);
+      const visible = new Set(moved);
+      let next = 0;
+      const fullOrder = (boardRows ?? []).map(row =>
+        visible.has(row.player_id) ? moved[next++] : row.player_id,
+      );
+      reorder(fullOrder);
     },
-    [reorder],
+    [boardRows, reorder],
   );
 
   const handleOpenProspect = useCallback(

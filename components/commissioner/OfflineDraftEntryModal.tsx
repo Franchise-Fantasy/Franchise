@@ -11,6 +11,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
+import { parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
@@ -48,17 +49,24 @@ type PoolPlayer = { player_id: string; name: string; position: string | null };
  * reopen), re-seeding the form from the latest saved state.
  */
 export function OfflineDraftEntryModal({ visible, onClose, draftId, leagueId, sport }: Props) {
-  const { data: staged, dataUpdatedAt } = useQuery<Record<number, string>>({
+  const { data: staged, dataUpdatedAt } = useQuery<{
+    assignments: Record<number, string>;
+    classYear: number | null;
+  }>({
     queryKey: ['offlineDraftStaged', draftId],
     queryFn: async () => {
       const { data, error } = await supabase
         .from('drafts')
-        .select('offline_picks')
+        .select('offline_picks, season')
         .eq('id', draftId)
         .single();
       if (error) throw error;
       const rows = (data?.offline_picks as { pick_number: number; player_id: string }[] | null) ?? [];
-      return Object.fromEntries(rows.map((r) => [r.pick_number, r.player_id]));
+      return {
+        assignments: Object.fromEntries(rows.map((r) => [r.pick_number, r.player_id])),
+        // "2026-27" → the 2026 draft class, the pool this draft picks from.
+        classYear: data?.season ? parseSeasonStartYear(data.season) : null,
+      };
     },
     enabled: visible && !!draftId,
   });
@@ -81,7 +89,8 @@ export function OfflineDraftEntryModal({ visible, onClose, draftId, leagueId, sp
       draftId={draftId}
       leagueId={leagueId}
       sport={sport}
-      initialAssignments={staged}
+      initialAssignments={staged.assignments}
+      classYear={staged.classYear}
     />
   );
 }
@@ -93,7 +102,8 @@ function OfflineDraftEntryForm({
   leagueId,
   sport,
   initialAssignments,
-}: Props & { initialAssignments: Record<number, string> }) {
+  classYear,
+}: Props & { initialAssignments: Record<number, string>; classYear: number | null }) {
   const c = useColors();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -126,9 +136,11 @@ function OfflineDraftEntryForm({
     enabled: visible && !!draftId,
   });
 
-  // Rookie pool — same source as the live draft (rookie=true, not yet rostered).
+  // Rookie pool — same source as the live draft: this draft's class only
+  // (draft_year), not yet rostered. See AvailablePlayers for why the `rookie`
+  // boolean is the wrong filter.
   const { data: pool, isLoading: poolLoading } = useQuery<PoolPlayer[]>({
-    queryKey: ['offlineDraftRookiePool', leagueId, sport],
+    queryKey: ['offlineDraftRookiePool', leagueId, sport, classYear],
     queryFn: async () => {
       const { data: rostered } = await supabase
         .from('league_players')
@@ -140,7 +152,7 @@ function OfflineDraftEntryForm({
         .from('player_season_stats')
         .select('player_id, name, position')
         .eq('sport', sport)
-        .eq('rookie', true)
+        .eq('draft_year', classYear!)
         .order('avg_pts', { ascending: false });
       if (rosteredIds.length > 0) {
         query = query.filter('player_id', 'not.in', `(${rosteredIds.join(',')})`);
@@ -149,7 +161,7 @@ function OfflineDraftEntryForm({
       if (error) throw error;
       return (data ?? []) as PoolPlayer[];
     },
-    enabled: visible && !!leagueId,
+    enabled: visible && !!leagueId && !!classYear,
   });
 
   const poolById = useMemo(() => new Map((pool ?? []).map((p) => [p.player_id, p])), [pool]);
@@ -309,7 +321,7 @@ function OfflineDraftEntryForm({
             value={search}
             onChangeText={setSearch}
           />
-          {poolLoading ? (
+          {poolLoading && classYear ? (
             <View style={{ marginTop: s(20) }}>
               <LogoSpinner />
             </View>

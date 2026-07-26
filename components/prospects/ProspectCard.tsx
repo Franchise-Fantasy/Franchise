@@ -40,10 +40,14 @@ function ProspectCardBase({
   const handleAdd = () => onAddProspectToBoard?.(prospect);
   const showAdd = !!onAddProspectToBoard && !alreadyOnBoard;
 
-  // Meta tail (school + class year) — Inter body, secondary
-  const metaTail = prospect.classYear
-    ? `${prospect.school} · ${prospect.classYear}`
-    : prospect.school;
+  // Meta tail (school + class year) — Inter body, secondary. A prospect
+  // already on a roster in this league says so instead, since they can't be
+  // boarded or drafted here.
+  const metaTail = prospect.isRostered
+    ? 'Rostered in your league'
+    : prospect.classYear
+      ? `${prospect.school} · ${prospect.classYear}`
+      : prospect.school;
 
   return (
     <TouchableOpacity
@@ -51,7 +55,10 @@ function ProspectCardBase({
       onPress={handlePress}
       activeOpacity={0.7}
       accessibilityRole="button"
-      accessibilityLabel={`${prospect.name}, ${prospect.position}, ${prospect.school}, rank ${rank}`}
+      accessibilityLabel={
+        `${prospect.name}, ${prospect.position}, ${prospect.school}, rank ${rank}` +
+        (prospect.isRostered ? ', already rostered in your league' : '')
+      }
     >
       {/* Rank — Alfa Slab + thin gold side-rule (matches the ByYearTab
           pick-row treatment). The rule keeps tight visual rhythm with
@@ -141,7 +148,8 @@ export const ProspectCard = memo(ProspectCardBase, (prev, next) => (
   prev.prospect.classYear === next.prospect.classYear &&
   prev.prospect.photoUrl === next.prospect.photoUrl &&
   prev.prospect.displayRank === next.prospect.displayRank &&
-  prev.prospect.rankChange === next.prospect.rankChange
+  prev.prospect.rankChange === next.prospect.rankChange &&
+  prev.prospect.isRostered === next.prospect.isRostered
 ));
 
 const styles = StyleSheet.create({

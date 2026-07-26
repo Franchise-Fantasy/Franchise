@@ -2,7 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { deferWork } from '../_shared/background.ts';
-import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
+import { handleError, jsonResponse, errorResponse, HttpError } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
@@ -82,7 +82,7 @@ Deno.serve(async (req) => {
     const [draftResult, pickResult] = await Promise.all([
       supabaseAdmin
         .from('drafts')
-        .select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, league_id, type, status')
+        .select('current_pick_number, rounds, picks_per_round, time_limit, accelerate_after_round, accelerated_time_limit, league_id, type, status, season')
         .eq('id', draft_id)
         .single(),
       supabaseAdmin
@@ -123,7 +123,7 @@ Deno.serve(async (req) => {
       rosterConfigResult,
     ] = await Promise.all([
       supabaseAdmin.from('league_players').select('player_id').eq('league_id', draft.league_id),
-      supabaseAdmin.from('leagues').select('sport, position_limits, archived_at').eq('id', draft.league_id).single(),
+      supabaseAdmin.from('leagues').select('sport, position_limits, archived_at, season').eq('id', draft.league_id).single(),
       supabaseAdmin
         .from('league_players')
         .select('position, roster_slot')
@@ -240,8 +240,16 @@ Deno.serve(async (req) => {
         // NULLS LAST so statless rows never sort above real production.
         .order('avg_pts', { ascending: false, nullsFirst: false });
 
+      // Rookie drafts: only THIS draft's class, keyed on `draft_year` — the
+      // `rookie` boolean is only set on rows the prospect CMS created, so it
+      // both misses half of a real draft class and stays true for prospects
+      // several classes out. `drafts.season` ("2026-27") names the class year;
+      // it's nullable, so fall back to the league's own season.
+      // Mirrors components/draft/AvailablePlayers so bot and board agree.
       if (isRookieDraft) {
-        candidateQuery = candidateQuery.eq('rookie', true);
+        const season = draft.season ?? leagueResult.data?.season;
+        if (!season) throw new HttpError('Rookie draft has no season — cannot scope the class', 409);
+        candidateQuery = candidateQuery.eq('draft_year', parseInt(season.split('-')[0], 10));
       } else {
         candidateQuery = candidateQuery.not('pro_team', 'is', null);
       }

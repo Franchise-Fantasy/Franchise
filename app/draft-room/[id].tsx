@@ -24,6 +24,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ThemedView } from '@/components/ui/ThemedView';
 import { Colors, Fonts } from '@/constants/Colors';
+import { parseSeasonStartYear } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
@@ -197,6 +198,11 @@ export default function DraftRoomScreen() {
     [initData?.team],
   );
   const isRookieDraft = draftData?.type === 'rookie';
+  // The class a rookie draft is drafting: `drafts.season` is the league season
+  // the draft belongs to ("2026-27" → the 2026 class). Scopes the player pool.
+  const rookieClassYear = initData?.draft.season
+    ? parseSeasonStartYear(initData.draft.season)
+    : undefined;
   const draftPickTradingEnabled = initData?.draft_pick_trading_enabled ?? false;
 
   // Seed the shared draftState cache so DraftOrder's realtime subscription updates it
@@ -803,6 +809,7 @@ export default function DraftRoomScreen() {
                 teamId={teamData?.id || ''}
                 leagueId={draftData?.league_id || ''}
                 isRookieDraft={isRookieDraft}
+                rookieClassYear={rookieClassYear}
                 addToQueue={addToQueue}
                 queuedPlayerIds={queuedPlayerIds}
               />
@@ -892,6 +899,7 @@ export default function DraftRoomScreen() {
               teamId={teamData?.id || ''}
               leagueId={draftData?.league_id || ''}
               isRookieDraft={isRookieDraft}
+              rookieClassYear={rookieClassYear}
               addToQueue={addToQueue}
               queuedPlayerIds={queuedPlayerIds}
             />

@@ -81,11 +81,12 @@ export function useProspect(id: string | undefined, idType: 'slug' | 'player' = 
       if (knownPlayerId) {
         profile.playerId = knownPlayerId;
       } else {
+        // Slug alone — a prospect who has since been drafted is a normal
+        // active player row, and gating on is_prospect dropped their id.
         const { data } = await supabase
           .from('players')
           .select('id')
           .eq('sport', sport)
-          .eq('is_prospect', true)
           .eq('player_slug', slug)
           .maybeSingle();
         profile.playerId = data?.id ?? '';
