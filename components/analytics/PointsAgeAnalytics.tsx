@@ -682,9 +682,16 @@ export function PointsAgeAnalytics({
 
       {/* ── Position Curve Toggle + Info ── WeekRail-style chips on
           the left, info button on the far right (replaces the old
-          chart-overlay icon). */}
+          chart-overlay icon). The chips scroll horizontally: NBA has 8
+          (ALL + 5 tokens + G/F) and NFL 7, which overflow a narrow phone
+          and used to slide under the info button. */}
       <View style={styles.curveToggleRow}>
-        <View style={styles.curveToggleChips}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.curveToggleChips}
+          contentContainerStyle={styles.curveToggleChipsContent}
+        >
           {curveChips.map((key) => {
             const active = selectedCurve === key;
             return (
@@ -715,7 +722,7 @@ export function PointsAgeAnalytics({
               </TouchableOpacity>
             );
           })}
-        </View>
+        </ScrollView>
         <TouchableOpacity
           onPress={() => setInfoModalVisible(true)}
           hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}

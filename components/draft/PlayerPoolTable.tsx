@@ -135,6 +135,9 @@ interface PlayerPoolTableProps {
   isProjected: (playerId: string) => boolean;
   /** The player's rank on the viewer's prospect board — rookie drafts only. */
   boardRankFor: (playerId: string) => number | undefined;
+  /** The player's blended consensus rank — shown only when they're not on the
+   *  viewer's own board, so one rank number never means two things at once. */
+  consensusRankFor: (playerId: string) => number | undefined;
   /** Pool has no pro stat line (rookie-draft prospects) — drops the stat
    *  columns instead of rendering a wall of zeros with sortable headers. */
   hideStats?: boolean;
@@ -157,6 +160,7 @@ export function PlayerPoolTable({
   fptsFor,
   isProjected,
   boardRankFor,
+  consensusRankFor,
   hideStats,
   draftBlockFor,
   canDraft,
@@ -180,6 +184,8 @@ export function PlayerPoolTable({
       const badge = getInjuryBadge(item.status);
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
       const boardRank = boardRankFor(item.player_id);
+      const consensusRank = boardRank === undefined ? consensusRankFor(item.player_id) : undefined;
+      const shownRank = boardRank ?? consensusRank;
       const block = draftBlockFor(item);
       const queued = !!queuedPlayerIds?.has(item.player_id);
       const projected = isProjected(item.player_id);
@@ -189,7 +195,11 @@ export function PlayerPoolTable({
         .join(", ");
 
       const rowLabel =
-        (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
+        (boardRank !== undefined
+          ? `Board rank ${boardRank}, `
+          : consensusRank !== undefined
+            ? `Consensus rank ${consensusRank}, `
+            : "") +
         `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
         (projected ? ", projected" : "") +
         (statsLabel ? `, ${statsLabel}` : "");
@@ -224,9 +234,14 @@ export function PlayerPoolTable({
                     accessible={false}
                   />
                 </View>
-                {boardRank !== undefined && (
-                  <ThemedText style={[styles.boardRank, { color: c.heritageGold }]}>
-                    #{boardRank}
+                {shownRank !== undefined && (
+                  <ThemedText
+                    style={[
+                      styles.boardRank,
+                      { color: boardRank !== undefined ? c.heritageGold : c.secondaryText },
+                    ]}
+                  >
+                    #{shownRank}
                   </ThemedText>
                 )}
                 {/* The row's accessible entry point — carries the whole line so
@@ -354,7 +369,7 @@ export function PlayerPoolTable({
         </Pressable>
       );
     },
-    [c, cols, sport, sortBy, fptsFor, isProjected, boardRankFor, draftBlockFor, canDraft, queuedPlayerIds, addToQueue, onDraft, onSelectPlayer],
+    [c, cols, sport, sortBy, fptsFor, isProjected, boardRankFor, consensusRankFor, draftBlockFor, canDraft, queuedPlayerIds, addToQueue, onDraft, onSelectPlayer],
   );
 
   return (

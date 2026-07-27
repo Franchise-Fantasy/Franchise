@@ -30,9 +30,10 @@ import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
 import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { usePlayerProjections } from "@/hooks/usePlayerProjections";
 import { useProspectBoard } from "@/hooks/useProspectBoard";
+import { useProspectConsensus } from "@/hooks/useProspectConsensus";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
-import { preferProjection } from "@/utils/draft/draftRanking";
+import { preferProjection, sortRookiePool } from "@/utils/draft/draftRanking";
 import { formatPosition } from "@/utils/formatting";
 import { blendNflSeasonView, buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
@@ -46,6 +47,19 @@ import { nflAvgRowToGameShape, nflStatFields } from "@/utils/scoring/nflStatLine
 // games this season has NULL stat columns, and the category slash line calls
 // .toFixed on each — guard here so a statless player doesn't crash the row.
 const fixed1 = (v: number | null | undefined) => (v ?? 0).toFixed(1);
+
+/** How a rookie-draft pool is ordered — the staff board or the viewer's own. */
+type RookieSort = "consensus" | "board";
+
+const ROOKIE_SORT_LABELS: Record<RookieSort, string> = {
+  consensus: "Consensus",
+  board: "My Board",
+};
+
+const ROOKIE_SORT_HINTS: Record<RookieSort, string> = {
+  consensus: "Sorted by consensus rankings",
+  board: "Sorted by your prospect rankings",
+};
 
 interface AvailablePlayersProps {
   draftId: string;
@@ -360,31 +374,52 @@ export function AvailablePlayers({
     () => new Map((boardRows ?? []).map((r) => [r.player_id, r.rank])),
     [boardRows],
   );
+  // The staff consensus board for this class — the default rookie ordering, and
+  // the only one that exists for a user who never built a personal board.
+  const { data: consensusRankMap } = useProspectConsensus(
+    sport,
+    rookieClassYear,
+    !!isRookieDraft,
+  );
+
+  // A ranking is only offerable when it actually covers this pool — a board
+  // built for a different class shouldn't put an inert chip on screen.
   const hasBoardPlayers = useMemo(
     () => !!isRookieDraft && (players ?? []).some((p) => boardRankMap.has(p.player_id)),
     [isRookieDraft, players, boardRankMap],
   );
-  // null = no explicit choice → defaults ON. Prospects have no pro stats, so
-  // every stat sort is degenerate for a rookie pool — the user's own ranking
-  // is the most useful default order when they've built one.
-  const [boardSortPref, setBoardSortPref] = useState<boolean | null>(null);
-  const boardSortActive = hasBoardPlayers && (boardSortPref ?? true);
+  const hasConsensusPlayers = useMemo(
+    () =>
+      !!isRookieDraft &&
+      !!consensusRankMap &&
+      (players ?? []).some((p) => consensusRankMap.has(p.player_id)),
+    [isRookieDraft, players, consensusRankMap],
+  );
 
-  // Rookie pools: board-ranked players first (by rank), then everyone else
-  // alphabetically. The stat sorts all tie at zero for prospects — without a
-  // tiebreak the pool comes back in whatever order the statless rows landed in,
-  // which reads as shuffled. Non-rookie pools keep the hook's stat sort as-is.
+  // Prospects have no pro stats, so every stat sort is degenerate for a rookie
+  // pool — a ranking is the only meaningful order. null = no explicit choice,
+  // which resolves to consensus (the ranking every user has, and the better
+  // default than an empty personal board) and falls back to the other ranking
+  // whenever the preferred one doesn't cover this class.
+  const [rookieSortPref, setRookieSortPref] = useState<RookieSort | null>(null);
+  const rookieSort: RookieSort | null =
+    rookieSortPref === "board" && hasBoardPlayers
+      ? "board"
+      : hasConsensusPlayers
+        ? "consensus"
+        : hasBoardPlayers
+          ? "board"
+          : null;
+  // Only worth a control when there's an actual choice to make.
+  const showSortChips = hasBoardPlayers && hasConsensusPlayers;
+
+  // Non-rookie pools keep the filter hook's stat sort as-is.
   const displayPlayers = useMemo(() => {
     if (!isRookieDraft) return filteredPlayers;
-    // MAX_SAFE_INTEGER, not Infinity — Infinity - Infinity is NaN, which makes
-    // the comparator inconsistent for the (common) unranked-vs-unranked pair.
-    const rank = (p: PlayerSeasonStats) =>
-      (boardSortActive ? boardRankMap.get(p.player_id) : undefined) ??
-      Number.MAX_SAFE_INTEGER;
-    return [...filteredPlayers].sort(
-      (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),
-    );
-  }, [isRookieDraft, boardSortActive, filteredPlayers, boardRankMap]);
+    return rookieSort === "board"
+      ? sortRookiePool(filteredPlayers, boardRankMap, consensusRankMap)
+      : sortRookiePool(filteredPlayers, consensusRankMap, boardRankMap);
+  }, [isRookieDraft, rookieSort, filteredPlayers, boardRankMap, consensusRankMap]);
 
   const handleDraft = (player: PlayerSeasonStats) => {
     if (!isMyTurn || !currentPick) return;
@@ -426,6 +461,10 @@ export function AvailablePlayers({
   const boardRankFor = useCallback(
     (playerId: string) => (isRookieDraft ? boardRankMap.get(playerId) : undefined),
     [isRookieDraft, boardRankMap],
+  );
+  const consensusRankFor = useCallback(
+    (playerId: string) => (isRookieDraft ? consensusRankMap?.get(playerId) : undefined),
+    [isRookieDraft, consensusRankMap],
   );
   const draftBlockFor = useCallback(
     (p: PlayerSeasonStats) => {
@@ -478,10 +517,17 @@ export function AvailablePlayers({
         : null;
       const limitBlocked = !!limitViolation;
       const draftDisabled = !isMyTurn || isDrafting || limitBlocked;
-      // The user's own prospect-board rank — shown on rookie-draft rows so
-      // "who's my next guy" is answerable at a glance even when board sort
-      // is toggled off or filters reorder the list.
+      // The prospect's rank — shown on rookie-draft rows so "who's my next guy"
+      // is answerable at a glance whichever sort is active and however filters
+      // reorder the list. The user's own board wins when they've ranked the
+      // player (gold); otherwise the consensus rank fills in (muted), so the two
+      // number systems never sit side by side.
       const boardRank = isRookieDraft ? boardRankMap.get(item.player_id) : undefined;
+      const consensusRank =
+        isRookieDraft && boardRank === undefined
+          ? consensusRankMap?.get(item.player_id)
+          : undefined;
+      const shownRank = boardRank ?? consensusRank;
 
       // Injury/status badge (OUT, QUES, PROB…) renders on the meta line beside
       // the position, NOT inline with the name — inline it crushed the name
@@ -506,8 +552,12 @@ export function AvailablePlayers({
           accessibilityLabel={
             // The row is a single accessible node, so the visible #rank badge's
             // own label is dropped — fold it in here or a VoiceOver user never
-            // hears their board rank.
-            (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
+            // hears the rank.
+            (boardRank !== undefined
+              ? `Board rank ${boardRank}, `
+              : consensusRank !== undefined
+                ? `Consensus rank ${consensusRank}, `
+                : "") +
             `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
             (badge ? `, ${badge.label}` : "") +
             (isProjected ? ", projected" : "") +
@@ -545,12 +595,19 @@ export function AvailablePlayers({
 
           <View style={styles.info}>
             <View style={styles.nameRow}>
-              {boardRank !== undefined && (
+              {shownRank !== undefined && (
                 <ThemedText
-                  style={[styles.boardRank, { color: c.heritageGold }]}
-                  accessibilityLabel={`Ranked ${boardRank} on your prospect board`}
+                  style={[
+                    styles.boardRank,
+                    { color: boardRank !== undefined ? c.heritageGold : c.secondaryText },
+                  ]}
+                  accessibilityLabel={
+                    boardRank !== undefined
+                      ? `Ranked ${boardRank} on your prospect board`
+                      : `Consensus rank ${shownRank}`
+                  }
                 >
-                  #{boardRank}
+                  #{shownRank}
                 </ThemedText>
               )}
               <PlayerName
@@ -675,7 +732,7 @@ export function AvailablePlayers({
         </TouchableOpacity>
       );
     },
-    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, boardRankMap],
+    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, boardRankMap, consensusRankMap],
   );
 
   if (isLoading) {
@@ -703,45 +760,58 @@ export function AvailablePlayers({
         timeRange={timeRange}
         onTimeRangeChange={isRookieDraft ? undefined : setTimeRange}
       />
-      {/* Rookie drafts: sort the pool by the user's prospect big board. Only
-          offered when the board intersects this pool; defaults ON. */}
-      {hasBoardPlayers && (
+      {/* Rookie drafts: order the pool by a prospect ranking. The chips only
+          appear when both rankings cover this pool — with just one there's
+          nothing to choose, so the hint alone explains the order. */}
+      {rookieSort && (
         <View style={[styles.boardSortRow, { borderBottomColor: c.border }]}>
-          <TouchableOpacity
-            style={[
-              styles.boardChip,
-              {
-                borderColor: boardSortActive ? c.accent : c.border,
-                backgroundColor: boardSortActive ? c.accent : "transparent",
-              },
-            ]}
-            onPress={() => setBoardSortPref(!boardSortActive)}
-            // Chip is ~22pt tall; pad the touch target to the 44pt minimum.
-            hitSlop={{ top: s(11), bottom: s(11), left: s(4), right: s(4) }}
-            accessibilityRole="switch"
-            accessibilityState={{ checked: boardSortActive }}
-            accessibilityLabel="Sort by my prospect board"
-          >
-            <Ionicons
-              name={boardSortActive ? "checkmark" : "list-outline"}
-              size={12}
-              color={boardSortActive ? c.statusText : c.secondaryText}
-            />
-            <ThemedText
-              type="varsitySmall"
-              style={[
-                styles.boardChipText,
-                { color: boardSortActive ? c.statusText : c.secondaryText },
-              ]}
-            >
-              My Board
-            </ThemedText>
-          </TouchableOpacity>
-          {boardSortActive && (
-            <ThemedText style={[styles.boardSortHint, { color: c.secondaryText }]}>
-              Sorted by your prospect rankings
-            </ThemedText>
+          {showSortChips && (
+            <View style={styles.boardChipGroup} accessibilityRole="radiogroup">
+              {(["consensus", "board"] as const).map((mode) => {
+                const active = rookieSort === mode;
+                return (
+                  <TouchableOpacity
+                    key={mode}
+                    style={[
+                      styles.boardChip,
+                      {
+                        borderColor: active ? c.accent : c.border,
+                        backgroundColor: active ? c.accent : "transparent",
+                      },
+                    ]}
+                    onPress={() => setRookieSortPref(mode)}
+                    // Chip is ~22pt tall; pad the touch target to the 44pt minimum.
+                    hitSlop={{ top: s(11), bottom: s(11), left: s(4), right: s(4) }}
+                    accessibilityRole="radio"
+                    accessibilityState={{ checked: active, selected: active }}
+                    accessibilityLabel={
+                      mode === "board"
+                        ? "Sort by my prospect board"
+                        : "Sort by consensus rankings"
+                    }
+                  >
+                    <Ionicons
+                      name={active ? "checkmark" : mode === "board" ? "list-outline" : "trophy-outline"}
+                      size={12}
+                      color={active ? c.statusText : c.secondaryText}
+                    />
+                    <ThemedText
+                      type="varsitySmall"
+                      style={[
+                        styles.boardChipText,
+                        { color: active ? c.statusText : c.secondaryText },
+                      ]}
+                    >
+                      {ROOKIE_SORT_LABELS[mode]}
+                    </ThemedText>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
           )}
+          <ThemedText style={[styles.boardSortHint, { color: c.secondaryText }]}>
+            {ROOKIE_SORT_HINTS[rookieSort]}
+          </ThemedText>
         </View>
       )}
       {isDesktop ? (
@@ -756,6 +826,7 @@ export function AvailablePlayers({
           fptsFor={fptsFor}
           isProjected={isProjectedId}
           boardRankFor={boardRankFor}
+          consensusRankFor={consensusRankFor}
           hideStats={isRookieDraft}
           draftBlockFor={draftBlockFor}
           canDraft={isMyTurn && !isDrafting}
@@ -867,7 +938,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  // "My Board" sort toggle — rookie drafts only.
+  // Consensus / "My Board" sort selector — rookie drafts only.
   boardSortRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -875,6 +946,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(12),
     paddingVertical: s(6),
     borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  boardChipGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(6),
   },
   boardChip: {
     flexDirection: "row",

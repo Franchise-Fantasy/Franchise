@@ -3,6 +3,7 @@ import {
   effectiveDraftPts,
   preferProjection,
   restrictToRosterNeeds,
+  sortRookiePool,
 } from '@/utils/draft/draftRanking';
 import { isEligibleForSlot } from '@/utils/roster/rosterSlotsShared';
 
@@ -236,5 +237,57 @@ describe('restrictToRosterNeeds', () => {
     expect(bySlot('DST')).toBe(1);
     expect(bySlot('BE')).toBe(6); // exactly bench capacity — no overflow
     expect(roster).toHaveLength(15);
+  });
+});
+
+describe('sortRookiePool', () => {
+  // Every prospect has the same (empty) pro stat line, so ONLY the rank maps and
+  // the name tiebreak may influence order.
+  const pool = [
+    { player_id: 'c', name: 'Carter' },
+    { player_id: 'a', name: 'Adams' },
+    { player_id: 'b', name: 'Baker' },
+    { player_id: 'd', name: 'Dunn' },
+  ];
+
+  it('orders by the primary ranking', () => {
+    const consensus = new Map([['c', 1], ['a', 2], ['b', 3], ['d', 4]]);
+    expect(sortRookiePool(pool, consensus, undefined).map(p => p.player_id)).toEqual([
+      'c', 'a', 'b', 'd',
+    ]);
+  });
+
+  it('falls back to the secondary ranking for players the primary omits', () => {
+    const board = new Map([['d', 1]]);
+    const consensus = new Map([['a', 1], ['b', 2], ['c', 3], ['d', 9]]);
+    // 'd' leads on the board; the rest keep consensus order behind it.
+    expect(sortRookiePool(pool, board, consensus).map(p => p.player_id)).toEqual([
+      'd', 'a', 'b', 'c',
+    ]);
+  });
+
+  it('sorts wholly unranked prospects alphabetically at the bottom', () => {
+    const consensus = new Map([['d', 1]]);
+    expect(sortRookiePool(pool, consensus, undefined).map(p => p.player_id)).toEqual([
+      'd', 'a', 'b', 'c',
+    ]);
+  });
+
+  it('is alphabetical when neither ranking covers the pool', () => {
+    // MAX_SAFE_INTEGER (not Infinity) keeps the unranked-vs-unranked comparison
+    // at 0 instead of NaN, so the name tiebreak actually runs.
+    expect(sortRookiePool(pool, undefined, undefined).map(p => p.name)).toEqual([
+      'Adams', 'Baker', 'Carter', 'Dunn',
+    ]);
+    expect(sortRookiePool(pool, new Map(), new Map()).map(p => p.name)).toEqual([
+      'Adams', 'Baker', 'Carter', 'Dunn',
+    ]);
+  });
+
+  it('does not mutate the input pool', () => {
+    const consensus = new Map([['d', 1]]);
+    const original = [...pool];
+    sortRookiePool(pool, consensus, undefined);
+    expect(pool).toEqual(original);
   });
 });

@@ -3,9 +3,8 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { hasUnresolvedDeadLetter, recordDeadLetter } from '../_shared/adminAlerts.ts';
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
-import { rearmPausedDraft } from '../_shared/draftResume.ts';
+import { notifyOnClockAfterResume, rearmPausedDraft } from '../_shared/draftResume.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
-import { notifyTeams } from '../_shared/push.ts';
 import { isSlowClock, pickDeadlineMs } from '../../../utils/draft/pickClock.ts';
 import { isQuietNow } from '../../../utils/draft/quietHours.ts';
 import type { Database } from '../../../types/database.types.ts';
@@ -119,22 +118,21 @@ Deno.serve(async (req) => {
           if (!result.resumed) continue;
           resumed++;
 
-          // Wake-up push to the GM now on the clock (autopick teams get the
-          // autopick-made push instead, so skip those). Archived leagues are
-          // already filtered above, so notifyTeams (no archived backstop) is safe.
-          if (result.onClockTeamId && !result.autopickTriggered) {
-            const { data: league } = await supabaseAdmin
-              .from('leagues')
-              .select('name')
-              .eq('id', d.league_id)
-              .single();
-            const ln = league?.name ?? 'Your League';
-            await notifyTeams(supabaseAdmin, [result.onClockTeamId], 'draft',
-              `${ln} — Draft's back on!`,
-              "Quiet hours are over — you're on the clock.",
-              { screen: 'draft-room', draft_id: d.id }
-            );
-          }
+          // Wake-up push to the GM now on the clock. Deliberately NOT
+          // league-wide: this fires every morning, and only the person on the
+          // clock has anything to act on. (The ENTER freeze pushes nobody — it
+          // lands in the middle of the night, which is the whole point of
+          // quiet hours.)
+          const { data: league } = await supabaseAdmin
+            .from('leagues')
+            .select('name')
+            .eq('id', d.league_id)
+            .single();
+          const ln = league?.name ?? 'Your League';
+          await notifyOnClockAfterResume(supabaseAdmin, d.id, result,
+            `${ln} — Draft's back on!`,
+            "Quiet hours are over — you're on the clock.",
+          );
         }
       } catch (err) {
         console.error(`manage-draft-quiet-hours: draft ${d.id} failed:`, err);

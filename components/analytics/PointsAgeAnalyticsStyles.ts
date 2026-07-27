@@ -85,10 +85,17 @@ export const styles = StyleSheet.create({
     paddingHorizontal: 2,
     gap: s(8),
   },
+  // The chips live in a horizontal ScrollView: `flex: 1` keeps it from pushing
+  // the info button off the row, and the row-level gap keeps the two apart even
+  // when the chips are scrolled to their end.
   curveToggleChips: {
     flex: 1,
+  },
+  curveToggleChipsContent: {
     flexDirection: "row",
+    alignItems: "center",
     gap: s(6),
+    paddingRight: s(2),
   },
   curveToggleInfo: {
     padding: s(2),

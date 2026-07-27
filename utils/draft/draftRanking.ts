@@ -34,6 +34,31 @@ export function effectiveDraftPts(input: {
   return seasonProjPts ?? lastSeasonAvgPts ?? currentAvgPts ?? 0;
 }
 
+/** Order a rookie-draft pool by prospect rank.
+ *
+ *  Prospects have no pro stat line, so every stat sort ties at zero and the pool
+ *  comes back in whatever order the statless rows landed in — a ranking is the
+ *  only meaningful order. `primary` is the selected ranking (consensus or the
+ *  viewer's own board) and `secondary` is the other one, so a prospect ranked on
+ *  only one of the two still beats a wholly unranked one; name breaks the final
+ *  tie. Returns a new array — the input is not mutated. */
+export function sortRookiePool<T extends { player_id: string; name: string }>(
+  players: T[],
+  primary: Map<string, number> | undefined,
+  secondary: Map<string, number> | undefined,
+): T[] {
+  // MAX_SAFE_INTEGER, not Infinity — Infinity - Infinity is NaN, which makes the
+  // comparator inconsistent for the (common) unranked-vs-unranked pair.
+  const rank = (ranks: Map<string, number> | undefined, p: T) =>
+    ranks?.get(p.player_id) ?? Number.MAX_SAFE_INTEGER;
+  return [...players].sort(
+    (a, b) =>
+      rank(primary, a) - rank(primary, b) ||
+      rank(secondary, a) - rank(secondary, b) ||
+      a.name.localeCompare(b.name),
+  );
+}
+
 /** Roster-completion guard for the autodraft bot. A pure best-available bot
  *  never reaches for the low-scoring mandatory positions — in an NFL draft
  *  every skill player outscores every K and D/ST, so left alone the bot spends

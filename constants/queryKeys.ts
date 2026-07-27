@@ -363,6 +363,9 @@ export const queryKeys = {
     ["prospectPlayers", leagueId] as const,
   prospectBoard: (userId: string) => ["prospectBoard", userId] as const,
   prospectNews: (playerId: string) => ["prospectNews", playerId] as const,
+  // Consensus board rank keyed by players.id, per sport + draft class.
+  prospectConsensus: (sport: string, draftYear: number) =>
+    ["prospectConsensus", sport, draftYear] as const,
 
   // ── NBA Playoff Archive (beta) ───────────────────────────
   archiveSeasons: () => ["archiveSeasons"] as const,

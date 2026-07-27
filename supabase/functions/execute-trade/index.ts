@@ -20,10 +20,17 @@ const Body = z.object({
 });
 
 const ORDINALS = ['1st', '2nd', '3rd', '4th', '5th'];
-function formatPickLabel(season: string, round: number): string {
+/**
+ * `pickNumber` is the OVERALL pick (`draft_picks.pick_number`), not the team's
+ * round-relative slot. It's null until the draft order is determined, and the
+ * label degrades to "'27 1st" rather than inventing a number. Mirrors
+ * `formatPickLabel` in types/trade.ts (short year form for chat/notes).
+ */
+function formatPickLabel(season: string, round: number, pickNumber?: number | null): string {
   // Draft for "2026-27" season happens in summer 2026, so use the start year
   const year = String(parseInt(season.split('-')[0], 10)).slice(-2);
-  return `'${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
+  const base = `'${year} ${ORDINALS[round - 1] ?? `${round}th`}`;
+  return pickNumber != null ? `${base} · Pick ${pickNumber}` : base;
 }
 
 // Hype scoring: determines trade announcement tier
@@ -758,7 +765,7 @@ Deno.serve(async (req) => {
         ? supabaseAdmin.from('players').select('id, name').in('id', playerIds)
         : Promise.resolve({ data: [] }),
       pickIds.length > 0
-        ? supabaseAdmin.from('draft_picks').select('id, season, round').in('id', pickIds)
+        ? supabaseAdmin.from('draft_picks').select('id, season, round, pick_number').in('id', pickIds)
         : Promise.resolve({ data: [] }),
       allTeamIds.length > 0
         ? supabaseAdmin.from('teams').select('id, name').in('id', allTeamIds)
@@ -769,7 +776,7 @@ Deno.serve(async (req) => {
       (playerNameRes.data ?? []).map((p) => [p.id, p.name]),
     );
     const pickInfoMap: Record<string, string> = Object.fromEntries(
-      (pickInfoRes.data ?? []).map((p) => [p.id, formatPickLabel(p.season, p.round)]),
+      (pickInfoRes.data ?? []).map((p) => [p.id, formatPickLabel(p.season, p.round, p.pick_number)]),
     );
     const teamNameMap: Record<string, string> = Object.fromEntries(
       (teamNameRes.data ?? []).map((t) => [t.id, t.name]),

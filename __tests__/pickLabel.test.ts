@@ -1,4 +1,5 @@
 import { formatPickLabel, formatPickLabelShort } from '@/types/trade';
+import { overallPickNumber } from '@/utils/league/draftPickNumber';
 
 // Regression cover for the trade-picker "glitched pick numbers" report:
 // the label used to render `slot_number` (a team's round-relative draft slot),
@@ -31,5 +32,21 @@ describe('formatPickLabel', () => {
 
   it('falls back to a numeric ordinal past the named rounds', () => {
     expect(formatPickLabel('2026-27', 6, null)).toBe('2026 6th');
+  });
+});
+
+// The draft hub has no `pick_number` to read pre-lottery, so it derives the
+// same overall numbering from the projected within-round slot. It must agree
+// with what `pick_number` becomes once start-lottery commits the order —
+// otherwise a pick reads as "Pick 9" in the hub and "Pick 19" in the trade card.
+describe('overallPickNumber', () => {
+  it('leaves round 1 as the within-round slot', () => {
+    expect(overallPickNumber(1, 1, 10)).toBe(1);
+    expect(overallPickNumber(1, 9, 10)).toBe(9);
+  });
+
+  it('offsets later rounds by one full round of picks', () => {
+    expect(overallPickNumber(2, 3, 10)).toBe(13);
+    expect(overallPickNumber(3, 1, 12)).toBe(25);
   });
 });

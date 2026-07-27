@@ -22,10 +22,23 @@ import { useAddToBoard, useProspectBoard } from '@/hooks/useProspectBoard';
 import { useProspects } from '@/hooks/useProspects';
 import { useSubscription } from '@/hooks/useSubscription';
 import type { ProspectCardData } from '@/types/prospect';
+import { getEligiblePositions } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
 
 
 const POSITIONS = ['All', 'PG', 'SG', 'SF', 'PF', 'C'];
+
+/**
+ * Prospect positions are free-text from Contentful and multi-position entries
+ * use a slash ("SG/SF", "SG/SF/PF") — an exact-equality filter hid every one of
+ * them from the position tabs. Normalise the separators to the '-' the shared
+ * eligibility primitive expects, then let it decide (which also expands bare
+ * WNBA "G"/"F" tokens).
+ */
+function matchesPosition(prospectPosition: string, filter: string): boolean {
+  const normalized = prospectPosition.replace(/[/,\s]+/g, '-').toUpperCase();
+  return getEligiblePositions(normalized).includes(filter);
+}
 
 export function ProspectsTab() {
   const scheme = useColorScheme() ?? 'light';
@@ -77,7 +90,7 @@ export function ProspectsTab() {
   const filtered = useMemo(() => {
     if (!prospects) return [];
     if (position === 'All') return prospects;
-    return prospects.filter(p => p.position === position);
+    return prospects.filter(p => matchesPosition(p.position, position));
   }, [prospects, position]);
 
   const handleOpenProspect = useCallback(

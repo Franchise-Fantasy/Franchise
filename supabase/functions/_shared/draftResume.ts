@@ -8,6 +8,7 @@
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 import { effectiveTimeLimit } from './draftClock.ts';
+import { notifyTeams } from './push.ts';
 import { scheduleAutodraft, schedulePickReminder } from './qstash.ts';
 
 export interface RearmableDraft {
@@ -135,4 +136,32 @@ export async function rearmPausedDraft(
     onClockTeamId,
     autopickTriggered,
   };
+}
+
+/**
+ * Wake-up push to the GM who is now on the clock after a resume.
+ *
+ * Both resume paths (manual commissioner resume, quiet-window exit) need the
+ * identical guard — skip when no team resolved, and skip when the team's
+ * autopick already fired, since they get the autopick-made push instead — so it
+ * lives here beside `rearmPausedDraft` rather than being duplicated. Callers
+ * supply their own copy; `title` is prefixed with the league name by the
+ * caller, matching every other draft push.
+ *
+ * `notifyTeams` has no archived-league backstop, so callers must already have
+ * excluded archived leagues (the quiet-hours cron filters its working set; the
+ * manual resume is only reachable from a league whose UI exists).
+ */
+export async function notifyOnClockAfterResume(
+  supabaseAdmin: SupabaseClient,
+  draftId: string,
+  result: RearmResult,
+  title: string,
+  body: string,
+): Promise<void> {
+  if (!result.onClockTeamId || result.autopickTriggered) return;
+  await notifyTeams(supabaseAdmin, [result.onClockTeamId], 'draft', title, body, {
+    screen: 'draft-room',
+    draft_id: draftId,
+  });
 }

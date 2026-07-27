@@ -9,6 +9,7 @@ import { Colors, Fonts, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
 import { formatProtectionStory, formatSwapStory } from '@/types/trade';
+import { overallPickNumber } from '@/utils/league/draftPickNumber';
 import { ms, s } from '@/utils/scale';
 
 interface ByTeamTabProps {
@@ -181,7 +182,9 @@ export function ByTeamTab({
                                 R{pick.round}
                               </ThemedText>
                               <ThemedText style={[styles.pickLabel, { color: c.text }]}>
-                                {isUpcoming ? `Pick ${pick.display_slot}` : 'Slot TBD'}
+                                {isUpcoming
+                                  ? `Pick ${overallPickNumber(pick.round, pick.display_slot, teams.length)}`
+                                  : 'Slot TBD'}
                               </ThemedText>
                               <View style={{ flex: 1 }} />
                               {pick.isTraded && (

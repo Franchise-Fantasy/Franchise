@@ -1,11 +1,14 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { deferWork } from '../_shared/background.ts';
 import { corsResponse } from '../_shared/cors.ts';
-import { rearmPausedDraft } from '../_shared/draftResume.ts';
+import { notifyOnClockAfterResume, rearmPausedDraft } from '../_shared/draftResume.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
+import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
 
 const Body = z.object({
   draft_id: z.string().uuid(),
@@ -40,7 +43,7 @@ Deno.serve(async (req) => {
     // Commissioner-only.
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by')
+      .select('created_by, name')
       .eq('id', draft.league_id)
       .single();
     if (!league || league.created_by !== user.id) {
@@ -56,7 +59,7 @@ Deno.serve(async (req) => {
     // including a quiet-hours freeze — no extraMatch guard. Note: if this is
     // still inside the quiet window, the manage-draft-quiet-hours cron will
     // re-freeze within ~5 min; that's the documented v1 behavior.
-    const { resumed, remainingSeconds } = await rearmPausedDraft(supabaseAdmin, {
+    const result = await rearmPausedDraft(supabaseAdmin, {
       id: draft_id,
       current_pick_number: draft.current_pick_number,
       current_pick_timestamp: draft.current_pick_timestamp,
@@ -67,9 +70,32 @@ Deno.serve(async (req) => {
       accelerate_after_round: draft.accelerate_after_round,
       accelerated_time_limit: draft.accelerated_time_limit,
     });
-    if (!resumed) {
+    if (!result.resumed) {
       throw new HttpError('Draft is no longer paused.', 409);
     }
+
+    // The pause pushed to the whole league, so the resume has to as well —
+    // otherwise managers who backed out of a paused draft never learn the clock
+    // restarted. The GM now on the clock gets the actionable second push (same
+    // league-wide + on-clock pairing start-draft uses).
+    const leagueName = league.name ?? 'Your League';
+    const { remainingSeconds } = result;
+    deferWork((async () => {
+      await notifyLeague(supabaseAdmin, draft.league_id, 'draft',
+        `${leagueName} — Draft Resumed`,
+        'The commissioner resumed the draft. The clock is running again.',
+        { screen: 'draft-room', draft_id },
+        [user.id],
+      );
+      await notifyOnClockAfterResume(supabaseAdmin, draft_id, result,
+        `${leagueName} — You're on the clock!`,
+        // Slowness is a property of the draft's clock setting; the amount left
+        // is what's restored from the pause snapshot.
+        isSlowClock(draft.time_limit)
+          ? `The draft is back on — you have ${formatPickClock(remainingSeconds)} to pick.`
+          : 'The draft is back on. Make your pick.',
+      );
+    })(), 'resume-draft notify');
 
     return jsonResponse({ message: 'Draft resumed', resumed_with_seconds: remainingSeconds });
   } catch (error) {

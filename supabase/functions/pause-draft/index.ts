@@ -1,8 +1,10 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { deferWork } from '../_shared/background.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
@@ -40,7 +42,7 @@ Deno.serve(async (req) => {
     // Commissioner-only.
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by')
+      .select('created_by, name')
       .eq('id', draft.league_id)
       .single();
     if (!league || league.created_by !== user.id) {
@@ -75,6 +77,20 @@ Deno.serve(async (req) => {
     if (!updated || updated.length === 0) {
       throw new HttpError('Draft is no longer in progress.', 409);
     }
+
+    // Tell the league their clock stopped — a slow draft can sit paused for
+    // hours, and without this the only signal is the banner in an already-open
+    // draft room. The commissioner pressed the button, so skip them.
+    const leagueName = league.name ?? 'Your League';
+    deferWork(
+      notifyLeague(supabaseAdmin, draft.league_id, 'draft',
+        `${leagueName} — Draft Paused`,
+        'The commissioner paused the draft. The clock is stopped.',
+        { screen: 'draft-room', draft_id },
+        [user.id],
+      ),
+      'pause-draft notify',
+    );
 
     return jsonResponse({ message: 'Draft paused', remaining_ms: remainingMs });
   } catch (error) {

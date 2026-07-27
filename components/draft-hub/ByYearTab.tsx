@@ -10,6 +10,7 @@ import { Colors, Fonts } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { DraftHubPick, DraftHubLeagueSettings, DraftHubSwap, DraftHubTeam } from '@/hooks/useDraftHub';
 import { formatProtectionStory, formatSwapStory } from '@/types/trade';
+import { overallPickNumber } from '@/utils/league/draftPickNumber';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { resolveSwap } from '@/utils/league/pickSwapResolution';
 import { ms, s } from '@/utils/scale';
@@ -556,11 +557,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
           <Section key={round} title={`Round ${round}`}>
             {roundPicks.map((pick, idx) => {
               const pickPos = pick.display_slot;
-              // Continuous pick number across rounds: R2 pick 1 shows as 11,
-              // 12, … rather than restarting at 1. Every round has one slot per
-              // team, so each prior round adds teams.length to the offset.
-              // pickPos stays the within-round slot for the protection check.
-              const overallPickNumber = (round - 1) * teams.length + pickPos;
+              const pickNumber = overallPickNumber(round, pickPos, teams.length);
               const protHolds = pick.protection_threshold && leagueSettings.pickConditionsEnabled && isUpcomingSeason
                 ? pickPos <= pick.protection_threshold
                 : false;
@@ -612,7 +609,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                     <View style={styles.pickNumColumn}>
                       <View style={[styles.pickNumRule, { backgroundColor: c.gold }]} />
                       <ThemedText style={[styles.pickRoundNumber, { color: c.text }]}>
-                        {isUpcomingSeason ? overallPickNumber : '?'}
+                        {isUpcomingSeason ? pickNumber : '?'}
                       </ThemedText>
                     </View>
                     {/* Team line — both logos when traded (origin faded → effective solid). */}
