@@ -66,6 +66,7 @@ type HomeDraft = {
   id: string;
   type: string;
   status: string | null;
+  pause_reason: 'commissioner' | 'quiet_hours' | null;
   draft_date: string | null;
   is_offline: boolean;
 };
@@ -169,7 +170,7 @@ export default function HomeScreen() {
       if (!league) return null;
       const { data, error } = await supabase
         .from('drafts')
-        .select('id, type, status, draft_date, is_offline')
+        .select('id, type, status, pause_reason, draft_date, is_offline')
         .eq('league_id', league.id)
         .neq('status', 'complete')
         .order('created_at', { ascending: false })
@@ -499,6 +500,8 @@ export default function HomeScreen() {
         season: league.season,
         draftType: activeDraft.type,
         draftDate: activeDraft.draft_date ?? null,
+        draftStatus: activeDraft.status ?? null,
+        pauseReason: activeDraft.pause_reason ?? null,
         isReadyToEnter,
         isCommissioner,
         invite,

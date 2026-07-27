@@ -11,7 +11,7 @@ import {
   View,
 } from "react-native";
 
-import { PlayerPoolTable } from "@/components/draft/PlayerPoolTable";
+import { PlayerPoolTable, type ProspectRank } from "@/components/draft/PlayerPoolTable";
 import { PlayerDetailModal } from "@/components/player/PlayerDetailModal";
 import { PlayerFilterBar } from "@/components/player/PlayerFilterBar";
 import { PlayerHeadshotImage } from "@/components/player/PlayerHeadshotImage";
@@ -458,13 +458,23 @@ export function AvailablePlayers({
     (playerId: string) => projectedIds.has(playerId),
     [projectedIds],
   );
-  const boardRankFor = useCallback(
-    (playerId: string) => (isRookieDraft ? boardRankMap.get(playerId) : undefined),
-    [isRookieDraft, boardRankMap],
-  );
-  const consensusRankFor = useCallback(
-    (playerId: string) => (isRookieDraft ? consensusRankMap?.get(playerId) : undefined),
-    [isRookieDraft, consensusRankMap],
+  // The rank number on a rookie row comes from the ACTIVE ranking and nothing
+  // else. Preferring the viewer's own board regardless of sort put two numbering
+  // systems on screen at once — a gold "#3" from the personal board sitting
+  // between consensus #18 and #19 — so the column read as scrambled. A prospect
+  // the active ranking doesn't cover gets no number; those sort to the bottom of
+  // the pool anyway, so the visible numbers always ascend down the list.
+  const rankFor = useCallback(
+    (playerId: string): ProspectRank | undefined => {
+      if (!isRookieDraft || !rookieSort) return undefined;
+      if (rookieSort === "board") {
+        const rank = boardRankMap.get(playerId);
+        return rank === undefined ? undefined : { rank, source: "board" };
+      }
+      const rank = consensusRankMap?.get(playerId);
+      return rank === undefined ? undefined : { rank, source: "consensus" };
+    },
+    [isRookieDraft, rookieSort, boardRankMap, consensusRankMap],
   );
   const draftBlockFor = useCallback(
     (p: PlayerSeasonStats) => {
@@ -517,17 +527,10 @@ export function AvailablePlayers({
         : null;
       const limitBlocked = !!limitViolation;
       const draftDisabled = !isMyTurn || isDrafting || limitBlocked;
-      // The prospect's rank — shown on rookie-draft rows so "who's my next guy"
-      // is answerable at a glance whichever sort is active and however filters
-      // reorder the list. The user's own board wins when they've ranked the
-      // player (gold); otherwise the consensus rank fills in (muted), so the two
-      // number systems never sit side by side.
-      const boardRank = isRookieDraft ? boardRankMap.get(item.player_id) : undefined;
-      const consensusRank =
-        isRookieDraft && boardRank === undefined
-          ? consensusRankMap?.get(item.player_id)
-          : undefined;
-      const shownRank = boardRank ?? consensusRank;
+      // The prospect's rank on the active ranking — shown on rookie-draft rows
+      // so "who's my next guy" is answerable at a glance however filters reorder
+      // the list. Gold when it's the viewer's own board, muted for consensus.
+      const prospectRank = rankFor(item.player_id);
 
       // Injury/status badge (OUT, QUES, PROB…) renders on the meta line beside
       // the position, NOT inline with the name — inline it crushed the name
@@ -553,11 +556,9 @@ export function AvailablePlayers({
             // The row is a single accessible node, so the visible #rank badge's
             // own label is dropped — fold it in here or a VoiceOver user never
             // hears the rank.
-            (boardRank !== undefined
-              ? `Board rank ${boardRank}, `
-              : consensusRank !== undefined
-                ? `Consensus rank ${consensusRank}, `
-                : "") +
+            (prospectRank
+              ? `${prospectRank.source === "board" ? "Board" : "Consensus"} rank ${prospectRank.rank}, `
+              : "") +
             `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
             (badge ? `, ${badge.label}` : "") +
             (isProjected ? ", projected" : "") +
@@ -595,19 +596,22 @@ export function AvailablePlayers({
 
           <View style={styles.info}>
             <View style={styles.nameRow}>
-              {shownRank !== undefined && (
+              {prospectRank && (
                 <ThemedText
                   style={[
                     styles.boardRank,
-                    { color: boardRank !== undefined ? c.heritageGold : c.secondaryText },
+                    {
+                      color:
+                        prospectRank.source === "board" ? c.heritageGold : c.secondaryText,
+                    },
                   ]}
                   accessibilityLabel={
-                    boardRank !== undefined
-                      ? `Ranked ${boardRank} on your prospect board`
-                      : `Consensus rank ${shownRank}`
+                    prospectRank.source === "board"
+                      ? `Ranked ${prospectRank.rank} on your prospect board`
+                      : `Consensus rank ${prospectRank.rank}`
                   }
                 >
-                  #{shownRank}
+                  #{prospectRank.rank}
                 </ThemedText>
               )}
               <PlayerName
@@ -732,7 +736,7 @@ export function AvailablePlayers({
         </TouchableOpacity>
       );
     },
-    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, boardRankMap, consensusRankMap],
+    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, rankFor],
   );
 
   if (isLoading) {
@@ -825,8 +829,7 @@ export function AvailablePlayers({
           onSortChange={filterBarProps.onSortChange}
           fptsFor={fptsFor}
           isProjected={isProjectedId}
-          boardRankFor={boardRankFor}
-          consensusRankFor={consensusRankFor}
+          rankFor={rankFor}
           hideStats={isRookieDraft}
           draftBlockFor={draftBlockFor}
           canDraft={isMyTurn && !isDrafting}

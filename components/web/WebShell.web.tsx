@@ -17,7 +17,7 @@ const CONTENT_MAX = 960;
 // than the reading column — otherwise they leave big empty side gutters on a
 // wide monitor. Add a route here once its desktop layout fills the extra width.
 const WIDE_MAX = 1240;
-const WIDE_ROUTES = new Set(["/", "/standings"]);
+const WIDE_ROUTES = new Set(["/", "/standings", "/draft-hub"]);
 
 // The setup wizards render their own full-chrome WizardShell card (step rail +
 // form + optional summary panel), so they need a wider bound than the reading

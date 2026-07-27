@@ -12,18 +12,19 @@ export interface OffseasonMilestoneProps {
   tipOffISO: string | null;
   /** What the season starts with — "TIP-OFF" (basketball) or "KICKOFF" (NFL). */
   openerWord: string;
-  /** Condensed single-line + slim-dots rendering for hero cards that don't
-   *  have the ~130pt of headroom the full countdown block needs (e.g. the
-   *  Roster hero's lineup-bar slot). Full size otherwise. */
-  compact?: boolean;
+  /** `full` — centered countdown + labelled phase ribbon, for a hero body that
+   *  owns the whole card width (Matchup).
+   *  `rail` — right-aligned countdown stat with no ribbon, sized to sit beside
+   *  a team identity block in a hero's main row (Roster). */
+  variant?: "full" | "rail";
 }
 
 /**
  * Offseason milestone — the one number every manager checks in the gap
- * between seasons (days until next season's opener), plus a phase ribbon
- * showing where the league sits on the road there. Shared between the
- * Matchup hero (replaces the dead "no matchup" body) and the Roster hero
- * (fills the space the lineup bar leaves empty once games stop).
+ * between seasons (days until next season's opener). The `full` variant adds
+ * a phase ribbon showing where the league sits on the road there; the `rail`
+ * variant is countdown-only, for the Roster hero's identity row (its phase is
+ * named in words in that hero's context strip instead).
  */
 export function OffseasonMilestone({
   phaseLabels,
@@ -31,11 +32,8 @@ export function OffseasonMilestone({
   countdownDays,
   tipOffISO,
   openerWord,
-  compact = false,
+  variant = "full",
 }: OffseasonMilestoneProps) {
-  const countdownLabel = `${countdownDays} ${countdownDays === 1 ? "DAY" : "DAYS"}${
-    tipOffISO ? ` · ${formatShortDate(tipOffISO).toUpperCase()}` : ""
-  }`;
   const accessibilityLabel =
     countdownDays != null
       ? `Next season ${openerWord.toLowerCase()} in ${countdownDays} ${
@@ -43,20 +41,25 @@ export function OffseasonMilestone({
         }${tipOffISO ? `, ${formatIsoDate(tipOffISO)}` : ""}`
       : `Offseason: ${phaseLabels[phaseIndex] ?? "unknown phase"}`;
 
-  if (compact) {
+  if (variant === "rail") {
     return (
-      <View style={styles.compactWrap} accessibilityLabel={accessibilityLabel}>
-        <View style={styles.compactRow}>
-          <ThemedText type="varsitySmall" style={styles.compactLabel}>
-            {countdownDays != null ? `${openerWord} IN` : "OFFSEASON"}
+      <View style={styles.rail} accessible accessibilityLabel={accessibilityLabel}>
+        <ThemedText type="varsitySmall" style={styles.railCap} numberOfLines={1}>
+          {countdownDays != null ? `${openerWord} IN` : "OFFSEASON"}
+        </ThemedText>
+        {countdownDays != null ? (
+          <>
+            <Text style={styles.railNum}>{countdownDays}</Text>
+            <ThemedText type="mono" style={styles.railSub} numberOfLines={1}>
+              {countdownDays === 1 ? "DAY" : "DAYS"}
+              {tipOffISO ? ` · ${formatShortDate(tipOffISO).toUpperCase()}` : ""}
+            </ThemedText>
+          </>
+        ) : (
+          <ThemedText type="mono" style={styles.railPhase} numberOfLines={2}>
+            {phaseLabels[phaseIndex] ?? ""}
           </ThemedText>
-          <ThemedText type="mono" style={styles.compactValue} numberOfLines={1}>
-            {countdownDays != null
-              ? countdownLabel
-              : (phaseLabels[phaseIndex] ?? "")}
-          </ThemedText>
-        </View>
-        <PhaseRibbon labels={phaseLabels} activeIndex={phaseIndex} compact />
+        )}
       </View>
     );
   }
@@ -89,17 +92,13 @@ export function OffseasonMilestone({
  * (per league type: Season Over → Draft Lottery → Rookie Draft → New Season,
  * etc.) with completed steps and the active step lit in gold. A continuous
  * base rail sits behind opaque nodes so it reads on any sport-tinted surface.
- * `compact` drops the per-step text labels and shrinks the nodes/spacing to
- * a slim dot-track — same idea, ~35pt shorter.
  */
 function PhaseRibbon({
   labels,
   activeIndex,
-  compact = false,
 }: {
   labels: string[];
   activeIndex: number;
-  compact?: boolean;
 }) {
   const n = labels.length;
   if (n === 0) return null;
@@ -107,12 +106,12 @@ function PhaseRibbon({
   const donePct = (Math.min(activeIndex, n - 1) / n) * 100;
   return (
     <View
-      style={compact ? styles.ribbonCompact : styles.ribbon}
+      style={styles.ribbon}
       accessibilityLabel={`Offseason progress: ${
         labels[activeIndex] ?? labels[0]
       }, step ${Math.min(activeIndex + 1, n)} of ${n}`}
     >
-      <View style={compact ? styles.ribbonNodesRowCompact : styles.ribbonNodesRow}>
+      <View style={styles.ribbonNodesRow}>
         <View
           style={[styles.ribbonBaseLine, { left: `${halfPct}%`, right: `${halfPct}%` }]}
         />
@@ -125,32 +124,29 @@ function PhaseRibbon({
           <View key={label} style={styles.ribbonCol}>
             <View
               style={[
-                compact ? styles.nodeCompact : styles.node,
+                styles.node,
                 i < activeIndex && styles.nodeDone,
-                i === activeIndex &&
-                  (compact ? styles.nodeActiveCompact : styles.nodeActive),
+                i === activeIndex && styles.nodeActive,
               ]}
             />
           </View>
         ))}
       </View>
-      {!compact && (
-        <View style={styles.ribbonLabelsRow}>
-          {labels.map((label, i) => (
-            <Text
-              key={label}
-              numberOfLines={1}
-              style={[
-                styles.ribbonLabel,
-                i < activeIndex && styles.ribbonLabelDone,
-                i === activeIndex && styles.ribbonLabelActive,
-              ]}
-            >
-              {label}
-            </Text>
-          ))}
-        </View>
-      )}
+      <View style={styles.ribbonLabelsRow}>
+        {labels.map((label, i) => (
+          <Text
+            key={label}
+            numberOfLines={1}
+            style={[
+              styles.ribbonLabel,
+              i < activeIndex && styles.ribbonLabelDone,
+              i === activeIndex && styles.ribbonLabelActive,
+            ]}
+          >
+            {label}
+          </Text>
+        ))}
+      </View>
     </View>
   );
 }
@@ -266,51 +262,38 @@ const styles = StyleSheet.create({
     color: Brand.vintageGold,
   },
 
-  // ── Compact variant — single label/value row + slim dot track ────────
-  compactWrap: {
-    marginBottom: s(10),
-    gap: s(6),
+  // ── Rail variant — right-aligned countdown stat, no ribbon ──────────
+  rail: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+    // Top-aligned so the cap line sits with the neighbouring tricode's cap
+    // height rather than floating in the middle of the identity block.
+    alignSelf: "flex-start",
+    marginTop: s(3),
   },
-  compactRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
-  compactLabel: {
+  railCap: {
     color: Brand.vintageGold,
-    fontSize: ms(10),
+    fontSize: ms(8.5),
     letterSpacing: 1.2,
   },
-  compactValue: {
+  railNum: {
+    fontFamily: Fonts.mono,
     color: Brand.ecru,
-    fontSize: ms(12),
-    letterSpacing: 0.2,
+    fontSize: ms(30),
+    lineHeight: ms(34),
+    letterSpacing: -0.5,
     fontVariant: ["tabular-nums"],
   },
-  ribbonCompact: {
-    paddingHorizontal: s(2),
+  railSub: {
+    color: Brand.ecruMuted,
+    fontSize: ms(10),
+    letterSpacing: 0.4,
   },
-  ribbonNodesRowCompact: {
-    position: "relative",
-    flexDirection: "row",
-    alignItems: "center",
-    height: ms(8),
-  },
-  nodeCompact: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "rgba(233, 226, 203, 0.30)",
-  },
-  nodeActiveCompact: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: Brand.vintageGold,
-    shadowColor: Brand.vintageGold,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 3,
-    elevation: 2,
+  railPhase: {
+    color: Brand.ecru,
+    fontSize: ms(13),
+    letterSpacing: 0.2,
+    textAlign: "right",
+    marginTop: s(2),
   },
 });

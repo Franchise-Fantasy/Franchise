@@ -1,11 +1,11 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import React from "react";
-import { Pressable, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 
 import { TeamLogo } from "@/components/team/TeamLogo";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { WebStandingsCard } from "@/components/web/home/WebStandingsCard";
+import { PanelHeader } from "@/components/web/PanelHeader";
 import { cardShadow } from "@/constants/Colors";
 import { useColors } from "@/hooks/useColors";
 import { type TeamStanding } from "@/utils/league/standingsQueries";
@@ -146,24 +146,6 @@ export function WebStandingsScreen(props: Props) {
 
 type C = ReturnType<typeof useColors>;
 
-function PanelHeader({ c, title, onInfo }: { c: C; title: string; onInfo?: () => void }) {
-  return (
-    <View style={styles.panelHead}>
-      <View style={styles.panelHeadLeft}>
-        <View style={[styles.rule, { backgroundColor: c.gold }]} />
-        <ThemedText type="sectionLabel" style={{ color: c.text }}>
-          {title}
-        </ThemedText>
-      </View>
-      {onInfo && (
-        <TouchableOpacity onPress={onInfo} accessibilityRole="button" accessibilityLabel={`About ${title}`} hitSlop={8}>
-          <Ionicons name="information-circle-outline" size={18} color={c.secondaryText} />
-        </TouchableOpacity>
-      )}
-    </View>
-  );
-}
-
 // ─── Your Team strip ─────────────────────────────────────────────────────────
 
 function YourTeamStrip({
@@ -272,7 +254,7 @@ function AllPlayPanel({
   const router = useRouter();
   return (
     <View style={styles.panel}>
-      <PanelHeader c={c} title="All-Play" onInfo={() => onInfo("allplay")} />
+      <PanelHeader title="All-Play" onInfo={() => onInfo("allplay")} />
       <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
         {allPlayRanked.length === 0 ? (
           <ThemedText style={[styles.empty, { color: c.secondaryText }]}>Not enough games played yet.</ThemedText>
@@ -346,7 +328,7 @@ function LuckPanel({
 }) {
   return (
     <View style={styles.panel}>
-      <PanelHeader c={c} title="Luck Index" onInfo={() => onInfo("luck")} />
+      <PanelHeader title="Luck Index" onInfo={() => onInfo("luck")} />
       <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
         {luckSorted.length === 0 ? (
           <ThemedText style={[styles.empty, { color: c.secondaryText }]}>Not enough games played yet.</ThemedText>
@@ -413,7 +395,7 @@ function SosPanel({
 }) {
   return (
     <View style={styles.panel}>
-      <PanelHeader c={c} title="Strength of Schedule" onInfo={() => onInfo("sos")} />
+      <PanelHeader title="Strength of Schedule" onInfo={() => onInfo("sos")} />
       <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border }]}>
         {sosSorted.length === 0 ? (
           <ThemedText style={[styles.empty, { color: c.secondaryText }]}>Not enough games played yet.</ThemedText>
@@ -555,12 +537,6 @@ const styles = StyleSheet.create({
   // Panels
   panel: {
     marginBottom: 18,
-  },
-  panelHead: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 10,
   },
   panelHeadLeft: {
     flexDirection: "row",

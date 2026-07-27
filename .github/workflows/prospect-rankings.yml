@@ -33,6 +33,10 @@ jobs:
           # Public project URL and space id are not secrets; the two keys are.
           SUPABASE_URL: https://iuqbossmnsezzgocpcbo.supabase.co
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SB_SECRET_KEY }}
+          # Runner IPs are on Cloudflare/Akamai bot deny lists (nbadraft 403s,
+          # espn returns a table-less challenge page), so page fetches go out
+          # through Supabase's egress. See supabase/functions/scrape-proxy.
+          SCRAPE_PROXY_URL: https://iuqbossmnsezzgocpcbo.supabase.co/functions/v1/scrape-proxy
           CONTENTFUL_SPACE_ID: 652mhs62v69t
           CONTENTFUL_MANAGEMENT_TOKEN: ${{ secrets.CONTENTFUL_MANAGEMENT_TOKEN }}
           CONTENTFUL_ENVIRONMENT: master

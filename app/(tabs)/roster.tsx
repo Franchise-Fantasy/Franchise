@@ -404,10 +404,10 @@ export default function RosterScreen() {
   const heroIsOffseason = !currentWeek && !seasonOpensLabel;
   const lastSeason = useOffseasonLastSeason(leagueId, teamId, heroIsOffseason);
 
-  // Days-until-next-season countdown + phase ribbon — mirrors Matchup's
-  // `heroOffseason` so the two heroes stay visually consistent. Fills the
-  // hero's empty lineup-bar slot even for a franchise with no `lastSeason`
-  // yet (e.g. right after the very first draft).
+  // Days-until-next-season countdown — same source as Matchup's
+  // `heroOffseason`. Takes the hero's right rail (which the matchup scoreline
+  // vacates in the offseason) even for a franchise with no `lastSeason` yet
+  // (e.g. right after the very first draft).
   const heroOffseasonMilestone = useMemo(() => {
     if (!heroIsOffseason || !league?.offseason_step) return null;
     return {

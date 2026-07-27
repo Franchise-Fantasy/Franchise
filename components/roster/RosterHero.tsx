@@ -108,9 +108,9 @@ interface RosterHeroProps {
     playoffResult: string | null;
     season: string;
   } | null;
-  /** Days-until-next-season countdown + phase ribbon — same data Matchup's
-   *  hero uses. Fills the space the lineup bar leaves empty in the
-   *  offseason, since `lastSeason` alone is null until a season archives. */
+  /** Days-until-next-season countdown — same data Matchup's hero uses. In the
+   *  offseason it takes the right rail the matchup scoreline vacates, and its
+   *  phase label leads the bottom context strip. */
   offseasonMilestone?: {
     phaseLabels: string[];
     phaseIndex: number;
@@ -270,10 +270,15 @@ function buildUpcomingContext(
   return items;
 }
 
+/** Offseason strip — leads with the league's current offseason phase in
+ *  words (the hero has no other place that says what's happening now), then
+ *  the usual roster-fill meta. */
 function buildOffseasonContext(
   rs: NonNullable<RosterHeroProps["rosterStats"]>,
+  phaseLabel?: string,
 ): ContextItem[] {
   const items: ContextItem[] = [];
+  if (phaseLabel) items.push({ label: phaseLabel.toUpperCase(), urgent: true });
   const rosterFull = rs.rosterCount >= rs.rosterSize;
   items.push({
     label: rs.rosterSize
@@ -380,12 +385,19 @@ export function RosterHero({
       ? "UPCOMING"
       : "OFFSEASON";
 
+  // The rail falls back to naming the phase when there's no tip-off date to
+  // count down to — don't repeat it in the strip below when it does.
+  const offseasonPhase =
+    offseasonMilestone && offseasonMilestone.countdownDays != null
+      ? offseasonMilestone.phaseLabels[offseasonMilestone.phaseIndex]
+      : undefined;
+
   const contextItems = isUpcoming
     ? buildUpcomingContext(rosterStats, seasonOpensLabel!)
     : isOffseason
       ? rosterStats
-        ? buildOffseasonContext(rosterStats)
-        : [{ label: "OFFSEASON" }]
+        ? buildOffseasonContext(rosterStats, offseasonPhase)
+        : [{ label: (offseasonPhase ?? "Offseason").toUpperCase() }]
       : buildInSeasonContext(rosterStats);
 
   const tricode = myTeam?.tricode ?? "—";
@@ -401,18 +413,26 @@ export function RosterHero({
   const lastSeasonRecord = lastSeason
     ? formatWLT(lastSeason.wins, lastSeason.losses, lastSeason.ties)
     : "";
+  // Retrospective line beside the finish seal. The seal already frames this as
+  // last season, so the year is only spelled out when there's no seal to lean on.
+  const lastSeasonLine = lastSeason
+    ? [
+        offseasonSeal ? null : lastSeason.season,
+        lastSeasonRecord,
+        lastSeason.finalStanding
+          ? `${ordinal(lastSeason.finalStanding)}${
+              lastSeason.leagueSize ? ` of ${lastSeason.leagueSize}` : ""
+            }`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" · ")
+        .toUpperCase()
+    : "";
   const identityLabel = isOffseason
-    ? teamName
-      ? `${teamName}${
-          lastSeason
-            ? `, last season ${lastSeasonRecord}${
-                lastSeason.finalStanding
-                  ? `, finished ${ordinal(lastSeason.finalStanding)}`
-                  : ""
-              }`
-            : ""
-        }`
-      : tricode
+    ? // The seal row below announces last season's record + finish, so the
+      // tricode only carries the team's name.
+      teamName || tricode
     : myTeam?.name
       ? `${myTeam.name}${record ? `, ${record}` : ""}`
       : tricode;
@@ -590,64 +610,81 @@ export function RosterHero({
               {teamName}
             </ThemedText>
           ) : null}
-          {offseasonSeal && (
+          {(offseasonSeal || lastSeasonLine) && (
+            // Announced as one node so the mono line reads as prose ("last
+            // season 41-41, finished 5th of 12") instead of "41-41 · 5TH OF 12".
             <View
-              style={[
-                styles.seal,
-                styles.sealInline,
-                offseasonSeal.tone === "champ" && styles.sealChamp,
-                offseasonSeal.tone === "muted" && styles.sealMuted,
-              ]}
+              style={styles.sealRow}
+              accessible
+              accessibilityLabel={[
+                offseasonSeal?.label,
+                lastSeason
+                  ? `Last season ${lastSeasonRecord}${
+                      lastSeason.finalStanding
+                        ? `, finished ${ordinal(lastSeason.finalStanding)}${
+                            lastSeason.leagueSize
+                              ? ` of ${lastSeason.leagueSize}`
+                              : ""
+                          }`
+                        : ""
+                    }`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(". ")}
             >
-              {offseasonSeal.tone === "champ" && (
-                <Ionicons
-                  name="trophy"
-                  size={ms(11)}
-                  color={Brand.ink}
-                  style={styles.sealIcon}
-                />
+              {offseasonSeal && (
+                <View
+                  style={[
+                    styles.seal,
+                    offseasonSeal.tone === "champ" && styles.sealChamp,
+                    offseasonSeal.tone === "muted" && styles.sealMuted,
+                  ]}
+                >
+                  {offseasonSeal.tone === "champ" && (
+                    <Ionicons
+                      name="trophy"
+                      size={ms(11)}
+                      color={Brand.ink}
+                      style={styles.sealIcon}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.sealText,
+                      offseasonSeal.tone === "champ" && styles.sealTextChamp,
+                      offseasonSeal.tone === "muted" && styles.sealTextMuted,
+                    ]}
+                    numberOfLines={1}
+                  >
+                    {offseasonSeal.label}
+                  </Text>
+                </View>
               )}
-              <Text
-                style={[
-                  styles.sealText,
-                  offseasonSeal.tone === "champ" && styles.sealTextChamp,
-                  offseasonSeal.tone === "muted" && styles.sealTextMuted,
-                ]}
-                numberOfLines={1}
-              >
-                {offseasonSeal.label}
-              </Text>
+              {lastSeasonLine ? (
+                <ThemedText
+                  type="mono"
+                  style={styles.lastSeasonLine}
+                  numberOfLines={1}
+                >
+                  {lastSeasonLine}
+                </ThemedText>
+              ) : null}
             </View>
           )}
         </View>
 
-        {isOffseason && lastSeason && (
-          <View style={styles.lastSeasonBlock}>
-            <ThemedText
-              type="varsitySmall"
-              style={styles.lastSeasonCap}
-              numberOfLines={1}
-            >
-              {lastSeason.season} FINAL
-            </ThemedText>
-            <ThemedText
-              type="mono"
-              style={styles.lastSeasonRecord}
-              numberOfLines={1}
-            >
-              {lastSeasonRecord}
-            </ThemedText>
-            {lastSeason.finalStanding ? (
-              <ThemedText
-                type="mono"
-                style={styles.lastSeasonRank}
-                numberOfLines={1}
-              >
-                {ordinal(lastSeason.finalStanding)}
-                {lastSeason.leagueSize ? ` of ${lastSeason.leagueSize}` : ""}
-              </ThemedText>
-            ) : null}
-          </View>
+        {/* The offseason has no scoreline for this rail, so the tip-off
+            countdown takes it rather than leaving the right half empty. */}
+        {isOffseason && offseasonMilestone && (
+          <OffseasonMilestone
+            phaseLabels={offseasonMilestone.phaseLabels}
+            phaseIndex={offseasonMilestone.phaseIndex}
+            countdownDays={offseasonMilestone.countdownDays}
+            tipOffISO={offseasonMilestone.tipOffISO}
+            openerWord={offseasonMilestone.openerWord}
+            variant="rail"
+          />
         )}
 
         {hasWeek && (
@@ -701,24 +738,10 @@ export function RosterHero({
         )}
       </View>
 
-      {/* ── Lineup health bar ─ per-starter availability + status. In the
-          offseason there's no lineup to show, so the same slot fills with
-          the next-season countdown instead of sitting empty. ─────────── */}
-      {showLineupBar ? (
-        <LineupBar day={lineupDay} isPastDate={isPastDate} />
-      ) : (
-        isOffseason &&
-        offseasonMilestone && (
-          <OffseasonMilestone
-            phaseLabels={offseasonMilestone.phaseLabels}
-            phaseIndex={offseasonMilestone.phaseIndex}
-            countdownDays={offseasonMilestone.countdownDays}
-            tipOffISO={offseasonMilestone.tipOffISO}
-            openerWord={offseasonMilestone.openerWord}
-            compact
-          />
-        )
-      )}
+      {/* ── Lineup health bar ─ per-starter availability + status. Absent in
+          the offseason: there's no lineup to show and the countdown already
+          holds the main row's right rail. ────────────────────────────── */}
+      {showLineupBar && <LineupBar day={lineupDay} isPastDate={isPastDate} />}
 
       {/* ── Bottom ─ day-nav chips flanking the roster-meta strip ────── */}
       <View style={styles.bottomRow}>
@@ -1063,38 +1086,22 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
   },
 
-  // ── Offseason retrospective (last-season stat + finish seal) ─────────
-  lastSeasonBlock: {
-    alignItems: "flex-end",
-    flexShrink: 0,
-    // Top-align the stat block with the tricode's cap line (matching its
-    // paddingTop) so it reads as a header annotation, not a centered float.
-    alignSelf: "flex-start",
-    marginTop: s(3),
+  // ── Offseason retrospective (finish seal + last-season line) ─────────
+  sealRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: s(8),
+    marginTop: s(9),
   },
-  lastSeasonCap: {
-    color: Brand.vintageGold,
-    fontSize: ms(8.5),
-    letterSpacing: 1.2,
-  },
-  lastSeasonRecord: {
-    color: Brand.ecru,
-    fontSize: ms(20),
-    letterSpacing: 0.2,
-    fontVariant: ["tabular-nums"],
-    marginTop: s(1),
-  },
-  lastSeasonRank: {
+  lastSeasonLine: {
     color: Brand.ecruMuted,
     fontSize: ms(10),
     letterSpacing: 0.4,
-    marginTop: s(1),
-  },
-  sealInline: {
-    marginTop: s(9),
+    fontVariant: ["tabular-nums"],
+    flexShrink: 1,
   },
   seal: {
-    alignSelf: "flex-start",
+    flexShrink: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: s(6),

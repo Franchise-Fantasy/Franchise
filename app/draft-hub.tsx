@@ -12,8 +12,10 @@ import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { WebDraftHubScreen } from '@/components/web/draft-hub/WebDraftHubScreen';
 import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useDraftHub } from '@/hooks/useDraftHub';
 import { useLeague } from '@/hooks/useLeague';
@@ -28,6 +30,7 @@ export default function DraftHub() {
   const { leagueId } = useAppState();
   const { data: league } = useLeague();
   const { tab: tabParam } = useLocalSearchParams<{ tab?: string }>();
+  const { isDesktop } = useBreakpoint();
 
   const [tab, setTab] = useState(tabParam === 'prospects' ? 2 : 0);
   const { data, isLoading } = useDraftHub(leagueId);
@@ -41,6 +44,22 @@ export default function DraftHub() {
             Draft Hub is only available for dynasty leagues.
           </ThemedText>
         </View>
+      </SafeAreaView>
+    );
+  }
+
+  // Desktop web gets the two-pane board instead of the stacked tabs. The
+  // sidebar already names the page, so there's no back-button header.
+  if (isDesktop && leagueId) {
+    return (
+      <SafeAreaView style={[styles.container, styles.desktopPad, { backgroundColor: c.cardAlt }]}>
+        <WebDraftHubScreen
+          leagueId={leagueId}
+          season={league?.season ?? null}
+          data={data}
+          isLoading={isLoading}
+          initialTab={tabParam === 'prospects' ? 'prospects' : 'picks'}
+        />
       </SafeAreaView>
     );
   }
@@ -112,6 +131,9 @@ export default function DraftHub() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  // Desktop web: the tab components bring their own inner padding, so the page
+  // only needs side gutters against the sidebar / viewport edge.
+  desktopPad: { paddingHorizontal: 8 },
   // Web-only reading column — keeps the single-column tabs from stretching to
   // the full 960px content area. Tunable; native ignores it.
   body: {

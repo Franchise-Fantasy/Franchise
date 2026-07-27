@@ -54,6 +54,11 @@ export type HomeHeroVariant =
       season: string | number;
       draftType: string;
       draftDate: string | null;
+      // Once the draft is running or paused the start time is history — the
+      // stat row shows the live status instead. `pauseReason` distinguishes a
+      // commissioner pause from the automated overnight quiet-hours freeze.
+      draftStatus: string | null;
+      pauseReason: 'commissioner' | 'quiet_hours' | null;
       isReadyToEnter: boolean;
       isCommissioner: boolean;
       // Optional overlay: during pre-draft signups the draft hero also
@@ -499,8 +504,9 @@ function DraftPending({
   onRunOffline?: () => void;
   onSwitchToInApp?: () => void;
 }) {
-  const { draftDate, draftType, season, isReadyToEnter, isCommissioner, invite, payment, manualOrder, offline, offlineEligible } =
+  const { draftDate, draftStatus, pauseReason, draftType, season, isReadyToEnter, isCommissioner, invite, payment, manualOrder, offline, offlineEligible } =
     variant;
+  const statusLabel = liveStatusLabel(draftStatus, pauseReason);
   const dateLabel = formatDraftDate(draftDate);
   const isScheduled = !!draftDate;
   const needsOrderSet = manualOrder != null && !manualOrder.slotsAssigned;
@@ -656,8 +662,14 @@ function DraftPending({
       </ThemedText>
 
       <View style={styles.statRow}>
-        <ThemedText type="mono" style={styles.statValue}>
-          {dateLabel}
+        <ThemedText
+          type="mono"
+          style={styles.statValue}
+          accessibilityLabel={
+            statusLabel ? `Draft status: ${statusLabel.toLowerCase()}` : undefined
+          }
+        >
+          {statusLabel ?? dateLabel}
         </ThemedText>
         <View style={styles.statDivider} />
         {statRight}
@@ -873,6 +885,23 @@ function draftTypeLabel(kind: string): string {
   if (kind === 'rookie') return 'Rookie Draft';
   if (kind === 'initial') return 'Initial Draft';
   return 'Draft';
+}
+
+/**
+ * Status text for a draft that's already underway, or null when the draft
+ * hasn't started (the hero falls back to the scheduled start time then).
+ * Quiet hours is an automated overnight freeze of a slow draft's clock, so
+ * it reads differently from a commissioner pause — matching the draft room.
+ */
+function liveStatusLabel(
+  status: string | null,
+  pauseReason: 'commissioner' | 'quiet_hours' | null,
+): string | null {
+  if (status === 'in_progress') return 'LIVE NOW';
+  if (status === 'paused') {
+    return pauseReason === 'quiet_hours' ? 'QUIET HOURS' : 'PAUSED';
+  }
+  return null;
 }
 
 function formatDraftDate(iso: string | null): string {

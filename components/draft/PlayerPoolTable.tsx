@@ -123,6 +123,10 @@ function statValue(p: PlayerSeasonStats, col: StatCol, fpts: number | undefined)
   }
 }
 
+/** A prospect's rank plus which board it came from — the source drives both the
+ *  badge colour (gold for the viewer's own board) and the screen-reader wording. */
+export type ProspectRank = { rank: number; source: "board" | "consensus" };
+
 interface PlayerPoolTableProps {
   players: PlayerSeasonStats[];
   sport: Sport;
@@ -133,11 +137,11 @@ interface PlayerPoolTableProps {
   fptsFor: (player: PlayerSeasonStats) => number | undefined;
   /** True when the shown line is a projection rather than played games. */
   isProjected: (playerId: string) => boolean;
-  /** The player's rank on the viewer's prospect board — rookie drafts only. */
-  boardRankFor: (playerId: string) => number | undefined;
-  /** The player's blended consensus rank — shown only when they're not on the
-   *  viewer's own board, so one rank number never means two things at once. */
-  consensusRankFor: (playerId: string) => number | undefined;
+  /** The player's rank on whichever prospect ranking the pool is currently
+   *  sorted by — rookie drafts only, undefined when that ranking doesn't cover
+   *  the player. One ranking at a time, so a rank number never means two things
+   *  at once and the numbers ascend down the list. */
+  rankFor: (playerId: string) => ProspectRank | undefined;
   /** Pool has no pro stat line (rookie-draft prospects) — drops the stat
    *  columns instead of rendering a wall of zeros with sortable headers. */
   hideStats?: boolean;
@@ -159,8 +163,7 @@ export function PlayerPoolTable({
   onSortChange,
   fptsFor,
   isProjected,
-  boardRankFor,
-  consensusRankFor,
+  rankFor,
   hideStats,
   draftBlockFor,
   canDraft,
@@ -183,9 +186,7 @@ export function PlayerPoolTable({
       const fpts = fptsFor(item);
       const badge = getInjuryBadge(item.status);
       const logoUrl = getTeamLogoUrl(item.pro_team, sport);
-      const boardRank = boardRankFor(item.player_id);
-      const consensusRank = boardRank === undefined ? consensusRankFor(item.player_id) : undefined;
-      const shownRank = boardRank ?? consensusRank;
+      const prospectRank = rankFor(item.player_id);
       const block = draftBlockFor(item);
       const queued = !!queuedPlayerIds?.has(item.player_id);
       const projected = isProjected(item.player_id);
@@ -195,11 +196,9 @@ export function PlayerPoolTable({
         .join(", ");
 
       const rowLabel =
-        (boardRank !== undefined
-          ? `Board rank ${boardRank}, `
-          : consensusRank !== undefined
-            ? `Consensus rank ${consensusRank}, `
-            : "") +
+        (prospectRank
+          ? `${prospectRank.source === "board" ? "Board" : "Consensus"} rank ${prospectRank.rank}, `
+          : "") +
         `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
         (projected ? ", projected" : "") +
         (statsLabel ? `, ${statsLabel}` : "");
@@ -234,14 +233,17 @@ export function PlayerPoolTable({
                     accessible={false}
                   />
                 </View>
-                {shownRank !== undefined && (
+                {prospectRank && (
                   <ThemedText
                     style={[
                       styles.boardRank,
-                      { color: boardRank !== undefined ? c.heritageGold : c.secondaryText },
+                      {
+                        color:
+                          prospectRank.source === "board" ? c.heritageGold : c.secondaryText,
+                      },
                     ]}
                   >
-                    #{shownRank}
+                    #{prospectRank.rank}
                   </ThemedText>
                 )}
                 {/* The row's accessible entry point — carries the whole line so
@@ -369,7 +371,7 @@ export function PlayerPoolTable({
         </Pressable>
       );
     },
-    [c, cols, sport, sortBy, fptsFor, isProjected, boardRankFor, consensusRankFor, draftBlockFor, canDraft, queuedPlayerIds, addToQueue, onDraft, onSelectPlayer],
+    [c, cols, sport, sortBy, fptsFor, isProjected, rankFor, draftBlockFor, canDraft, queuedPlayerIds, addToQueue, onDraft, onSelectPlayer],
   );
 
   return (
