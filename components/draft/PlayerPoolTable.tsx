@@ -56,6 +56,9 @@ const CATEGORY_COLS: StatCol[] = ["PTS", "REB", "AST", "STL", "BLK", "FG%", "FT%
 // K/DST rows show dashes there and rank on FPTS like everyone else. GP is the
 // sample behind the averages (last season's, pre-season).
 const NFL_POINTS_COLS: StatCol[] = ["GP", "PASS YDS", "RUSH YDS", "REC YDS", "FPTS"];
+// Rookie drafts: prospects have no pro line, so every column would read 0.0.
+// Module-level so `cols` keeps a stable identity across renders.
+const NO_COLS: StatCol[] = [];
 
 // NFL column → the avg_* season column behind it. Those columns aren't on the
 // PlayerSeasonStats type (they ride along from the matview / historical
@@ -132,6 +135,9 @@ interface PlayerPoolTableProps {
   isProjected: (playerId: string) => boolean;
   /** The player's rank on the viewer's prospect board — rookie drafts only. */
   boardRankFor: (playerId: string) => number | undefined;
+  /** Pool has no pro stat line (rookie-draft prospects) — drops the stat
+   *  columns instead of rendering a wall of zeros with sortable headers. */
+  hideStats?: boolean;
   /** Null when the player is draftable; otherwise the blocking limit's label. */
   draftBlockFor: (player: PlayerSeasonStats) => string | null;
   /** The viewer is on the clock and no pick is in flight. */
@@ -151,6 +157,7 @@ export function PlayerPoolTable({
   fptsFor,
   isProjected,
   boardRankFor,
+  hideStats,
   draftBlockFor,
   canDraft,
   queuedPlayerIds,
@@ -159,7 +166,13 @@ export function PlayerPoolTable({
   onSelectPlayer,
 }: PlayerPoolTableProps) {
   const c = useColors();
-  const cols = sport === "nfl" ? NFL_POINTS_COLS : isCategories ? CATEGORY_COLS : POINTS_COLS;
+  const cols = hideStats
+    ? NO_COLS
+    : sport === "nfl"
+      ? NFL_POINTS_COLS
+      : isCategories
+        ? CATEGORY_COLS
+        : POINTS_COLS;
 
   const renderRow = useCallback(
     ({ item, index }: { item: PlayerSeasonStats; index: number }) => {
@@ -179,7 +192,7 @@ export function PlayerPoolTable({
         (boardRank !== undefined ? `Board rank ${boardRank}, ` : "") +
         `${item.name}, ${formatPosition(item.position)}, ${item.pro_team}` +
         (projected ? ", projected" : "") +
-        `, ${statsLabel}`;
+        (statsLabel ? `, ${statsLabel}` : "");
 
       return (
         // Deliberately NOT accessibilityRole="button". react-native-web maps that

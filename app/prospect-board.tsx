@@ -224,6 +224,12 @@ export default function ProspectBoardScreen() {
           </View>
         ) : (
           <DraggableFlatList
+            // `style` lands on the INNER FlatList; the library's own wrapper
+            // View only takes `containerStyle` and carries no default flex. So
+            // a bare style={flex:1} left the wrapper auto-sized around a
+            // flex-1 child, collapsing the whole list to zero height — the
+            // board looked empty even with entries in it. Flex both.
+            containerStyle={styles.list}
             style={styles.list}
             data={boardEntries}
             keyExtractor={item => item.playerId}

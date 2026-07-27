@@ -133,6 +133,9 @@ interface PlayerFilterBarProps {
   onInjuryFilterChange?: (filter: InjuryFilter) => void;
   /** Categories leagues have no fantasy points — hides the FPTS sort option */
   isCategories?: boolean;
+  /** Pool has no pro stat line (rookie-draft prospects) — hides the Sort By
+   *  section, since every stat sort ties at zero across the whole pool. */
+  statlessPool?: boolean;
   /** Sport driving the position chips / sort options / time ranges. Threaded
    *  from usePlayerFilter's filterBarProps so the bar agrees with the hook;
    *  falls back to the global active league's sport when absent. */
@@ -214,6 +217,7 @@ export function PlayerFilterBar({
   injuryFilter,
   onInjuryFilterChange,
   isCategories,
+  statlessPool,
   sport: sportProp,
   compareMode,
   onToggleCompareMode,
@@ -688,8 +692,9 @@ export function PlayerFilterBar({
                 </View>
               )}
 
-              {/* Sort section — hidden when only one sort is meaningful (NFL). */}
-              {sortOptions.length > 1 && (
+              {/* Sort section — hidden when only one sort is meaningful (NFL),
+                  or when the pool carries no stats at all (rookie drafts). */}
+              {sortOptions.length > 1 && !statlessPool && (
               <View style={styles.section}>
                 <ChipScrollRow label="Sort By" goldColor={c.gold} chevronColor={c.secondaryText}>
                   {sortOptions.map(opt => {

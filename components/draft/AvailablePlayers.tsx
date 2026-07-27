@@ -370,15 +370,21 @@ export function AvailablePlayers({
   const [boardSortPref, setBoardSortPref] = useState<boolean | null>(null);
   const boardSortActive = hasBoardPlayers && (boardSortPref ?? true);
 
+  // Rookie pools: board-ranked players first (by rank), then everyone else
+  // alphabetically. The stat sorts all tie at zero for prospects — without a
+  // tiebreak the pool comes back in whatever order the statless rows landed in,
+  // which reads as shuffled. Non-rookie pools keep the hook's stat sort as-is.
   const displayPlayers = useMemo(() => {
-    if (!boardSortActive) return filteredPlayers;
-    // Stable sort: board-ranked players first (by rank); everyone else keeps
-    // the active stat-sort order behind them. Search + filters still apply —
-    // this only reorders what the filter hook returned.
+    if (!isRookieDraft) return filteredPlayers;
+    // MAX_SAFE_INTEGER, not Infinity — Infinity - Infinity is NaN, which makes
+    // the comparator inconsistent for the (common) unranked-vs-unranked pair.
     const rank = (p: PlayerSeasonStats) =>
-      boardRankMap.get(p.player_id) ?? Number.POSITIVE_INFINITY;
-    return [...filteredPlayers].sort((a, b) => rank(a) - rank(b));
-  }, [boardSortActive, filteredPlayers, boardRankMap]);
+      (boardSortActive ? boardRankMap.get(p.player_id) : undefined) ??
+      Number.MAX_SAFE_INTEGER;
+    return [...filteredPlayers].sort(
+      (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name),
+    );
+  }, [isRookieDraft, boardSortActive, filteredPlayers, boardRankMap]);
 
   const handleDraft = (player: PlayerSeasonStats) => {
     if (!isMyTurn || !currentPick) return;
@@ -682,11 +688,20 @@ export function AvailablePlayers({
 
   return (
     <View style={styles.container}>
+      {/* Rookie pools are prospects with no pro stat line, so every stat-shaped
+          control is degenerate: the time-range windows read game logs that
+          don't exist, the sort chips all tie at zero, "Rookies only" matches
+          the entire pool by definition, and nobody carries an in-season injury
+          status in the offseason. Search + position (+ the My Board sort below)
+          are what's left. */}
       <PlayerFilterBar
         {...filterBarProps}
         onFreeAgentsOnlyChange={undefined}
+        statlessPool={isRookieDraft}
+        onRookiesOnlyChange={isRookieDraft ? undefined : filterBarProps.onRookiesOnlyChange}
+        onInjuryFilterChange={isRookieDraft ? undefined : filterBarProps.onInjuryFilterChange}
         timeRange={timeRange}
-        onTimeRangeChange={setTimeRange}
+        onTimeRangeChange={isRookieDraft ? undefined : setTimeRange}
       />
       {/* Rookie drafts: sort the pool by the user's prospect big board. Only
           offered when the board intersects this pool; defaults ON. */}
@@ -741,6 +756,7 @@ export function AvailablePlayers({
           fptsFor={fptsFor}
           isProjected={isProjectedId}
           boardRankFor={boardRankFor}
+          hideStats={isRookieDraft}
           draftBlockFor={draftBlockFor}
           canDraft={isMyTurn && !isDrafting}
           queuedPlayerIds={queuedPlayerIds}

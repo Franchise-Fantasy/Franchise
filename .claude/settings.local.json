@@ -836,7 +836,10 @@
       "Bash(node -e 'let s=\"\";process.stdin.on\\(\"data\",d=>s+=d\\).on\\(\"end\",\\(\\)=>{try{const b=JSON.parse\\(s\\);for\\(const x of b\\)console.log\\(`${x.status.padEnd\\(9\\)} rtv=${\\(x.runtimeVersion||\"\"\\).slice\\(0,12\\)}  v${x.appVersion}\\(${x.buildNumber||\"?\"}\\)  ch=${x.channel||\"?\"}  ${x.createdAt}`\\)}catch\\(e\\){console.log\\(\"parse-fail\",e.message\\)}}\\)')",
       "Bash(node -e \"require\\('@expo/fingerprint'\\).createFingerprintAsync\\(process.cwd\\(\\), { platforms: ['ios'] }\\).then\\(f => { const target='66e1b39cba857aaa790b22b2d387df5e96ca1785'; console.log\\('local iOS fingerprint:', f.hash\\); console.log\\('installed build   :', target\\); console.log\\(f.hash===target ? '✅ MATCH — plain eas update will now reach the build' : '❌ still differs'\\); }\\).catch\\(e=>{console.error\\('ERR',e.message\\);process.exit\\(1\\)}\\)\")",
       "Read(//opt/homebrew/bin/**)",
-      "Bash(awk '/^      player_season_stats: \\\\{/,/Relationships/' types/database.types.ts)"
+      "Bash(awk '/^      player_season_stats: \\\\{/,/Relationships/' types/database.types.ts)",
+      "Bash(npx eas *)",
+      "Bash(node -e \"let d='';process.stdin.on\\('data',c=>d+=c\\).on\\('end',\\(\\)=>{try{JSON.parse\\(d\\).forEach\\(b=>console.log\\(b.id.slice\\(0,8\\),b.platform,b.buildProfile,b.status,b.appVersion,'build#'+b.appBuildVersion,b.runtimeVersion,b.completedAt\\)\\)}catch\\(e\\){console.log\\('parse fail'\\)}}\\)\")",
+      "Read(//Users/joe/.app-store/**)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
