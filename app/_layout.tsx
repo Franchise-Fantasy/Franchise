@@ -58,6 +58,10 @@ import { registerSplashReadyHandler } from "@/lib/splashReady";
 import { supabase } from "@/lib/supabase";
 import { isExpoGo } from "@/utils/buildConfig";
 import { KeyboardProvider } from "@/utils/keyboardController";
+import {
+  stashInviteCode,
+  takeInviteCode,
+} from "@/utils/league/pendingInviteCode";
 import { logger } from "@/utils/logger";
 
 // Keep the native splash screen visible until we explicitly hide it.
@@ -604,11 +608,17 @@ function NotificationAndLinkHandler() {
             } as any);
         } else if (screen === "claim-team" && data.league_id) {
           // League invite: route the (not-yet-member) invitee into the claim
-          // flow to pick up the team the commissioner assigned them.
+          // flow to pick up the team the commissioner assigned them. `team_id`
+          // is the RESERVED team — forward it so claim-team pins that one
+          // instead of showing a bare list they could pick the wrong roster from.
           go = () =>
             router.navigate({
               pathname: "/claim-team",
-              params: { leagueId: data.league_id!, isCommissioner: "false" },
+              params: {
+                leagueId: data.league_id!,
+                isCommissioner: "false",
+                ...(data.team_id ? { teamId: data.team_id } : {}),
+              },
             } as any);
         } else if (screen === "create-team" && data.league_id) {
           // Open-league invite: the invitee isn't a member yet and no team was
@@ -707,18 +717,26 @@ function NotificationAndLinkHandler() {
         }
       }
 
-      if (!session?.user) return;
       const parsed = Linking.parse(url);
 
-      // Invite deep link — doesn't need AppState
+      // Invite deep link — doesn't need AppState. Handled BEFORE the session
+      // gate: an invite link is typically the first thing a brand-new user
+      // taps, so bailing here on "not signed in yet" threw away the whole
+      // reason they opened the app. Stash it and redeem after auth hydrates.
       const inviteCode = parsed.queryParams?.code;
       if (parsed.hostname === "join" && typeof inviteCode === "string") {
+        if (!session?.user) {
+          stashInviteCode(inviteCode);
+          return;
+        }
         router.replace({
           pathname: "/join-league",
           params: { code: inviteCode },
         });
         return;
       }
+
+      if (!session?.user) return;
 
       const leagueId = parsed.queryParams?.league_id;
       if (typeof leagueId === "string") {
@@ -739,6 +757,26 @@ function NotificationAndLinkHandler() {
     const sub = Linking.addEventListener("url", handleUrl);
     return () => sub.remove();
   }, [session?.user, switchLeague]);
+
+  // Redeem an invite code that arrived while signed out (see stashInviteCode).
+  // Runs when a session appears — i.e. right after the invitee finishes signing
+  // up — and takes them straight to the league they were invited to.
+  useEffect(() => {
+    if (!session?.user) return;
+    let cancelled = false;
+    takeInviteCode()
+      .then((code) => {
+        if (!cancelled && code) {
+          router.replace({ pathname: "/join-league", params: { code } });
+        }
+      })
+      .catch((err) => {
+        logger.warn("Redeeming stashed invite code failed", err);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.user]);
 
   return null;
 }

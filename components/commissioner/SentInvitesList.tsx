@@ -81,9 +81,14 @@ export function SentInvitesList({ leagueId }: { leagueId: string }) {
 
   if (isLoading) return null;
   if (invites.length === 0) {
+    // Deliberately says "email invites": joining by invite code is anonymous
+    // (the code can't identify who used it), so those members never appear
+    // here. Without this qualifier the empty state reads as "nobody was
+    // invited" to a commissioner who invited their whole league by code.
     return (
       <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
-        No invites sent yet.
+        No email invites sent yet. Members who join with your invite code won't
+        be listed here.
       </ThemedText>
     );
   }

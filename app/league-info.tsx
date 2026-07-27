@@ -1192,6 +1192,7 @@ export default function LeagueInfoScreen() {
         <InviteMembersSheet
           visible={showInviteSheet}
           leagueId={leagueId}
+          inviteCode={league?.invite_code ?? null}
           onClose={() => setShowInviteSheet(false)}
         />
       )}

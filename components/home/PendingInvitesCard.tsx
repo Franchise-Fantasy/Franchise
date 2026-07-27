@@ -1,6 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
+import { useState } from 'react';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -11,6 +12,7 @@ import { useToast } from '@/context/ToastProvider';
 import { type MyInvite, useMyInvites } from '@/hooks/invites/useMyInvites';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
+import { resolveJoinRoute } from '@/utils/league/resolveJoinRoute';
 import { ms, s } from '@/utils/scale';
 
 /**
@@ -32,15 +34,38 @@ export function PendingInvitesCard() {
   const queryClient = useQueryClient();
   const session = useSession();
   const { invites } = useMyInvites();
+  // The preflight is a network round-trip, so without this a double-tap fires
+  // two navigations and stacks the claim screen on itself.
+  const [joiningId, setJoiningId] = useState<string | null>(null);
 
   if (invites.length === 0) return null;
 
-  const handleJoin = (invite: MyInvite) => {
-    const pathname = invite.league.imported_from ? '/claim-team' : '/create-team';
-    router.push({
-      pathname,
-      params: { leagueId: invite.league_id, isCommissioner: 'false' },
-    } as never);
+  const handleJoin = async (invite: MyInvite) => {
+    if (!session?.user?.id || joiningId) return;
+    setJoiningId(invite.id);
+    // Same preflight the invite-code screen runs — the card used to route on
+    // `imported_from` alone, so a stale invite could land the user on an empty
+    // claim list or in a league that had filled up since the invite was sent.
+    // It also forwards the reserved team so they claim the right roster.
+    try {
+      const route = await resolveJoinRoute({
+        leagueId: invite.league_id,
+        userId: session.user.id,
+        reservedTeamId: invite.team_id,
+      });
+
+      if (!route.ok) {
+        showToast('error', route.message);
+        // The invite may have been auto-accepted already (they joined by code
+        // in the meantime), in which case a refetch clears the stale card.
+        queryClient.invalidateQueries({ queryKey: queryKeys.myInvites(session.user.id) });
+        return;
+      }
+
+      router.push({ pathname: route.pathname, params: route.params } as never);
+    } finally {
+      setJoiningId(null);
+    }
   };
 
   const handleDecline = (invite: MyInvite) => {
@@ -89,7 +114,7 @@ export function PendingInvitesCard() {
               {invite.league.name}
             </ThemedText>
             <ThemedText style={[styles.sub, { color: c.secondaryText }]} numberOfLines={1}>
-              You've been invited to join
+              {invite.team_id ? 'A team is reserved for you' : "You've been invited to join"}
             </ThemedText>
           </View>
           <View style={styles.actions}>
@@ -103,11 +128,19 @@ export function PendingInvitesCard() {
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => handleJoin(invite)}
-              style={[styles.joinBtn, { backgroundColor: c.accent }]}
+              disabled={joiningId !== null}
+              style={[
+                styles.joinBtn,
+                { backgroundColor: c.accent },
+                joiningId !== null && styles.joinBtnDisabled,
+              ]}
               accessibilityRole="button"
               accessibilityLabel={`Join ${invite.league.name}`}
+              accessibilityState={{ disabled: joiningId !== null, busy: joiningId === invite.id }}
             >
-              <ThemedText style={[styles.joinText, { color: c.statusText }]}>Join</ThemedText>
+              <ThemedText style={[styles.joinText, { color: c.statusText }]}>
+                {joiningId === invite.id ? 'Joining…' : 'Join'}
+              </ThemedText>
             </TouchableOpacity>
           </View>
         </View>
@@ -177,6 +210,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: s(16),
     paddingVertical: s(8),
     borderRadius: 8,
+  },
+  joinBtnDisabled: {
+    opacity: 0.5,
   },
   joinText: {
     fontSize: ms(13),

@@ -27,6 +27,7 @@ import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
+import { resolveJoinRoute } from '@/utils/league/resolveJoinRoute';
 import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
@@ -101,7 +102,7 @@ export default function JoinLeagueScreen() {
 
       const { data: league, error } = await supabase
         .from('leagues')
-        .select('id, name, teams, current_teams, imported_from')
+        .select('id')
         .eq('invite_code', trimmed)
         .maybeSingle();
 
@@ -110,58 +111,16 @@ export default function JoinLeagueScreen() {
         return;
       }
 
-      // Already-joined check runs before any "full" checks — applies to
-      // both imported and created leagues.
-      const { data: existingTeam } = await supabase
-        .from('teams')
-        .select('id')
-        .eq('league_id', league.id)
-        .eq('user_id', user.id)
-        .maybeSingle();
-
-      if (existingTeam) {
-        setCodeError('You already have a team in this league.');
+      // Shared preflight — already-joined, unclaimed-team, and capacity checks
+      // all live in resolveJoinRoute so this screen, the home invite card, and
+      // the push tap can't drift apart.
+      const route = await resolveJoinRoute({ leagueId: league.id, userId: user.id });
+      if (!route.ok) {
+        setCodeError(route.message);
         return;
       }
 
-      if (league.imported_from) {
-        // Imported leagues have all their teams pre-created at import
-        // time — `current_teams` is inflated on day one, so the
-        // generic "current_teams >= teams" check would block every
-        // invitee. Instead, "full" means every pre-created team has
-        // been claimed (user_id set). If there's at least one team
-        // with user_id NULL, the invitee can claim it.
-        const { data: unclaimed } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('league_id', league.id)
-          .is('user_id', null)
-          .limit(1);
-
-        if (!unclaimed || unclaimed.length === 0) {
-          setCodeError('All teams in this league have been claimed.');
-          return;
-        }
-
-        router.push({
-          pathname: '/claim-team',
-          params: { leagueId: league.id, isCommissioner: 'false' },
-        });
-        return;
-      }
-
-      // Non-imported leagues: the create-team flow increments
-      // current_teams as users join, so the generic fullness check
-      // works as expected.
-      if ((league.current_teams ?? 0) >= league.teams) {
-        setCodeError('This league is already full.');
-        return;
-      }
-
-      router.push({
-        pathname: '/create-team',
-        params: { leagueId: league.id, isCommissioner: 'false' },
-      });
+      router.push({ pathname: route.pathname, params: route.params });
     } catch (err) {
       logger.error('Error joining by code', err);
       Alert.alert('Error', 'Something went wrong. Please try again.');
@@ -186,31 +145,13 @@ export default function JoinLeagueScreen() {
         return;
       }
 
-      // Imported leagues: claim an existing team. Matches
-      // handleJoinByCode — drops the `sleeper_roster_id IS NOT NULL`
-      // filter so screenshot-imported leagues (where teams may not
-      // have a sleeper_roster_id) also resolve correctly.
-      if (league.imported_from) {
-        const { data: unclaimed } = await supabase
-          .from('teams')
-          .select('id')
-          .eq('league_id', league.id)
-          .is('user_id', null)
-          .limit(1);
-
-        if (unclaimed && unclaimed.length > 0) {
-          router.push({
-            pathname: '/claim-team',
-            params: { leagueId: league.id, isCommissioner: 'false' },
-          });
-          return;
-        }
+      const route = await resolveJoinRoute({ leagueId: league.id, userId: user.id });
+      if (!route.ok) {
+        Alert.alert('Cannot join', route.message);
+        return;
       }
 
-      router.push({
-        pathname: '/create-team',
-        params: { leagueId: league.id, isCommissioner: 'false' },
-      });
+      router.push({ pathname: route.pathname, params: route.params });
     } catch (error) {
       logger.error('Error joining league', error);
       Alert.alert('Error', 'Failed to join league');

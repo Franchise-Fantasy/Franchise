@@ -33,9 +33,13 @@ interface UnclaimedTeam {
 
 export default function ClaimTeamScreen() {
   const router = useRouter();
-  const { leagueId, isCommissioner } = useLocalSearchParams<{
+  // `teamId` is the team a commissioner RESERVED for this invitee via
+  // send-league-invite. It arrives from the invite card, the push tap, or a
+  // deep link; when set, that team is pinned to the top as theirs.
+  const { leagueId, isCommissioner, teamId: reservedTeamId } = useLocalSearchParams<{
     leagueId: string;
     isCommissioner: string;
+    teamId?: string;
   }>();
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -61,6 +65,14 @@ export default function ClaimTeamScreen() {
     },
     enabled: !!leagueId,
   });
+
+  // Pin the reserved team first. It can be missing here if it was claimed
+  // between the invite and the tap — then this is just the normal open list,
+  // which is the intended fallback rather than a dead end.
+  const reservedTeam = reservedTeamId
+    ? (teams ?? []).find((t) => t.id === reservedTeamId) ?? null
+    : null;
+  const otherTeams = (teams ?? []).filter((t) => t.id !== reservedTeam?.id);
 
   const handleClaim = async (team: UnclaimedTeam) => {
     setClaiming(true);
@@ -115,13 +127,53 @@ export default function ClaimTeamScreen() {
     }
   };
 
+  const renderTeam = (team: UnclaimedTeam, reserved: boolean) => (
+    <TouchableOpacity
+      key={team.id}
+      style={[
+        styles.teamCard,
+        { backgroundColor: c.card, borderColor: reserved ? c.accent : c.border },
+        reserved && styles.reservedCard,
+      ]}
+      onPress={() => handleClaim(team)}
+      disabled={claiming}
+      accessibilityRole="button"
+      accessibilityLabel={
+        reserved ? `Claim ${team.name}, reserved for you` : `Claim ${team.name}`
+      }
+      accessibilityState={{ disabled: claiming }}
+    >
+      <View style={styles.teamInfo}>
+        <Ionicons
+          name={reserved ? 'bookmark' : 'people-outline'}
+          size={22}
+          color={c.accent}
+          accessible={false}
+        />
+        <View style={{ flex: 1 }}>
+          <ThemedText style={styles.teamName}>{team.name}</ThemedText>
+          <Text style={[styles.teamTricode, { color: c.secondaryText }]}>
+            {team.tricode}
+          </Text>
+        </View>
+      </View>
+      {claiming ? (
+        <LogoSpinner size={18} />
+      ) : (
+        <Ionicons name="chevron-forward" size={20} color={c.secondaryText} accessible={false} />
+      )}
+    </TouchableOpacity>
+  );
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       <ThemedText type="title" style={styles.header} accessibilityRole="header">
         Claim Your Team
       </ThemedText>
       <ThemedText style={[styles.desc, { color: c.secondaryText }]}>
-        Pick the team that belongs to you.
+        {reservedTeam
+          ? 'Your commissioner saved a team for you.'
+          : 'Pick the team that belongs to you.'}
       </ThemedText>
 
       <ScrollView style={styles.list} contentContainerStyle={styles.listContent}>
@@ -132,32 +184,28 @@ export default function ClaimTeamScreen() {
             No unclaimed teams available.
           </ThemedText>
         ) : (
-          teams.map((team) => (
-            <TouchableOpacity
-              key={team.id}
-              style={[styles.teamCard, { backgroundColor: c.card, borderColor: c.border }]}
-              onPress={() => handleClaim(team)}
-              disabled={claiming}
-              accessibilityRole="button"
-              accessibilityLabel={`Claim ${team.name}`}
-              accessibilityState={{ disabled: claiming }}
-            >
-              <View style={styles.teamInfo}>
-                <Ionicons name="people-outline" size={22} color={c.accent} accessible={false} />
-                <View style={{ flex: 1 }}>
-                  <ThemedText style={styles.teamName}>{team.name}</ThemedText>
-                  <Text style={[styles.teamTricode, { color: c.secondaryText }]}>
-                    {team.tricode}
-                  </Text>
-                </View>
-              </View>
-              {claiming ? (
-                <LogoSpinner size={18} />
-              ) : (
-                <Ionicons name="chevron-forward" size={20} color={c.secondaryText} accessible={false} />
-              )}
-            </TouchableOpacity>
-          ))
+          <>
+            {reservedTeam && (
+              <>
+                <ThemedText
+                  style={[styles.sectionLabel, { color: c.accent }]}
+                  accessibilityRole="header"
+                >
+                  RESERVED FOR YOU
+                </ThemedText>
+                {renderTeam(reservedTeam, true)}
+              </>
+            )}
+            {reservedTeam && otherTeams.length > 0 && (
+              <ThemedText
+                style={[styles.sectionLabel, { color: c.secondaryText }]}
+                accessibilityRole="header"
+              >
+                OTHER AVAILABLE TEAMS
+              </ThemedText>
+            )}
+            {otherTeams.map((team) => renderTeam(team, false))}
+          </>
         )}
       </ScrollView>
     </SafeAreaView>
@@ -193,6 +241,15 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
+  },
+  reservedCard: {
+    borderWidth: 2,
+  },
+  sectionLabel: {
+    fontSize: ms(11),
+    fontWeight: '600',
+    letterSpacing: 1,
+    marginTop: 6,
   },
   teamInfo: {
     flexDirection: 'row',

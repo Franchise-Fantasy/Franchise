@@ -1,6 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 import { SentInvitesList } from '@/components/commissioner/SentInvitesList';
 import { AppTextInput } from '@/components/ui/AppTextInput';
@@ -15,6 +15,8 @@ import { ms, s } from '@/utils/scale';
 
 interface Props {
   leagueId: string;
+  /** Shown as the fallback for invitees who don't have an account yet. */
+  inviteCode: string | null;
   visible: boolean;
   onClose: () => void;
 }
@@ -26,12 +28,19 @@ interface Props {
  * a best-effort push. The persisted record is what makes the invite survive a
  * missed push. Also embeds the sent-invites list (resend / cancel).
  */
-export function InviteMembersSheet({ leagueId, visible, onClose }: Props) {
+export function InviteMembersSheet({ leagueId, inviteCode, visible, onClose }: Props) {
   const c = useColors();
   const { showToast } = useToast();
   const queryClient = useQueryClient();
   const [email, setEmail] = useState('');
   const [sending, setSending] = useState(false);
+
+  const handleShareCode = async () => {
+    if (!inviteCode) return;
+    await Share.share({
+      message: `Join my league on Franchise! Use invite code: ${inviteCode}\n\nOr tap to join: franchisev2://join?code=${inviteCode}`,
+    });
+  };
 
   const handleSend = async () => {
     const trimmed = email.trim();
@@ -98,6 +107,28 @@ export function InviteMembersSheet({ leagueId, visible, onClose }: Props) {
         </TouchableOpacity>
       </View>
 
+      {/* The no-account path tells the commissioner to share their code, so it
+          has to be reachable from this sheet rather than another screen. */}
+      {inviteCode && (
+        <>
+          <ThemedText style={[styles.listHeader, { color: c.secondaryText }]} accessibilityRole="header">
+            NO ACCOUNT YET?
+          </ThemedText>
+          <ThemedText style={[styles.desc, { color: c.secondaryText }]}>
+            Anyone without a Franchise account can join with your league code.
+          </ThemedText>
+          <TouchableOpacity
+            style={[styles.codeRow, { borderColor: c.border, backgroundColor: c.cardAlt }]}
+            onPress={handleShareCode}
+            accessibilityRole="button"
+            accessibilityLabel={`Share invite code ${inviteCode.split('').join(' ')}`}
+          >
+            <Text style={[styles.codeText, { color: c.text }]}>{inviteCode}</Text>
+            <Text style={[styles.shareText, { color: c.accent }]}>Share</Text>
+          </TouchableOpacity>
+        </>
+      )}
+
       <ThemedText style={[styles.listHeader, { color: c.secondaryText }]} accessibilityRole="header">
         SENT INVITES
       </ThemedText>
@@ -146,5 +177,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: s(22),
     marginBottom: s(4),
+  },
+  codeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    minHeight: s(44),
+  },
+  codeText: {
+    fontSize: ms(17),
+    fontWeight: '700',
+    letterSpacing: 3,
+    fontFamily: 'monospace',
+  },
+  shareText: {
+    fontSize: ms(14),
+    fontWeight: '600',
   },
 });

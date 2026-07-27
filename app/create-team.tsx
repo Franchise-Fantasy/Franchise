@@ -29,6 +29,23 @@ import { ms, s } from '@/utils/scale';
 
 import { supabase } from '../lib/supabase';
 
+/**
+ * Turn `join_league_team`'s named failures into copy a user can act on. The RPC
+ * is the last line of defence behind the client preflight, so hitting one of
+ * these means the league changed between routing here and submitting.
+ */
+function joinErrorMessage(error: unknown): string {
+  const raw = (error as { message?: string } | null)?.message ?? '';
+  if (raw.includes('already_member')) return "You're already in this league.";
+  if (raw.includes('league_full')) return 'This league filled up before you finished.';
+  if (raw.includes('league_archived')) return 'That league has been deleted.';
+  if (raw.includes('not_found')) return 'That league no longer exists.';
+  if (raw.includes('teams_tricode_unique_per_league')) {
+    return 'That tricode is already taken in this league.';
+  }
+  return 'Something went wrong. Please try again.';
+}
+
 export default function CreateTeam() {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -141,7 +158,7 @@ export default function CreateTeam() {
 
     } catch (error) {
       logger.error('Create team failed', error);
-      Alert.alert('Failed to create team.');
+      Alert.alert('Failed to create team', joinErrorMessage(error));
     } finally {
       setLoading(false);
     }
