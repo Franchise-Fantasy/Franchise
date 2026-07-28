@@ -4,13 +4,12 @@ import { useRouter } from 'expo-router';
 import { StyleSheet, TouchableOpacity, View } from 'react-native';
 
 import { PickConditionRow } from '@/components/draft-hub/PickConditionRow';
+import { HomeListCard, RostersPill } from '@/components/home/HomeListCard';
+import { PlayerName } from '@/components/player/PlayerName';
 import { TeamLogo } from '@/components/team/TeamLogo';
-import { IconSymbol } from '@/components/ui/IconSymbol';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Colors, cardShadow } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
-import { useColorScheme } from '@/hooks/useColorScheme';
+import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
@@ -58,6 +57,9 @@ interface OrderRow {
   // Post-lottery only: the origin team's tricode for a pick that changed hands,
   // shown as "via TRI" so the resolved order ties back to the lottery slot.
   viaTricode?: string | null;
+  // The player taken with this pick, once it's been used. Null for a slot still
+  // on the board, which is what makes the card read as live results mid-draft.
+  playerName?: string | null;
 }
 
 /**
@@ -77,8 +79,7 @@ export function OffseasonLotteryOrder({
   offseasonStep,
   season,
 }: Props) {
-  const scheme = useColorScheme() ?? 'light';
-  const c = Colors[scheme];
+  const c = useColors();
   const router = useRouter();
 
   const lotteryComplete =
@@ -88,7 +89,7 @@ export function OffseasonLotteryOrder({
     offseasonStep === 'ready_for_new_season';
   const isLotteryLeague = rookieDraftOrder === 'lottery';
 
-  const { data, isLoading } = useQuery<OrderRow[]>({
+  const { data, isLoading, isError, refetch } = useQuery<OrderRow[]>({
     queryKey: queryKeys.offseasonLotteryOrder(leagueId, offseasonStep, season),
     queryFn: async () => {
       // Post-lottery the rookie draft order is locked into draft_picks
@@ -104,16 +105,28 @@ export function OffseasonLotteryOrder({
       // (create-rookie-draft) the picks get linked to the new draft, so an
       // `.is('draft_id', null)` filter would return nothing and silently fall
       // through to the reverse-standings overlay, showing the WRONG (pre-lottery)
-      // order. season + round + unused (player_id null) is enough to scope it.
+      // order. season + round is enough to scope it.
+      //
+      // Nor filter on `player_id is null`. A made pick is a pick WITH a player,
+      // so that filter deleted each slot from this card the moment it was used:
+      // the order visibly drained away during the draft and hit zero rows at the
+      // end, where an empty result falls through to the reverse-standings path
+      // and (for a league with no archived team_seasons) the "available once the
+      // season ends" empty state. The slots are the point — keep them all and
+      // let the player join turn the card into live results.
       if (lotteryComplete) {
-        const { data: picks } = await supabase
+        // Throw on error (here and below) rather than treating undefined as "no
+        // rows" — a failed fetch must surface as the card's error state, not
+        // fall through to the reverse-standings overlay (wrong order) or the
+        // "available once the season ends" empty state.
+        const { data: picks, error: picksError } = await supabase
           .from('draft_picks')
-          .select('slot_number, current_team_id, original_team_id, team:teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key), origin:teams!draft_picks_original_team_id_fkey(tricode, name)')
+          .select('slot_number, current_team_id, original_team_id, team:teams!draft_picks_current_team_id_fkey(id, name, tricode, logo_key), origin:teams!draft_picks_original_team_id_fkey(tricode, name), player:players!draft_picks_player_id_fkey(name)')
           .eq('league_id', leagueId)
           .eq('season', season)
           .eq('round', 1)
-          .is('player_id', null)
           .order('slot_number', { ascending: true });
+        if (picksError) throw picksError;
 
         const ordered = (picks ?? []).filter((p: any) => p.slot_number != null);
         if (ordered.length > 0) {
@@ -132,6 +145,7 @@ export function OffseasonLotteryOrder({
               // Resolved pick that changed hands — name the slot's origin so the
               // order visibly ties back to the lottery (slot 2 = "MID via BF").
               viaTricode: traded ? originTri : null,
+              playerName: p.player?.name ?? null,
             };
           });
         }
@@ -140,11 +154,12 @@ export function OffseasonLotteryOrder({
       // Pre-lottery (or lottery flagged complete but picks not yet ordered): the
       // order is reverse-standings from the most recent archived season, with
       // round-1 pick conveyance overlaid.
-      const { data: allArchived } = await supabase
+      const { data: allArchived, error: archivedError } = await supabase
         .from('team_seasons')
         .select('team_id, wins, losses, points_for, final_standing, season, team:teams!team_seasons_team_id_fkey(id, name, tricode, logo_key)')
         .eq('league_id', leagueId)
         .order('season', { ascending: false });
+      if (archivedError) throw archivedError;
 
       if (!allArchived || allArchived.length === 0) return [];
       const latestSeason = (allArchived[0] as any).season;
@@ -176,13 +191,14 @@ export function OffseasonLotteryOrder({
         return m?.tricode ?? m?.name?.slice(0, 3).toUpperCase() ?? null;
       };
 
-      const { data: r1picks } = await supabase
+      const { data: r1picks, error: r1Error } = await supabase
         .from('draft_picks')
         .select('original_team_id, current_team_id, protection_threshold, protection_owner_id')
         .eq('league_id', leagueId)
         .eq('season', season)
         .eq('round', 1)
         .is('player_id', null);
+      if (r1Error) throw r1Error;
       const condByOrig = new Map<string, { ownerId: string | null; threshold: number | null; protOwnerId: string | null }>();
       for (const p of r1picks ?? []) {
         if (p.original_team_id) {
@@ -194,13 +210,14 @@ export function OffseasonLotteryOrder({
         }
       }
 
-      const { data: swapRows } = await supabase
+      const { data: swapRows, error: swapsError } = await supabase
         .from('pick_swaps')
         .select('beneficiary_team_id, counterparty_team_id')
         .eq('league_id', leagueId)
         .eq('season', season)
         .eq('round', 1)
         .eq('resolved', false);
+      if (swapsError) throw swapsError;
       const swapPartner = new Map<string, string>();
       for (const sw of swapRows ?? []) {
         if (sw.beneficiary_team_id) swapPartner.set(sw.beneficiary_team_id, sw.counterparty_team_id);
@@ -243,8 +260,18 @@ export function OffseasonLotteryOrder({
     staleTime: 1000 * 60 * 2,
   });
 
+  // "Results" needs BOTH the board full and the draft actually over. This card
+  // only ever shows round 1, and round 1 fills before rounds 2+ are drafted —
+  // so "every row has a player" alone would flip the heading to Results while
+  // the draft is still running. The step is what says it's finished.
+  const picksMade = (data ?? []).filter((r) => r.playerName).length;
+  const draftFinished =
+    offseasonStep === 'rookie_draft_complete' || offseasonStep === 'ready_for_new_season';
+  const draftComplete = draftFinished && picksMade > 0 && picksMade === data?.length;
   const outerLabel = lotteryComplete
-    ? 'Rookie Draft Order'
+    ? draftComplete
+      ? 'Rookie Draft Results'
+      : 'Rookie Draft Order'
     : isLotteryLeague
       ? 'Lottery Odds'
       : 'Rookie Draft Order';
@@ -259,49 +286,26 @@ export function OffseasonLotteryOrder({
   const firstTeamId = data?.find((r) => r.teamId)?.teamId ?? null;
 
   return (
-    <View style={styles.wrap}>
-      <View style={styles.labelRow}>
-        <View style={styles.labelLeft}>
-          <View style={[styles.labelRule, { backgroundColor: c.gold }]} />
-          <ThemedText type="sectionLabel" style={{ color: c.text }}>
-            {outerLabel}
-          </ThemedText>
-        </View>
-        {firstTeamId && (
-          <TouchableOpacity
-            style={[styles.headerPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
-            onPress={() => router.push(`/team-roster/${firstTeamId}` as never)}
-            activeOpacity={0.7}
-            accessibilityRole="button"
-            accessibilityLabel="Browse team rosters"
-            hitSlop={8}
-          >
-            <IconSymbol name="person.3.fill" size={14} color={c.gold} />
-            <ThemedText type="varsitySmall" style={[styles.headerPillText, { color: c.text }]}>
-              Rosters
-            </ThemedText>
-          </TouchableOpacity>
-        )}
-      </View>
-
-      <View style={[styles.card, { backgroundColor: c.card, borderColor: c.border, ...cardShadow }]}>
-        <View style={styles.list}>
-          {isLoading ? (
-            <View style={styles.loading}>
-              <LogoSpinner />
-            </View>
-          ) : !data || data.length === 0 ? (
-            <ThemedText style={[styles.empty, { color: c.secondaryText }]}>
-              Order will be available once the season ends.
-            </ThemedText>
-          ) : (
-            <>
-              <View style={[styles.headerRow, { borderBottomColor: c.border }]}>
+    <HomeListCard
+      label={outerLabel}
+      accessory={<RostersPill teamId={firstTeamId} />}
+      isLoading={isLoading}
+      isError={isError}
+      onRetry={() => refetch()}
+      empty={!data || data.length === 0}
+      emptyText="Order will be available once the season ends."
+    >
+      <View style={[styles.headerRow, { borderBottomColor: c.border }]}>
                 <ThemedText type="varsitySmall" style={[styles.rank, { color: c.secondaryText }]}>#</ThemedText>
                 <View style={{ width: s(26) }} />
                 <ThemedText type="varsitySmall" style={[styles.teamCol, { color: c.secondaryText }]}>
                   Team
                 </ThemedText>
+                {picksMade > 0 && (
+                  <ThemedText type="varsitySmall" style={[styles.pickedHeader, { color: c.secondaryText }]}>
+                    Pick
+                  </ThemedText>
+                )}
                 {showRecord && (
                   <ThemedText type="varsitySmall" style={[styles.record, { color: c.secondaryText }]}>
                     W-L
@@ -313,7 +317,9 @@ export function OffseasonLotteryOrder({
                   </ThemedText>
                 )}
               </View>
-              {data.slice(0, 14).map((row, i, arr) => {
+      {/* Null-safe: HomeListCard evaluates children even in the loading/empty
+          states (it just doesn't render them). */}
+      {(data ?? []).slice(0, 14).map((row, i, arr) => {
                 const isLast = i === arr.length - 1;
                 // A straight-up trade (no protection, no swap) leads with the
                 // team that actually receives the pick — showing the origin's
@@ -378,7 +384,8 @@ export function OffseasonLotteryOrder({
                       (row.protectionThreshold
                         ? `, top-${row.protectionThreshold} protected, projected ${wouldHold ? 'keeps' : 'conveys'}`
                         : '') +
-                      (row.swapPartnerTricode ? `, pick swap with ${row.swapPartnerTricode}` : '')
+                      (row.swapPartnerTricode ? `, pick swap with ${row.swapPartnerTricode}` : '') +
+                      (row.playerName ? `, selected ${row.playerName}` : '')
                     }
                   >
                     <View style={styles.rowTop}>
@@ -426,6 +433,18 @@ export function OffseasonLotteryOrder({
                           </View>
                         ) : null}
                       </View>
+                      {/* The pick's result, in the column the W-L / odds vacate
+                          once the lottery is done. PlayerName keeps the full
+                          name when it fits and abbreviates the first name only
+                          when the slot would clip it to a second line. */}
+                      {row.playerName && (
+                        <PlayerName
+                          name={row.playerName}
+                          type="varsitySmall"
+                          style={[styles.pickedName, { color: c.gold }]}
+                          containerStyle={styles.pickedNameWrap}
+                        />
+                      )}
                       {showRecord && (
                         <ThemedText type="mono" style={[styles.record, { color: c.secondaryText }]}>
                           {row.wins}-{row.losses}
@@ -461,57 +480,11 @@ export function OffseasonLotteryOrder({
                   </TouchableOpacity>
                 );
               })}
-            </>
-          )}
-        </View>
-      </View>
-    </View>
+    </HomeListCard>
   );
 }
 
 const styles = StyleSheet.create({
-  wrap: {
-    marginBottom: s(4),
-  },
-  labelRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: s(10),
-  },
-  labelLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(10),
-  },
-  labelRule: {
-    height: 2,
-    width: s(18),
-  },
-  // Mirrors StandingsSection's "See All" pill so the offseason card reads
-  // as an entry point into rosters, not a static odds table.
-  headerPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(5),
-    paddingHorizontal: s(10),
-    paddingVertical: s(5),
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  headerPillText: {
-    fontSize: ms(9.5),
-  },
-  card: {
-    borderWidth: 1,
-    borderRadius: 14,
-    paddingHorizontal: s(14),
-    paddingTop: s(10),
-    paddingBottom: s(8),
-    marginBottom: s(16),
-    overflow: 'hidden',
-  },
-  list: {},
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -565,6 +538,28 @@ const styles = StyleSheet.create({
     fontSize: ms(13),
     fontWeight: '500',
   },
+  // Right-hand results column. Capped rather than fixed-width so a long name
+  // can lean on the team column's flex instead of forcing an abbreviation, and
+  // right-aligned so the picks read as a column down the card.
+  pickedNameWrap: {
+    flexShrink: 1,
+    maxWidth: '44%',
+    alignItems: 'flex-end',
+    marginLeft: s(6),
+  },
+  pickedName: {
+    fontSize: ms(11),
+    textAlign: 'right',
+  },
+  // Header twin of pickedNameWrap. A Text can't use the wrapper's alignItems,
+  // so it matches the column with maxWidth + right alignment instead.
+  pickedHeader: {
+    flexShrink: 1,
+    maxWidth: '44%',
+    marginLeft: s(6),
+    fontSize: ms(11),
+    textAlign: 'right',
+  },
   record: {
     width: s(44),
     textAlign: 'center',
@@ -574,13 +569,5 @@ const styles = StyleSheet.create({
     width: s(52),
     textAlign: 'right',
     fontSize: ms(12),
-  },
-  empty: {
-    fontSize: ms(13),
-    textAlign: 'center',
-    paddingVertical: s(20),
-  },
-  loading: {
-    paddingVertical: s(20),
   },
 });

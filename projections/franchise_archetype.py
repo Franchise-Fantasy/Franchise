@@ -13,6 +13,12 @@ Reads Franchise `player_games` (sport-scoped); writes `player_archetypes`
 (UUID player_id, sport, season). Runs as the projections_engine role, before
 franchise_project, in the daily workflow.
 
+DORMANT (audit 2026-07-27): nothing consumes player_archetypes — only the
+shelved project.py path reads it, and no workflow invokes this script. It is
+also still calendar-year keyed (EXTRACT(YEAR FROM game_date)), which is WRONG
+for NBA's Oct–Apr seasons; port to franchise_db.get_season_windows before any
+revival.
+
 USAGE
     python franchise_archetype.py --sport wnba --season 2026
     python franchise_archetype.py --sport wnba --season 2026 --inspect

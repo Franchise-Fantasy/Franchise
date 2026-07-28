@@ -2,31 +2,44 @@ name: Projections — preseason snapshot
 
 # Pre-season / draft snapshot. Fires daily through the offseason/preseason so
 # the draft board absorbs injuries, trades and role changes right up to opening
-# night. resolve_phase.py no-ops once the season tips off (the daily game-by-game
-# job takes over then).
+# night. Targets each sport's NEXT unopened season (resolve_phase.py), freezing
+# the baseline at the last write before tipoff, when the daily game-by-game job
+# takes over.
 #
-# workflow_dispatch also accepts an explicit `season` — use it to snapshot the
-# CURRENT season mid-stream (e.g. 2026). That's the "what we expected before the
-# season" baseline the analytics "Performance vs Expected" card compares actuals
-# against; the season model ignores current-season games, so it's a true
-# preseason expectation regardless of when you run it.
+# workflow_dispatch also accepts an explicit `season` (START YEAR — 2026 means
+# WNBA '2026' / NBA '2026-27') — use it to snapshot the CURRENT season
+# mid-stream. That's the "what we expected before the season" baseline the
+# analytics "Performance vs Expected" card compares actuals against; the season
+# model ignores the target season's own games, so it's a true preseason
+# expectation regardless of when you run it. An explicit-season dispatch runs
+# only the chosen sport's matrix leg.
 on:
   schedule:
     - cron: '0 12 * * *' # 12:00 UTC daily (offset from the game-by-game job)
   workflow_dispatch:
     inputs:
       season:
-        description: 'Explicit season to snapshot (e.g. 2026). Blank = auto (offseason gating, targets the next season).'
+        description: 'Explicit season START YEAR to snapshot (e.g. 2026). Blank = auto (targets the next unopened season per sport).'
         required: false
         default: ''
-
-concurrency:
-  group: projections-preseason
-  cancel-in-progress: false
+      sport:
+        description: 'Sport for an explicit-season run. Ignored when season is blank (auto runs both).'
+        required: false
+        type: choice
+        options: ['wnba', 'nba']
+        default: 'wnba'
 
 jobs:
   project:
     runs-on: ubuntu-latest
+    strategy:
+      # One sport's crash must not cancel the other's run.
+      fail-fast: false
+      matrix:
+        sport: [wnba, nba]
+    concurrency:
+      group: projections-preseason-${{ matrix.sport }}
+      cancel-in-progress: false
     env:
       PG_DSN: ${{ secrets.PG_DSN }}
     steps:
@@ -48,16 +61,23 @@ jobs:
         # silently emitting an empty season that breaks the next step's args.
         run: |
           if [ -n "${{ inputs.season }}" ]; then
-            season="${{ inputs.season }}"   # explicit override (e.g. current season for the PvE baseline)
+            # Explicit override (e.g. current season for the PvE baseline).
+            # Only the chosen sport's matrix leg runs it; the other leg SKIPs
+            # (matrix isn't available in a job-level `if`, so gate here).
+            if [ "${{ inputs.sport }}" = "${{ matrix.sport }}" ]; then
+              season="${{ inputs.season }}"
+            else
+              season="SKIP"
+            fi
           else
-            season="$(python projections/resolve_phase.py season)"
+            season="$(python projections/resolve_phase.py season ${{ matrix.sport }})"
           fi
           echo "season=$season" >> "$GITHUB_OUTPUT"
 
       - name: Generate season snapshot
         if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
-        run: python projections/franchise_project.py --sport wnba --season ${{ steps.phase.outputs.season }} --horizon season
+        run: python projections/franchise_project.py --sport ${{ matrix.sport }} --season ${{ steps.phase.outputs.season }} --horizon season
 
-      - name: In season — skipped
+      - name: Skipped
         if: steps.phase.outputs.season == 'SKIP'
-        run: echo "Season already underway; the daily game-by-game job owns projections now."
+        run: echo "No target season for ${{ matrix.sport }}; see the resolver step's stderr for the reason."

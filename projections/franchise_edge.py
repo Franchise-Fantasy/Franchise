@@ -108,10 +108,12 @@ def _blend_stat(curr, prior, n_curr, k=PRIOR_SHRINKAGE_K):
     return (m, _sd(math.sqrt(var), m))
 
 
-def _season_distributions(conn, sport: str, season: int, min_games: int) -> dict:
+def _season_distributions(conn, sport: str, window: tuple, min_games: int) -> dict:
     """Raw per-stat (mean, sd) from one season's game logs, per player.
     { player_id: { 'pts': (mean, sd), ..., '_n': n, '_min': mpg } }.
-    Reads Franchise player_games; mirrors edge.py._season_distributions."""
+    Reads Franchise player_games; mirrors edge.py._season_distributions.
+    `window` is the season's (start_date, end_date) — date bounds, not
+    EXTRACT(YEAR), so cross-calendar-year NBA seasons stay whole."""
     sql = """
         SELECT pg.player_id,
                COUNT(*)                                          AS n,
@@ -130,14 +132,14 @@ def _season_distributions(conn, sport: str, season: int, min_games: int) -> dict
                AVG(COALESCE(pg.min ,0)) AS min_mean
         FROM player_games pg
         WHERE pg.sport = %s
-          AND EXTRACT(YEAR FROM pg.game_date) = %s
+          AND pg.game_date BETWEEN %s AND %s
           AND pg.min >= %s
         GROUP BY pg.player_id
         HAVING COUNT(*) >= %s
     """
     out = {}
     with conn.cursor() as cur:
-        cur.execute(sql, (sport, season, MIN_MINUTES, min_games))
+        cur.execute(sql, (sport, window[0], window[1], MIN_MINUTES, min_games))
         colnames = [c[0] for c in cur.description]
         for row in cur.fetchall():
             rec = dict(zip(colnames, row))
@@ -148,7 +150,7 @@ def _season_distributions(conn, sport: str, season: int, min_games: int) -> dict
     return out
 
 
-def _recent_minutes(conn, sport: str, season: int, k: int) -> dict:
+def _recent_minutes(conn, sport: str, window: tuple, k: int) -> dict:
     """Average minutes over each player's most recent `k` PLAYED games (min > 0)
     this season.
 
@@ -166,30 +168,34 @@ def _recent_minutes(conn, sport: str, season: int, k: int) -> dict:
                    ROW_NUMBER() OVER (PARTITION BY pg.player_id
                                       ORDER BY pg.game_date DESC) AS rn
             FROM player_games pg
-            WHERE pg.sport = %s AND EXTRACT(YEAR FROM pg.game_date) = %s
+            WHERE pg.sport = %s AND pg.game_date BETWEEN %s AND %s
               AND pg.min > 0
         )
         SELECT player_id, AVG(min_played) FROM ranked WHERE rn <= %s GROUP BY player_id
     """
     out = {}
     with conn.cursor() as cur:
-        cur.execute(sql, (sport, season, k))
+        cur.execute(sql, (sport, window[0], window[1], k))
         for pid, am in cur.fetchall():
             out[pid] = _f(am)
     return out
 
 
-def get_player_distributions(conn, sport: str, season: int) -> dict:
+def get_player_distributions(conn, sport: str, season: int, windows: dict) -> dict:
     """Per-player per-stat (mean, sd), blending the in-progress `season` toward
     the prior completed season via sample-size shrinkage, scaled by a recent-
     minutes factor. Exact port of edge.py.get_player_distributions.
 
+    `season` is the integer start year; `windows` maps {start_year:
+    (start_date, end_date)} and must cover `season` and `season - 1`
+    (fdb.get_season_windows provides both, with per-sport fallbacks).
+
     Each player dict carries provenance: _n (current games), _n_prior, _basis
     ∈ {'blend','current_only','prior_only'}, _proj_min, _base_min, _min_factor.
     """
-    prior = _season_distributions(conn, sport, season - 1, MIN_GAMES)
-    curr = _season_distributions(conn, sport, season, MIN_GAMES_CURRENT)
-    recent_min = _recent_minutes(conn, sport, season, RECENT_GAMES_K)
+    prior = _season_distributions(conn, sport, windows[season - 1], MIN_GAMES)
+    curr = _season_distributions(conn, sport, windows[season], MIN_GAMES_CURRENT)
+    recent_min = _recent_minutes(conn, sport, windows[season], RECENT_GAMES_K)
 
     out = {}
     for pid in set(prior) | set(curr):

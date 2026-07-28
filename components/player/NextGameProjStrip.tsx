@@ -12,6 +12,9 @@ interface NextGameProjStripProps {
   nextGame?: { opponent: string; prefix: string } | null;
   scoringWeights: ScoringWeight[] | undefined;
   isCategories: boolean;
+  /** League sport — projAvgRowToFpts defaults to the NBA stat map without it
+   *  (the documented sport-param-omission bug class). */
+  sport?: string | null;
 }
 
 /**
@@ -25,10 +28,11 @@ export function NextGameProjStrip({
   nextGame,
   scoringWeights,
   isCategories,
+  sport,
 }: NextGameProjStripProps) {
   const c = useColors();
   if (isCategories || !projection || !scoringWeights) return null;
-  const fpts = projAvgRowToFpts(projection as Record<string, unknown>, scoringWeights);
+  const fpts = projAvgRowToFpts(projection as Record<string, unknown>, scoringWeights, sport);
   if (fpts <= 0) return null;
   const matchup = nextGame
     ? `${nextGame.prefix === '@' ? '@' : 'vs'} ${nextGame.opponent}`

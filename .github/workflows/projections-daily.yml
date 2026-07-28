@@ -4,20 +4,25 @@ name: Projections — daily game-by-game
 # OWN game logs — the in-progress season blended toward last season by sample
 # size, scaled by recent minutes, with Out players' minutes redistributed to
 # active teammates (a faithful port of the original engine's production projector,
-# edge.py). Fires daily after the WNBA slate settles; resolve_phase.py no-ops
-# outside the season window so this never overlaps the offseason snapshot job.
+# edge.py). Fires daily after the overnight slates settle; resolve_phase.py
+# no-ops per sport outside that sport's season window, so out-of-season legs
+# skip cleanly (WNBA runs May–Sep, NBA Oct–Apr — they barely overlap).
 on:
   schedule:
     - cron: '0 11 * * *' # 11:00 UTC daily
   workflow_dispatch:
 
-concurrency:
-  group: projections-daily
-  cancel-in-progress: false
-
 jobs:
   project:
     runs-on: ubuntu-latest
+    strategy:
+      # One sport's crash must not cancel the other's run.
+      fail-fast: false
+      matrix:
+        sport: [wnba, nba]
+    concurrency:
+      group: projections-daily-${{ matrix.sport }}
+      cancel-in-progress: false
     env:
       PG_DSN: ${{ secrets.PG_DSN }}
     steps:
@@ -38,13 +43,13 @@ jobs:
         # — e.g. a failed DB connection — fails this step loudly instead of
         # silently emitting an empty season that breaks the next step's args.
         run: |
-          season="$(python projections/resolve_phase.py next_game)"
+          season="$(python projections/resolve_phase.py next_game ${{ matrix.sport }})"
           echo "season=$season" >> "$GITHUB_OUTPUT"
 
       - name: Generate game-by-game projections
         if: steps.phase.outputs.season != 'SKIP' && steps.phase.outputs.season != ''
-        run: python projections/franchise_project.py --sport wnba --season ${{ steps.phase.outputs.season }} --horizon next_game
+        run: python projections/franchise_project.py --sport ${{ matrix.sport }} --season ${{ steps.phase.outputs.season }} --horizon next_game
 
       - name: Out of season — skipped
         if: steps.phase.outputs.season == 'SKIP'
-        run: echo "Not within the WNBA season window; nothing to project."
+        run: echo "Not within the ${{ matrix.sport }} season window; nothing to project (see the resolver step's stderr for the reason)."

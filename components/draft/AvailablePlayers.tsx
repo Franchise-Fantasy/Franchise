@@ -35,7 +35,7 @@ import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { preferProjection, sortRookiePool } from "@/utils/draft/draftRanking";
 import { formatPosition } from "@/utils/formatting";
-import { blendNflSeasonView, buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
+import { blendBasketballSeasonView, blendNflSeasonView, buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { checkPositionLimits, type PositionLimits } from "@/utils/roster/positionLimits";
@@ -158,13 +158,25 @@ export function AvailablePlayers({
   // board reads off projections (replacing the old last-season-averages
   // default). Rookie drafts opt out — that pool is ranked by prospect data, not
   // pro projections.
-  const { data: seasonProjections } = usePlayerProjections(
-    sport,
-    "season",
-    // NFL has no projections engine — skip the query instead of fetching an
-    // empty map (the NFL season-view blend below uses last season instead).
-    !!leagueId && !isRookieDraft && sport !== "nfl",
-  );
+  const { data: seasonProjections, isSuccess: seasonProjectionsResolved } =
+    usePlayerProjections(
+      sport,
+      "season",
+      // NFL has no projections engine — skip the query instead of fetching an
+      // empty map (the NFL season-view blend below uses last season instead).
+      !!leagueId && !isRookieDraft && sport !== "nfl",
+    );
+
+  // Basketball liveness guard (audit 2026-07-27): the projections map resolving
+  // EMPTY means the engine has no rows for this sport+season — never wired
+  // (NBA's live state), dead long enough for the view's 14-day window to empty,
+  // or a season-label mismatch. The board then needs the same last-season
+  // fallback NFL gets, so the historicalStats fetch below must fire.
+  const seasonProjectionsMissing =
+    sport !== "nfl" &&
+    !isRookieDraft &&
+    seasonProjectionsResolved &&
+    (!seasonProjections || seasonProjections.size === 0);
 
   const { data: players, isLoading } = useQuery<PlayerSeasonStats[]>({
     queryKey: [...queryKeys.availablePlayers(leagueId), sport, rookieClassYear ?? null],
@@ -268,7 +280,11 @@ export function AvailablePlayers({
     },
     // NFL keeps this warm year-round: with no NFL projections, last season IS
     // the default pre-season draft ranking (see the season-view blend below).
-    enabled: !!leagueId && (timeRange === "lastSeason" || sport === "nfl"),
+    // Basketball fetches it on demand when the projections map resolves empty —
+    // without this the fallback blend would have nothing to blend from.
+    enabled:
+      !!leagueId &&
+      (timeRange === "lastSeason" || sport === "nfl" || seasonProjectionsMissing),
     staleTime: 1000 * 60 * 30,
   });
 
@@ -289,7 +305,14 @@ export function AvailablePlayers({
       if (sport === "nfl") {
         return blendNflSeasonView(players, historicalStats) ?? players;
       }
-      if (!seasonProjections || seasonProjections.size === 0) return players;
+      // Liveness fallback: no projections for this sport+season → blend last
+      // season for thin-sample players (the proj→lastSeason chain the autodraft
+      // bot walks in effectiveDraftPts), so the board stays ranked instead of
+      // tying every FPTS sort at zero. Bit the live NBA pool on 2026-07-27:
+      // 935 matview rows, all avg NULL, zero projection rows → unranked board.
+      if (!seasonProjections || seasonProjections.size === 0) {
+        return blendBasketballSeasonView(players, historicalStats) ?? players;
+      }
       const num = (v: unknown) => Number(v) || 0;
       return players.map((p) => {
         if (!preferProjection(p.games_played)) return p;

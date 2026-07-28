@@ -96,6 +96,82 @@ export function blendNflSeasonView(
   });
 }
 
+/**
+ * Merge a basketball player_historical_stats row onto a current matview row:
+ * identity stays current, stat columns become last season's. FPTS
+ * (calculateAvgFantasyPoints) reads the total_* columns, but
+ * player_historical_stats persists only dd/td totals — not the box-score
+ * totals — and a spread of the current row carries the CURRENT-season matview
+ * totals (all zero in the offseason). So EVERY box total is rebuilt from
+ * avg × games, exactly the way the detail modal's seasonAvgRowToFpts does;
+ * otherwise FPTS silently drops the FG/3P/FT/PF scoring terms and disagrees
+ * with the modal for the same player + season.
+ */
+export function mergeBasketballHistoricalRow(
+  p: PlayerSeasonStats,
+  h: Record<string, any>,
+): PlayerSeasonStats {
+  const gp = Number(h.games_played ?? 0);
+  const tot = (avg: number | null | undefined) => Math.round(Number(avg ?? 0) * gp);
+  return {
+    ...p,
+    games_played: gp,
+    avg_pts: h.avg_pts ?? 0,
+    avg_reb: h.avg_reb ?? 0,
+    avg_ast: h.avg_ast ?? 0,
+    avg_stl: h.avg_stl ?? 0,
+    avg_blk: h.avg_blk ?? 0,
+    avg_tov: h.avg_tov ?? 0,
+    avg_fgm: h.avg_fgm ?? 0,
+    avg_fga: h.avg_fga ?? 0,
+    avg_3pm: h.avg_3pm ?? 0,
+    avg_3pa: h.avg_3pa ?? 0,
+    avg_ftm: h.avg_ftm ?? 0,
+    avg_fta: h.avg_fta ?? 0,
+    avg_pf: h.avg_pf ?? 0,
+    avg_min: h.avg_min ?? 0,
+    total_pts: tot(h.avg_pts),
+    total_reb: tot(h.avg_reb),
+    total_ast: tot(h.avg_ast),
+    total_stl: tot(h.avg_stl),
+    total_blk: tot(h.avg_blk),
+    total_tov: tot(h.avg_tov),
+    total_fgm: tot(h.avg_fgm),
+    total_fga: tot(h.avg_fga),
+    total_3pm: tot(h.avg_3pm),
+    total_3pa: tot(h.avg_3pa),
+    total_ftm: tot(h.avg_ftm),
+    total_fta: tot(h.avg_fta),
+    total_pf: tot(h.avg_pf),
+    total_dd: h.total_dd ?? 0,
+    total_td: h.total_td ?? 0,
+  } as PlayerSeasonStats;
+}
+
+/**
+ * Basketball liveness fallback for the default "season" view (audit
+ * 2026-07-27): when the season-projections map resolves EMPTY — engine never
+ * ran for this sport, dead ≥14 days, or a season-label mismatch — a
+ * thin-sample player's row blends in last season's production instead, the
+ * same proj→lastSeason chain the autodraft bot walks in effectiveDraftPts.
+ * Without this an NBA startup draft pre-tipoff rendered an effectively
+ * unranked zero-stat board (every FPTS sort tied at 0) while the bot ranked
+ * sensibly. Mirrors blendNflSeasonView; players past the games threshold keep
+ * their real current-season line.
+ */
+export function blendBasketballSeasonView(
+  players: PlayerSeasonStats[] | undefined,
+  historicalStats: any[] | undefined | null,
+): PlayerSeasonStats[] | undefined {
+  if (!players || !historicalStats) return players;
+  const histMap = new Map(historicalStats.map((h: any) => [h.player_id, h]));
+  return players.map((p) => {
+    if (!preferProjection(p.games_played)) return p;
+    const h = histMap.get(p.player_id);
+    return h ? mergeBasketballHistoricalRow(p, h) : p;
+  });
+}
+
 export function buildAdjustedPlayers(
   allPlayers: PlayerSeasonStats[] | undefined,
   recentGameLogs: any[] | undefined,
@@ -119,52 +195,7 @@ export function buildAdjustedPlayers(
     }
     return allPlayers
       .filter((p) => histMap.has(p.player_id))
-      .map((p) => {
-        const h = histMap.get(p.player_id)!;
-        // FPTS (calculateAvgFantasyPoints) reads the total_* columns. But
-        // player_historical_stats persists only dd/td totals — not the box-score
-        // totals — and the spread `...p` carries the CURRENT-season matview
-        // totals (all zero in the offseason). So rebuild EVERY box total from
-        // avg × games, exactly the way the detail modal's seasonAvgRowToFpts
-        // does; otherwise the FA "Last Season" FPTS silently drops the
-        // FG/3P/FT/PF scoring terms and disagrees with the modal for the same
-        // player + season.
-        const gp = Number(h.games_played ?? 0);
-        const tot = (avg: number | null | undefined) => Math.round(Number(avg ?? 0) * gp);
-        return {
-          ...p,
-          games_played: gp,
-          avg_pts: h.avg_pts ?? 0,
-          avg_reb: h.avg_reb ?? 0,
-          avg_ast: h.avg_ast ?? 0,
-          avg_stl: h.avg_stl ?? 0,
-          avg_blk: h.avg_blk ?? 0,
-          avg_tov: h.avg_tov ?? 0,
-          avg_fgm: h.avg_fgm ?? 0,
-          avg_fga: h.avg_fga ?? 0,
-          avg_3pm: h.avg_3pm ?? 0,
-          avg_3pa: h.avg_3pa ?? 0,
-          avg_ftm: h.avg_ftm ?? 0,
-          avg_fta: h.avg_fta ?? 0,
-          avg_pf: h.avg_pf ?? 0,
-          avg_min: h.avg_min ?? 0,
-          total_pts: tot(h.avg_pts),
-          total_reb: tot(h.avg_reb),
-          total_ast: tot(h.avg_ast),
-          total_stl: tot(h.avg_stl),
-          total_blk: tot(h.avg_blk),
-          total_tov: tot(h.avg_tov),
-          total_fgm: tot(h.avg_fgm),
-          total_fga: tot(h.avg_fga),
-          total_3pm: tot(h.avg_3pm),
-          total_3pa: tot(h.avg_3pa),
-          total_ftm: tot(h.avg_ftm),
-          total_fta: tot(h.avg_fta),
-          total_pf: tot(h.avg_pf),
-          total_dd: h.total_dd ?? 0,
-          total_td: h.total_td ?? 0,
-        } as PlayerSeasonStats;
-      });
+      .map((p) => mergeBasketballHistoricalRow(p, histMap.get(p.player_id)!));
   }
 
   if (!recentGameLogs) return allPlayers;

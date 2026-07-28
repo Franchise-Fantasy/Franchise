@@ -52,8 +52,10 @@ export function useCompareData(
 
   const { data: allPlayers, isLoading: statsLoading } = usePlayerSeasonStats();
   const { data: gameLogs, isLoading: logsLoading } = useRosterGameLogs(ids);
-  // Projected fantasy points only matter for points leagues.
-  const projEnabled = !isCategories;
+  // Projected fantasy points only matter for points leagues — and NFL has no
+  // projections engine (registry statToProj is {}), so skip the queries
+  // instead of fetching guaranteed-empty maps (AvailablePlayers idiom).
+  const projEnabled = !isCategories && sport !== 'nfl';
   const { data: nextProj, isLoading: nextProjLoading } = usePlayerProjections(
     sport,
     'next_game',

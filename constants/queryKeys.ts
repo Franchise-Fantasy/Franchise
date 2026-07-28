@@ -222,8 +222,11 @@ export const queryKeys = {
     ["freeAgentHistoricalStats", leagueId] as const,
   prevSeasonFpts: (leagueId: string, season: string, inputsDigest: string) =>
     ["prevSeasonFpts", leagueId, season, inputsDigest] as const,
-  playerProjections: (sport: string, horizon: string) =>
-    ["playerProjections", sport, horizon] as const,
+  // Season is part of the key because the queryFn pins it — without it a
+  // mid-session season_config flip serves the OLD season's cached map for up
+  // to staleTime (audit 2026-07-27).
+  playerProjections: (sport: string, horizon: string, season: string) =>
+    ["playerProjections", sport, horizon, season] as const,
   activeDraft: (leagueId: string) => ["activeDraft", leagueId] as const,
   upcomingDraft: (leagueId: string) => ["upcomingDraft", leagueId] as const,
   leagueDraftOrder: (leagueId: string) =>

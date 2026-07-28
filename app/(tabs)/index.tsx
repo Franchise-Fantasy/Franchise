@@ -22,6 +22,7 @@ import { DeclareKeepersSheet } from '@/components/home/DeclareKeepersSheet';
 import { HomeAnnouncementBanner } from '@/components/home/HomeAnnouncementBanner';
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
+import { NextSeasonOutlook } from '@/components/home/NextSeasonOutlook';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
 import { PendingInvitesCard } from '@/components/home/PendingInvitesCard';
 import { QuickNav } from '@/components/home/QuickNav';
@@ -350,6 +351,19 @@ export default function HomeScreen() {
   }, [league, teamId, isCommissioner, paymentLedger]);
 
   const isOffseason = !!league?.offseason_step;
+
+  // Once the rookie draft is done the draft-order card has nothing left to say
+  // — the board is settled and the full results live in League History → Drafts
+  // — so the slot turns forward and previews next season instead. Dynasty only:
+  // a keeper/redraft league at ready_for_new_season hasn't held its draft yet,
+  // so its rosters aren't the ones that will play, and a points league only:
+  // the ranking is FPTS-based, which a categories league has no weights for.
+  const showNextSeasonOutlook =
+    isOffseason &&
+    league?.league_type === 'dynasty' &&
+    league?.scoring_type !== 'h2h_categories' &&
+    (league?.offseason_step === 'rookie_draft_complete' ||
+      league?.offseason_step === 'ready_for_new_season');
   const isImportedNotStarted =
     !!league?.imported_from && !league?.schedule_generated && !isOffseason;
 
@@ -1011,7 +1025,13 @@ export default function HomeScreen() {
                       )}
                     </>
                   )}
-                  {isOffseason ? (
+                  {showNextSeasonOutlook ? (
+                    <NextSeasonOutlook
+                      leagueId={league.id}
+                      sport={(league.sport as Sport | null) ?? 'nba'}
+                      season={league.season}
+                    />
+                  ) : isOffseason ? (
                     <OffseasonLotteryOrder
                       leagueId={league.id}
                       playoffTeams={league.playoff_teams ?? 0}
@@ -1104,7 +1124,13 @@ export default function HomeScreen() {
                 full roster list made the home page far too heavy. */}
             <QuickNav leagueType={league.league_type ?? 'dynasty'} />
 
-            {isOffseason ? (
+            {showNextSeasonOutlook ? (
+              <NextSeasonOutlook
+                leagueId={league.id}
+                sport={(league.sport as Sport | null) ?? 'nba'}
+                season={league.season}
+              />
+            ) : isOffseason ? (
               <OffseasonLotteryOrder
                 leagueId={league.id}
                 playoffTeams={league.playoff_teams ?? 0}

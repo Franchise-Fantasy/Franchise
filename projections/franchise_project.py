@@ -22,15 +22,43 @@ USAGE
 -----
     python franchise_project.py --sport wnba --season 2026 --horizon next_game
     python franchise_project.py --sport wnba --season 2027 --horizon season
+    python franchise_project.py --sport nba  --season 2026 --horizon season
+
+`--season` is always the INTEGER START YEAR (2026 = WNBA '2026' = NBA
+'2026-27'). Games are matched to seasons by season_config date windows and the
+row's `season` column gets the sport's canonical label at write time — see
+season_windows.py (audit 2026-07-27).
 """
 import argparse
 import math
+from datetime import date
 
 import pandas as pd
 
 import franchise_db as fdb
 import franchise_edge as fedge
 import season_project as sea_model
+
+# Sport-specific season-model parameters. The season_project constants shipped
+# WNBA-fit; running NBA against them silently mis-calibrates the games-played
+# model (an 82-game season has a materially lower league GP% than a 44-game
+# one). LEAGUE_AVG_GP_PCT derivation matches season_project.py's: league-wide
+# avg of games/schedule-length for qualifying players (NBA 2025-26: 532 players,
+# computed 2026-07-27). INJURY_PENALTY stays WNBA-derived for NBA until there
+# are ≥2 NBA seasons of Franchise game logs to fit it from — one season can't
+# express "injured LAST season" (documented approximation, not an oversight).
+# `default_len` is the fallback schedule length when game_schedule has no rows
+# for a season.
+SPORT_SEASON_PARAMS = {
+    "wnba": {"league_avg_gp_pct": 0.727, "injury_penalty": 0.148, "default_len": 40},
+    "nba":  {"league_avg_gp_pct": 0.587, "injury_penalty": 0.148, "default_len": 82},
+}
+
+# Liveness floor: a healthy run writes hundreds of rows for either sport. A
+# tiny write means a broken loader/filter, and a green Action with 5 rows is
+# how a dead pipeline hides for 14 days until the view's freshness window
+# silently empties every surface (audit 2026-07-27).
+MIN_ROWS_WRITTEN = 50
 
 
 # ================================================================
@@ -52,7 +80,8 @@ def run_next_game(sport: str, season: int):
     try:
         print(f"[next_game] projecting {sport} {season} "
               f"(current+prior empirical blend — port of edge.py)...")
-        dists = fedge.get_player_distributions(conn, sport, season)
+        windows = fdb.get_season_windows(conn, sport, [season - 1, season])
+        dists = fedge.get_player_distributions(conn, sport, season, windows)
         if not dists:
             raise RuntimeError(f"No {sport} game logs to project for {season}")
         unavailable = fdb.get_unavailable_players(conn, sport)   # uuid -> 'Out'
@@ -64,7 +93,7 @@ def run_next_game(sport: str, season: int):
         # they're out of the league, not merely unprojected yet. Removing them
         # BEFORE the boosts also keeps them out of team_active, so absence
         # minutes redistribute only to players who have actually appeared.
-        team_games = fdb.get_team_games_played(conn, sport, season)
+        team_games = fdb.get_team_games_played(conn, sport, windows[season])
         league_max_games = max(team_games.values(), default=0)
         phantoms = set()
         for pid, d in dists.items():
@@ -118,6 +147,10 @@ def run_next_game(sport: str, season: int):
         print(f"[next_game] wrote {n} projections "
               f"({n_blend} current+prior blends, {len(boosts)} absence-boosted, "
               f"{n_zeroed} out zeroed, {len(phantoms)} phantoms gated)")
+        if n < MIN_ROWS_WRITTEN:
+            raise RuntimeError(
+                f"Only {n} rows written (< {MIN_ROWS_WRITTEN}) — treating as a "
+                f"broken run so the Action goes red instead of green-and-empty")
     finally:
         conn.close()
 
@@ -136,27 +169,56 @@ def _recency_weights(prior_seasons: list) -> dict:
 def run_season(sport: str, season: int, lookback_seasons: int = 5):
     conn = fdb.get_conn()
     try:
-        recent_season = season - 1   # most recently completed season
+        recent_season = season - 1   # most recent prior season (may be in progress)
         prior_seasons = list(range(season - lookback_seasons, season))  # < target
 
+        params = SPORT_SEASON_PARAMS[sport]
+        windows = fdb.get_season_windows(conn, sport, prior_seasons + [season])
+
         print(f"[season] loading prior-season aggregates {prior_seasons}...")
-        hist = fdb.fetch_player_seasons(conn, sport, prior_seasons)
+        hist = fdb.fetch_player_seasons(
+            conn, sport, {s: windows[s] for s in prior_seasons})
         if hist.empty:
             raise RuntimeError(f"No historical data for {sport} {prior_seasons}")
-        active = fdb.fetch_active_players(conn, sport, recent_season)
+        active = fdb.fetch_active_players(conn, sport, windows[recent_season])
 
         # Dynamic games-per-season + project target length (replaces the
         # engine's hardcoded year maps). Fall back to the most recent prior
         # season's length if the target schedule isn't loaded yet.
-        team_games = fdb.team_games_per_season(conn, sport, prior_seasons + [season])
-        default_len = team_games.get(recent_season, 40)
+        team_games = fdb.team_games_per_season(conn, sport, windows)
+        default_len = team_games.get(recent_season, params["default_len"])
         project_games = team_games.get(season, default_len)
+
+        # GP-denominator fix (audit 2026-07-27): the offseason snapshot targets
+        # the NEXT season, so the season currently being PLAYED lands in the
+        # priors at top recency weight. Its gp_pct denominator must be the
+        # games COMPLETED so far, not the full scheduled length — otherwise
+        # gp_pct ≈ fraction-of-season-elapsed, the injury penalty fires for
+        # essentially every player, and projected_games deflates league-wide
+        # (measured on wnba/season/2027: avg 15.79 on 06-04 climbing to 24.08
+        # by 07-27, tracking the elapsed season). Once a season completes,
+        # completed == scheduled, so this is a no-op for the explicit-season
+        # PvE baseline path (all its priors are finished seasons).
+        today = date.today()
+        in_progress = [s for s in prior_seasons
+                       if windows[s][0] <= today <= windows[s][1]]
+        if in_progress:
+            completed = fdb.team_games_per_season(
+                conn, sport, {s: windows[s] for s in in_progress},
+                completed_before=today)
+            for s in in_progress:
+                if completed.get(s):
+                    team_games[s] = completed[s]
+            print(f"[season] in-progress prior {in_progress} -> completed-game "
+                  f"denominators {[completed.get(s) for s in in_progress]}")
 
         # Monkeypatch the season model's global constants for this run.
         sea_model.SEASON_WEIGHTS = _recency_weights(prior_seasons)
         sea_model.MAX_TEAM_GAMES = {s: team_games.get(s, default_len)
                                     for s in prior_seasons + [season]}
         sea_model.PROJECT_GAMES = project_games
+        sea_model.LEAGUE_AVG_GP_PCT = params["league_avg_gp_pct"]
+        sea_model.INJURY_PENALTY = params["injury_penalty"]
 
         print(f"[season] {hist['player_id'].nunique()} players w/ history, "
               f"{len(active)} candidates, projecting {project_games} games")
@@ -169,6 +231,12 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
             proj = sea_model.weighted_projection(phist)
             if proj is None:
                 continue
+            # KNOWN APPROXIMATION: len(phist) is seasons of FRANCHISE history,
+            # not true career length — capped at lookback_seasons, so the 6+
+            # decline branches never fire, and NBA year 1 (one season of logs)
+            # gives EVERY player the ≤2 "+10%" youth boost. Uniform across the
+            # board → ranking-neutral; fix needs a real career-length source
+            # (players.draft_year) and its own calibration pass (audit 2026-07-27).
             proj = sea_model.experience_curve(proj, len(phist))
             pg = sea_model.to_per_game(proj)
             proj_games, _ = sea_model.project_games_played(phist, proj["gp_pct"])
@@ -177,6 +245,10 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
         result = pd.DataFrame(rows)
         n = fdb.write_projections(conn, result, sport, season, "season")
         print(f"[season] wrote {n} projections.")
+        if n < MIN_ROWS_WRITTEN:
+            raise RuntimeError(
+                f"Only {n} rows written (< {MIN_ROWS_WRITTEN}) — treating as a "
+                f"broken run so the Action goes red instead of green-and-empty")
     finally:
         conn.close()
 

@@ -24,7 +24,7 @@ export interface TeamStrengthProfile {
   teamId: string;
   avgFpts: number; // mean effectiveFantasyPoints across active roster players
   totalFpts: number; // sum across active players — the team's total points/day
-  playerCount: number;
+  playerCount: number; // active players counted — scored ones only under excludeUnscored
 }
 
 export interface LeagueStrengthComparison {
@@ -51,6 +51,16 @@ export interface BuildLeagueStrengthComparisonOptions {
   /** League sport — without it an NFL roster scores 0 (the NBA stat map
    *  matches none of its weights) and every team's strength collapses. */
   sport?: string | null;
+  /** Drop players whose effective fpts comes out at or below zero — in practice
+   *  the ones we can't score at all (no qualifying current season, no
+   *  prev-season fallback) — instead of averaging them in as zeros.
+   *
+   *  Off by default — in-season a zero usually means "genuinely unproductive"
+   *  and belongs in the average. It matters in the OFFSEASON, where just-drafted
+   *  rookies have no pro history at all: they score 0, sit on BE (which counts
+   *  as active), and each one drags its team's average down. A team that traded
+   *  for extra rookie picks would rank WORSE for having more of them. */
+  excludeUnscored?: boolean;
 }
 
 export function buildLeagueStrengthComparison(
@@ -59,7 +69,14 @@ export function buildLeagueStrengthComparison(
   myTeamId: string,
   options: BuildLeagueStrengthComparisonOptions = {},
 ): LeagueStrengthComparison | null {
-  const { prevSeasonFptsMap, minGames, gameWindow = 'season', gameLogsByPlayer, sport } = options;
+  const {
+    prevSeasonFptsMap,
+    minGames,
+    gameWindow = 'season',
+    gameLogsByPlayer,
+    sport,
+    excludeUnscored = false,
+  } = options;
   const windowSize = gameWindowSize(gameWindow);
 
   // Group players by team. IR/TAXI players aren't active contributors, so they
@@ -84,6 +101,7 @@ export function buildLeagueStrengthComparison(
   const profiles: TeamStrengthProfile[] = [];
   for (const [teamId, teamPlayers] of byTeam) {
     let totalFpts = 0;
+    let scoredCount = 0;
     for (const p of teamPlayers) {
       let fpts: number;
       if (windowSize != null) {
@@ -97,16 +115,20 @@ export function buildLeagueStrengthComparison(
       } else {
         fpts = effectiveFantasyPoints(p, scoringWeights, prevSeasonFptsMap, minGames, sport);
       }
+      if (excludeUnscored && fpts <= 0) continue;
       totalFpts += Math.max(fpts, 0);
+      scoredCount++;
     }
     profiles.push({
       teamId,
-      avgFpts: Math.round((totalFpts / teamPlayers.length) * 10) / 10,
+      // A team with nothing scoreable averages 0 rather than NaN — it still
+      // belongs in the ranking (at the bottom), just with no signal.
+      avgFpts: scoredCount === 0 ? 0 : Math.round((totalFpts / scoredCount) * 10) / 10,
       // Sum kept alongside the average so the UI can offer a "total points/day"
       // lens (raw daily output — rewards depth) next to the size-independent
       // per-player average.
       totalFpts: Math.round(totalFpts * 10) / 10,
-      playerCount: teamPlayers.length,
+      playerCount: scoredCount,
     });
   }
 

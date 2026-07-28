@@ -1337,6 +1337,11 @@ export default function RosterScreen() {
           .select("*")
           .eq("sport", sport)
           .eq("horizon", "next_game")
+          // Season pin matches usePlayerProjections: the view keeps one row per
+          // (player, horizon, SEASON), so around a season rollover next_game
+          // rows can briefly exist under two labels and an unpinned read is
+          // last-write-wins per player.
+          .eq("season", getCurrentSeason(sport))
           .in(
             "player_id",
             playersNeedingFallback.map((p) => p.player_id),

@@ -11,8 +11,12 @@ Key differences from the engine's native schema, handled here:
   - player_id is a Franchise UUID (text), not a BDL integer. The orchestrator
     (`franchise_project.py`) remaps UUIDs <-> integer indices so the engine's
     integer-keyed model functions can be reused unchanged.
-  - season is derived from EXTRACT(YEAR FROM game_date); WNBA seasons are
-    single calendar years (2024, 2025, 2026 ...).
+  - seasons are keyed by INTEGER START YEAR (2026 = WNBA '2026' = NBA
+    '2026-27') and games are matched by season_config date windows, not
+    EXTRACT(YEAR FROM game_date) — see get_season_windows / season_windows.py
+    (audit 2026-07-27: the year filter split NBA's Oct–Apr seasons in half).
+    The app-facing label is only materialized at the write boundary
+    (write_projections) via season_label().
   - Franchise box scores carry no per-game team / opponent / home flag, so
     the opponent-defense and home-court adjustments degrade to neutral. The
     b2b flag, recency weighting, minutes model and hierarchical Negative
@@ -42,6 +46,8 @@ import psycopg2
 from psycopg2.extras import execute_values
 from dotenv import load_dotenv
 
+from season_windows import fallback_window, parse_start_year, season_label
+
 load_dotenv()
 # .strip() — hand-pasted secrets (GitHub Actions secret box, .env.local) often
 # carry a trailing newline; psycopg2 folds it into the last DSN value and fails
@@ -70,6 +76,39 @@ def get_conn():
 
 
 # ================================================================
+# Season windows (audit 2026-07-27)
+# ================================================================
+# The engine keys seasons by INTEGER START YEAR internally; games are matched
+# to a season by date window, never by EXTRACT(YEAR FROM game_date) — that
+# split NBA's Oct–Apr seasons across two calendar years. Windows come from
+# season_config (regular-season bounds — also excludes playoff games, restoring
+# the source engine's postseason filter), with a per-sport calendar fallback
+# for historical seasons that predate season_config rows. See season_windows.py.
+
+def get_season_windows(conn, sport: str, start_years: list) -> dict:
+    """{start_year: (start_date, end_date)} for each requested season."""
+    df = pd.read_sql(
+        "SELECT season, start_date, end_date FROM season_config WHERE sport = %s",
+        conn, params=(sport,))
+    by_year = {}
+    for _, r in df.iterrows():
+        if r["start_date"] is not None and r["end_date"] is not None:
+            by_year[parse_start_year(r["season"])] = (r["start_date"], r["end_date"])
+    return {y: by_year.get(y, fallback_window(sport, y)) for y in start_years}
+
+
+def _window_values_sql(windows: dict):
+    """(sql_fragment, params) for a VALUES join mapping game_date -> season.
+    Usage: JOIN (VALUES (%s,%s::date,%s::date), ...) sw(season, sd, ed)
+             ON t.game_date BETWEEN sw.sd AND sw.ed"""
+    frag = ", ".join(["(%s, %s::date, %s::date)"] * len(windows))
+    params = []
+    for year, (sd, ed) in sorted(windows.items()):
+        params.extend([year, sd, ed])
+    return frag, params
+
+
+# ================================================================
 # Loaders (shape matches what the engine model functions expect)
 # ================================================================
 
@@ -86,6 +125,8 @@ def load_archetypes_by_season(conn, sport: str) -> dict:
 
 
 # DORMANT — built project.py's hierarchical training set (see module header).
+# NOTE: still calendar-year keyed (EXTRACT(YEAR)) — WRONG for NBA. If ever
+# revived, port to get_season_windows first (audit 2026-07-27).
 def load_box_scores(conn, sport: str, current_season: int,
                     lookback_seasons: int = 3) -> pd.DataFrame:
     """Per-game box scores for the last N seasons, shaped for `project.py`.
@@ -157,6 +198,8 @@ _OPP_COUNT_STATS = ["pts", "reb", "ast", "stl", "blk", "tov", "fg3m"]
 
 
 # DORMANT — opponent-defense de-bias for project.py (see module header).
+# NOTE: still calendar-year keyed (EXTRACT(YEAR)) — WRONG for NBA. If ever
+# revived, port to get_season_windows first (audit 2026-07-27).
 def compute_opp_factors(conn, sport: str, seasons: list) -> dict:
     """{(opponent_tricode, season): {stat: factor}} where factor > 1 means that
     team allows more than league-average of `stat` (an easier matchup) and 1.0
@@ -259,23 +302,24 @@ def get_unavailable_players(conn, sport: str) -> dict:
     return {str(r["id"]): "Out" for _, r in df.iterrows()}
 
 
-def get_team_games_played(conn, sport: str, season: int) -> dict:
-    """tricode -> completed games this season, from game_schedule by DATE.
+def get_team_games_played(conn, sport: str, window: tuple) -> dict:
+    """tricode -> completed games in the season `window` (start_date, end_date).
     Feeds franchise_edge.is_phantom. Deliberately not score-based: WNBA schedule
     scores don't persist (audit 2026-07-13 — only the latest day's games carry
     them), so `game_date < CURRENT_DATE` is the reliable completed-game test."""
+    sd, ed = window
     q = """
         SELECT team, COUNT(*) AS games FROM (
             SELECT home_team AS team FROM game_schedule
-            WHERE sport = %s AND EXTRACT(YEAR FROM game_date) = %s
+            WHERE sport = %s AND game_date BETWEEN %s AND %s
               AND game_date < CURRENT_DATE
             UNION ALL
             SELECT away_team FROM game_schedule
-            WHERE sport = %s AND EXTRACT(YEAR FROM game_date) = %s
+            WHERE sport = %s AND game_date BETWEEN %s AND %s
               AND game_date < CURRENT_DATE
         ) t GROUP BY team
     """
-    df = pd.read_sql(q, conn, params=(sport, season, sport, season))
+    df = pd.read_sql(q, conn, params=(sport, sd, ed, sport, sd, ed))
     return {r["team"]: int(r["games"]) for _, r in df.iterrows()}
 
 
@@ -397,34 +441,38 @@ def load_vegas_props(conn, sport: str) -> dict:
     return out
 
 
-def fetch_player_seasons(conn, sport: str, seasons: list) -> pd.DataFrame:
+def fetch_player_seasons(conn, sport: str, windows: dict) -> pd.DataFrame:
     """Per-player per-season per-36 aggregates for the season snapshot.
 
     Mirrors season_project.fetch_player_seasons but reads Franchise
-    player_games. Returns one row per (player_id, season) with games_played,
-    mpg and <stat>_per36 columns for SEASON_RATE_STATS.
+    player_games. `windows` is {start_year: (start_date, end_date)} from
+    get_season_windows; each game is bucketed into the window it falls in.
+    Returns one row per (player_id, season) with games_played, mpg and
+    <stat>_per36 columns for SEASON_RATE_STATS.
     """
-    q = """
+    frag, wparams = _window_values_sql(windows)
+    q = f"""
         WITH filtered AS (
-            SELECT player_id,
-                   EXTRACT(YEAR FROM game_date)::int   AS season,
-                   game_id,
-                   min::float                          AS min_played,
-                   COALESCE(pts,  0)::float            AS pts,
-                   COALESCE(reb,  0)::float            AS reb,
-                   COALESCE(ast,  0)::float            AS ast,
-                   COALESCE(stl,  0)::float            AS stl,
-                   COALESCE(blk,  0)::float            AS blk,
-                   COALESCE(tov,  0)::float            AS tov,
-                   COALESCE("3pm", 0)::float           AS fg3m,
-                   COALESCE(fgm,  0)::float            AS fgm,
-                   COALESCE(fga,  0)::float            AS fga,
-                   COALESCE(ftm,  0)::float            AS ftm,
-                   COALESCE(fta,  0)::float            AS fta
-            FROM player_games
-            WHERE sport = %s
-              AND EXTRACT(YEAR FROM game_date) = ANY(%s)
-              AND min >= %s
+            SELECT pg.player_id,
+                   sw.season,
+                   pg.game_id,
+                   pg.min::float                          AS min_played,
+                   COALESCE(pg.pts,  0)::float            AS pts,
+                   COALESCE(pg.reb,  0)::float            AS reb,
+                   COALESCE(pg.ast,  0)::float            AS ast,
+                   COALESCE(pg.stl,  0)::float            AS stl,
+                   COALESCE(pg.blk,  0)::float            AS blk,
+                   COALESCE(pg.tov,  0)::float            AS tov,
+                   COALESCE(pg."3pm", 0)::float           AS fg3m,
+                   COALESCE(pg.fgm,  0)::float            AS fgm,
+                   COALESCE(pg.fga,  0)::float            AS fga,
+                   COALESCE(pg.ftm,  0)::float            AS ftm,
+                   COALESCE(pg.fta,  0)::float            AS fta
+            FROM player_games pg
+            JOIN (VALUES {frag}) AS sw(season, sd, ed)
+              ON pg.game_date BETWEEN sw.sd AND sw.ed
+            WHERE pg.sport = %s
+              AND pg.min >= %s
         )
         SELECT player_id, season,
                COUNT(DISTINCT game_id)                       AS games_played,
@@ -446,43 +494,59 @@ def fetch_player_seasons(conn, sport: str, seasons: list) -> pd.DataFrame:
         ORDER BY player_id, season
     """
     min_minutes, min_games = 3.0, 5
-    return pd.read_sql(q, conn, params=(sport, list(seasons), min_minutes, min_games))
+    return pd.read_sql(q, conn, params=(*wparams, sport, min_minutes, min_games))
 
 
-def fetch_active_players(conn, sport: str, recent_season: int) -> list:
-    """Players who saw meaningful minutes in `recent_season` — the snapshot's
-    projection candidates."""
+def fetch_active_players(conn, sport: str, window: tuple) -> list:
+    """Players who saw meaningful minutes in the season `window` — the
+    snapshot's projection candidates."""
+    sd, ed = window
     q = """
         SELECT DISTINCT player_id
         FROM player_games
         WHERE sport = %s
-          AND EXTRACT(YEAR FROM game_date) = %s
+          AND game_date BETWEEN %s AND %s
           AND min >= %s
     """
-    df = pd.read_sql(q, conn, params=(sport, recent_season, 3.0))
+    df = pd.read_sql(q, conn, params=(sport, sd, ed, 3.0))
     return df["player_id"].tolist()
 
 
-def team_games_per_season(conn, sport: str, seasons: list) -> dict:
-    """{season: max games any single team is scheduled for} — replaces the
-    engine's hardcoded MAX_TEAM_GAMES, derived live from game_schedule."""
-    q = """
+def team_games_per_season(conn, sport: str, windows: dict,
+                          completed_before: date = None) -> dict:
+    """{start_year: max games any single team is scheduled for} — replaces the
+    engine's hardcoded MAX_TEAM_GAMES, derived live from game_schedule.
+
+    `completed_before` (usually date.today()) additionally restricts to games
+    already played — the denominator an IN-PROGRESS season's gp_pct needs.
+    Feeding the full scheduled count for a season that's only part-played made
+    every player look injured (gp_pct ≈ fraction-of-season-elapsed) and
+    systematically deflated projected_games (audit 2026-07-27)."""
+    frag, wparams = _window_values_sql(windows)
+    completed = "AND a.game_date < %s" if completed_before is not None else ""
+    q = f"""
         WITH appearances AS (
-            SELECT EXTRACT(YEAR FROM game_date)::int AS season, home_team AS team
+            SELECT game_date, home_team AS team
             FROM game_schedule WHERE sport = %s
             UNION ALL
-            SELECT EXTRACT(YEAR FROM game_date)::int AS season, away_team AS team
+            SELECT game_date, away_team AS team
             FROM game_schedule WHERE sport = %s
         ),
         per_team AS (
-            SELECT season, team, COUNT(*) AS games
-            FROM appearances WHERE season = ANY(%s)
-            GROUP BY season, team
+            SELECT sw.season, a.team, COUNT(*) AS games
+            FROM appearances a
+            JOIN (VALUES {frag}) AS sw(season, sd, ed)
+              ON a.game_date BETWEEN sw.sd AND sw.ed
+            WHERE TRUE {completed}
+            GROUP BY sw.season, a.team
         )
         SELECT season, MAX(games) AS team_games
         FROM per_team GROUP BY season
     """
-    df = pd.read_sql(q, conn, params=(sport, sport, list(seasons)))
+    params = [sport, sport, *wparams]
+    if completed_before is not None:
+        params.append(completed_before)
+    df = pd.read_sql(q, conn, params=params)
     return {int(r["season"]): int(r["team_games"]) for _, r in df.iterrows()}
 
 
@@ -505,8 +569,15 @@ def write_projections(conn, df: pd.DataFrame, sport: str, season: int,
     `df` rows must carry a Franchise UUID `player_id` plus whatever proj_*
     columns the horizon produced (missing columns become NULL via _f). Maps
     the engine's `proj_fg3m` -> `proj_3pm`. Does NOT write fantasy points.
+
+    `season` is the engine's integer start year; the ROW stores the sport's
+    canonical label (season_label: '2026-27' for NBA, '2026' for WNBA) because
+    the app pins `.eq('season', getCurrentSeason(sport))` — a bare-int label
+    for NBA would make every row invisible (audit 2026-07-27). The label is
+    part of the upsert conflict key, so it must never change format again.
     """
     today = date.today()
+    label = season_label(sport, int(season))
     rows = []
     for _, r in df.iterrows():
         pid = r["player_id"]
@@ -517,7 +588,7 @@ def write_projections(conn, df: pd.DataFrame, sport: str, season: int,
         fg_pct = round(fgm / fga, 3) if fgm is not None and fga else None
         ft_pct = round(ftm / fta, 3) if ftm is not None and fta else None
         rows.append((
-            str(pid), sport, str(season), horizon, today,
+            str(pid), sport, label, horizon, today,
             _f(r, "proj_min"), _f(r, "proj_pts"), _f(r, "proj_reb"),
             _f(r, "proj_ast"), _f(r, "proj_stl"), _f(r, "proj_blk"),
             _f(r, "proj_tov"), _f(r, "proj_fg3m"), _f(r, "proj_fg3a"),

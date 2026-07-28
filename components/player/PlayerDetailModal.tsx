@@ -168,8 +168,10 @@ export function PlayerDetailModal({
   // Merge in DNP rows for games the player's team played but he sat out (no
   // player_games row exists for injured/inactive players). Game-log table only.
   const gameLogWithDnp = usePlayerGameLogWithDnp(player?.pro_team, sport, gameLog);
-  const { data: seasonProjections } = usePlayerProjections(sport, "season");
-  const { data: nextGameProjections } = usePlayerProjections(sport, "next_game");
+  // NFL has no projections engine (registry statToProj is {}) — skip the
+  // queries instead of fetching guaranteed-empty maps (AvailablePlayers idiom).
+  const { data: seasonProjections } = usePlayerProjections(sport, "season", sport !== "nfl");
+  const { data: nextGameProjections } = usePlayerProjections(sport, "next_game", sport !== "nfl");
   const { data: historicalStats } = usePlayerHistoricalStats(
     player?.player_id ?? null,
   );
@@ -1715,6 +1717,7 @@ export function PlayerDetailModal({
           nextGame={upcomingGames?.[0] ?? null}
           scoringWeights={scoringWeights}
           isCategories={isCategories}
+          sport={sport}
         />
 
         <ScrollView

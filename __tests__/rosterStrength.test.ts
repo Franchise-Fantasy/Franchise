@@ -196,4 +196,74 @@ describe('buildLeagueStrengthComparison', () => {
     const result = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a')!;
     expect(result.totalTeams).toBe(2);
   });
+
+  describe('excludeUnscored (offseason preview)', () => {
+    // A just-drafted rookie: no games this season, no prev-season fallback, and
+    // parked on the bench — which counts as an ACTIVE slot. Scores 0.
+    const rookie = (playerId: string, teamId: string) =>
+      makePlayer({ player_id: playerId, team_id: teamId, games_played: 0, total_pts: 0, roster_slot: 'BE' });
+
+    it('averages unscored players in as zeros by default', () => {
+      const players = [
+        makePlayer({ player_id: 'a1', team_id: 'team-a', games_played: 10, total_pts: 200 }), // 20
+        rookie('a2', 'team-a'),
+        makePlayer({ player_id: 'b1', team_id: 'team-b', games_played: 10, total_pts: 100 }), // 10
+      ];
+      const result = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a')!;
+      // (20 + 0) / 2 — the existing in-season behavior, unchanged.
+      expect(result.myAvgFpts).toBe(10);
+      expect(result.allProfiles.find((p) => p.teamId === 'team-a')!.playerCount).toBe(2);
+    });
+
+    it('drops unscored players from both the total and the divisor when enabled', () => {
+      const players = [
+        makePlayer({ player_id: 'a1', team_id: 'team-a', games_played: 10, total_pts: 200 }), // 20
+        rookie('a2', 'team-a'),
+        makePlayer({ player_id: 'b1', team_id: 'team-b', games_played: 10, total_pts: 100 }), // 10
+      ];
+      const result = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a', {
+        excludeUnscored: true,
+      })!;
+      expect(result.myAvgFpts).toBe(20);
+      expect(result.allProfiles.find((p) => p.teamId === 'team-a')!.playerCount).toBe(1);
+    });
+
+    it('does not penalise the team that drafted more rookies', () => {
+      // Both teams field the identical veteran; team-a simply holds more picks.
+      const players = [
+        makePlayer({ player_id: 'a1', team_id: 'team-a', games_played: 10, total_pts: 200 }), // 20
+        rookie('a2', 'team-a'),
+        rookie('a3', 'team-a'),
+        rookie('a4', 'team-a'),
+        makePlayer({ player_id: 'b1', team_id: 'team-b', games_played: 10, total_pts: 200 }), // 20
+      ];
+      const withFlag = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a', {
+        excludeUnscored: true,
+      })!;
+      expect(withFlag.myAvgFpts).toBe(withFlag.allProfiles.find((p) => p.teamId === 'team-b')!.avgFpts);
+
+      // Without the flag the extra picks alone sink team-a to last — the exact
+      // distortion the flag exists to prevent.
+      const withoutFlag = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a')!;
+      expect(withoutFlag.myAvgFpts).toBe(5);
+      expect(withoutFlag.myRank).toBe(2);
+    });
+
+    it('gives a team with nothing scoreable 0, not NaN', () => {
+      const players = [
+        makePlayer({ player_id: 'a1', team_id: 'team-a', games_played: 10, total_pts: 200 }),
+        rookie('b1', 'team-b'),
+        rookie('b2', 'team-b'),
+      ];
+      const result = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a', {
+        excludeUnscored: true,
+      })!;
+      const teamB = result.allProfiles.find((p) => p.teamId === 'team-b')!;
+      expect(teamB.avgFpts).toBe(0);
+      expect(Number.isNaN(teamB.avgFpts)).toBe(false);
+      expect(teamB.playerCount).toBe(0);
+      // Still ranked, just last.
+      expect(result.allProfiles[result.allProfiles.length - 1].teamId).toBe('team-b');
+    });
+  });
 });

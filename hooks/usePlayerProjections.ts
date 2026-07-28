@@ -23,8 +23,12 @@ export function usePlayerProjections(
   horizon: ProjectionHorizon = 'next_game',
   enabled = true,
 ) {
+  const season = getCurrentSeason(sport);
   return useQuery<Map<string, ProjectionRow>>({
-    queryKey: queryKeys.playerProjections(sport, horizon),
+    // Season lives in the key (not just the queryFn filter) so a mid-session
+    // season_config flip refetches instead of serving the old season's cached
+    // map until staleTime.
+    queryKey: queryKeys.playerProjections(sport, horizon, season),
     queryFn: async () => {
       const map = new Map<string, ProjectionRow>();
       // Pin the season: the `season` horizon carries both the current season
@@ -37,7 +41,7 @@ export function usePlayerProjections(
         .select('*')
         .eq('sport', sport)
         .eq('horizon', horizon)
-        .eq('season', getCurrentSeason(sport));
+        .eq('season', season);
       if (error) throw error;
       for (const row of data ?? []) {
         if (row.player_id) map.set(row.player_id, row);
