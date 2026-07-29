@@ -8,7 +8,7 @@
     "scheme": "franchisev2",
     "userInterfaceStyle": "automatic",
     "ios": {
-      "supportsTablet": true,
+      "supportsTablet": false,
       "bundleIdentifier": "com.chewers.franchisev2",
       "usesAppleSignIn": true,
       "infoPlist": {
@@ -52,7 +52,8 @@
         "expo-image-picker",
         {
           "cameraPermission": "Franchise uses the camera to take photos for chat messages and team logos.",
-          "photosPermission": "Franchise uses your photo library to share images in chat and set team logos."
+          "photosPermission": "Franchise uses your photo library to share images in chat and set team logos.",
+          "microphonePermission": false
         }
       ],
       "expo-web-browser",

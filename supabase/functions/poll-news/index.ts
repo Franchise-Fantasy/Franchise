@@ -116,9 +116,10 @@ function parseRssFeed(xml: string, source: string, expectedChannelTag: string): 
     // for the same player. <guid> (e.g. "nba529909") is unique per article and
     // is what we hash for external_id. Fall back to link only if guid is absent.
     const guid = stripHtml(extractTag(block, 'guid')) || link;
-    const description = stripHtml(extractTag(block, 'description'))
-      .replace(/\s*Visit RotoWire\.com for more analysis on this update\.?/i, '')
-      .trim();
+    // Keep RotoWire's own attribution/CTA line ("Visit RotoWire.com for more
+    // analysis on this update.") — it credits and links back to the source,
+    // which is the compliant way to surface their editorial content.
+    const description = stripHtml(extractTag(block, 'description')).trim();
     const pubDate = extractTag(block, 'pubDate');
     if (title && link) {
       items.push({ title, link, guid, description, pubDate, source });

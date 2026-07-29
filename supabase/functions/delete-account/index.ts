@@ -28,11 +28,16 @@ Deno.serve(async (req) => {
 
     const userId = user.id;
 
-    // Block deletion if user is commissioner of any league
+    // Block deletion if user is commissioner of any LIVE league. Archived
+    // leagues are excluded: their UI is hidden by RLS so the user can't reach
+    // the reassign/archive remediation, and `leagues.created_by` is set NULL
+    // by the FK when the auth user is deleted — so an archived league they
+    // created must not dead-end their deletion (Apple 5.1.1(v)).
     const { data: commissionerLeagues } = await supabaseAdmin
       .from('leagues')
       .select('id, name')
-      .eq('created_by', userId);
+      .eq('created_by', userId)
+      .is('archived_at', null);
 
     if (commissionerLeagues && commissionerLeagues.length > 0) {
       const names = commissionerLeagues.map((l: any) => l.name).join(', ');
@@ -51,27 +56,32 @@ Deno.serve(async (req) => {
     const teamIds = teams?.map((t: any) => t.id) ?? [];
     const cleanupErrors: string[] = [];
 
-    // Clean up team-related data for each team
+    // For each team, VACATE rather than DELETE (mirrors leave_league). Deleting
+    // the roster/lineups/team tore a hole in an active league — matchups still
+    // referenced the gone team and other members lost history. Instead we keep
+    // league_players (roster), daily_lineups (lineup history), and team_seasons
+    // (franchise history) so the league stays intact and the commissioner can
+    // reassign the now-unclaimed team. Only the departing owner's personal and
+    // pending data is removed below.
     for (const team of (teams ?? [])) {
       const cleanup = async (table: string, column: string, value: string) => {
         const { error } = await supabaseAdmin.from(table).delete().eq(column, value);
         if (error) cleanupErrors.push(`${table}: ${error.message}`);
       };
 
-      await cleanup('league_players', 'team_id', team.id);
-      await cleanup('daily_lineups', 'team_id', team.id);
+      // Cancel the owner's pending actions (a reassigned owner starts clean) and
+      // remove their authored chat content (privacy).
       await cleanup('waiver_claims', 'team_id', team.id);
       await cleanup('waiver_priority', 'team_id', team.id);
       await cleanup('pending_transactions', 'team_id', team.id);
       await cleanup('chat_members', 'team_id', team.id);
       await cleanup('chat_messages', 'team_id', team.id);
       await cleanup('trade_votes', 'team_id', team.id);
-      await cleanup('team_seasons', 'team_id', team.id);
 
       const { error: seedErr } = await supabaseAdmin.from('playoff_seed_picks').delete().eq('picking_team_id', team.id);
       if (seedErr) cleanupErrors.push(`playoff_seed_picks: ${seedErr.message}`);
 
-      // Cancel any active trade proposals involving this team
+      // Cancel any active trade proposals involving this team.
       const { data: tradeTeamEntries } = await supabaseAdmin
         .from('trade_proposal_teams').select('proposal_id').eq('team_id', team.id);
       if (tradeTeamEntries && tradeTeamEntries.length > 0) {
@@ -81,20 +91,29 @@ Deno.serve(async (req) => {
           .in('id', proposalIds)
           .in('status', ['pending', 'accepted', 'in_review']);
       }
-
-      // Decrement league team count
-      await supabaseAdmin.rpc('decrement_team_count', { lid: team.league_id });
     }
 
-    // Delete the teams themselves
+    // Vacate the teams: detach the owner (this satisfies the teams.user_id FK to
+    // auth.users the same way a delete would, so deleteUser below succeeds) and
+    // clear the commissioner flag. current_teams is intentionally NOT
+    // decremented — the vacated team still occupies its slot (matches
+    // leave_league / vacate_team_internal).
     if (teamIds.length > 0) {
-      const { error: teamDelErr } = await supabaseAdmin.from('teams').delete().in('id', teamIds);
-      if (teamDelErr) cleanupErrors.push(`teams: ${teamDelErr.message}`);
+      const { error: vacateErr } = await supabaseAdmin
+        .from('teams')
+        .update({ user_id: null, is_commissioner: false })
+        .in('id', teamIds);
+      if (vacateErr) cleanupErrors.push(`teams (vacate): ${vacateErr.message}`);
     }
 
-    // If critical cleanup failed, abort before deleting the auth user
+    // If critical cleanup failed, abort BEFORE deleting the auth user so we
+    // never strand a half-deleted footprint behind a gone account. Routes
+    // through handleError as a generic 500 (retryable) — the FK migration
+    // makes the previously-fatal subscription/payment refs cascade cleanly,
+    // so this should only fire on genuinely unexpected failures now.
     if (cleanupErrors.length > 0) {
       console.error('Cleanup errors during account deletion:', cleanupErrors);
+      throw new Error(`Account cleanup failed: ${cleanupErrors.join('; ')}`);
     }
 
     // Remove push tokens and subscription

@@ -45,6 +45,38 @@ function ymdFromTimestamp(ts: string): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+// PostgREST caps every response at `max_rows` (1000) and truncates SILENTLY —
+// no error. These bulk queries scale with team/player count, so at multi-league
+// finalize scale they WILL cross 1000 rows; a partial roster/lineup set would
+// then commit wrong scores as permanent W/L (the exact class CLAUDE.md warns
+// about). `fetchAllChunked` defeats it two ways: it chunks the id list so the
+// URL and per-request row count stay bounded, and it pages each chunk with
+// `.order('id').range()` until a short page proves the chunk is exhausted.
+const ID_CHUNK = 200;
+const PAGE = 1000;
+
+async function fetchAllChunked<T>(
+  ids: string[],
+  makeQuery: (
+    idChunk: string[],
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let i = 0; i < ids.length; i += ID_CHUNK) {
+    const idChunk = ids.slice(i, i + ID_CHUNK);
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await makeQuery(idChunk, from, from + PAGE - 1);
+      if (error) throw error;
+      const rows = data ?? [];
+      out.push(...rows);
+      if (rows.length < PAGE) break;
+    }
+  }
+  return out;
+}
+
 /**
  * Run 4 bulk queries to load every team's roster, lineups, game logs, and
  * player info needed to compute scores for the given batch of (team, week)
@@ -66,20 +98,45 @@ export async function loadTeamDataBatch(
   const minStart = refs.reduce((acc, r) => (r.startDate < acc ? r.startDate : acc), refs[0].startDate);
   const maxEnd = refs.reduce((acc, r) => (r.endDate > acc ? r.endDate : acc), refs[0].endDate);
 
-  // 1. All current rosters across all teams.
-  const { data: rosterRows } = await supabase
-    .from('league_players')
-    .select('player_id, team_id, league_id, roster_slot, acquired_at')
-    .in('team_id', teamIds)
-    .in('league_id', leagueIds);
+  // 1. All current rosters across all teams. Chunked+paged so a large batch
+  //    (rosters scale with team count) can't silently truncate at max_rows.
+  const rosterRows = await fetchAllChunked<{
+    player_id: string;
+    team_id: string;
+    league_id: string;
+    roster_slot: string | null;
+    acquired_at: string | null;
+  }>(teamIds, (idChunk, from, to) =>
+    supabase
+      .from('league_players')
+      .select('player_id, team_id, league_id, roster_slot, acquired_at')
+      .in('team_id', idChunk)
+      .in('league_id', leagueIds)
+      .order('id')
+      .range(from, to),
+  );
 
   // 2. All daily_lineups for those teams within the batch's date window.
-  const { data: lineupRows } = await supabase
-    .from('daily_lineups')
-    .select('player_id, team_id, league_id, roster_slot, lineup_date')
-    .in('team_id', teamIds)
-    .in('league_id', leagueIds)
-    .lte('lineup_date', maxEnd);
+  //    The `gte(minStart)` lower bound matters: without it this pulls the whole
+  //    season and blows straight past max_rows (rows outside minStart..maxEnd
+  //    are filtered out per-team below anyway, so bounding here is loss-free).
+  const lineupRows = await fetchAllChunked<{
+    player_id: string;
+    team_id: string;
+    league_id: string;
+    roster_slot: string | null;
+    lineup_date: string;
+  }>(teamIds, (idChunk, from, to) =>
+    supabase
+      .from('daily_lineups')
+      .select('player_id, team_id, league_id, roster_slot, lineup_date')
+      .in('team_id', idChunk)
+      .in('league_id', leagueIds)
+      .gte('lineup_date', minStart)
+      .lte('lineup_date', maxEnd)
+      .order('id')
+      .range(from, to),
+  );
 
   // Collect every player_id we'll need stats for: current rosters + historical
   // (people who appeared in daily_lineups during this window but are no longer
@@ -89,29 +146,40 @@ export async function loadTeamDataBatch(
   for (const l of lineupRows ?? []) allPlayerIds.add(l.player_id);
   const playerIdList = [...allPlayerIds];
 
-  // 3 + 4. Game logs (in date range) + player info, in parallel.
-  const [{ data: gameRows }, { data: playerRows }] = await Promise.all([
-    playerIdList.length > 0
-      ? supabase
-          .from('player_games')
-          .select(
-            // One select for the whole batch, which can mix sports across
-            // leagues — basketball AND NFL columns together. Rows of the
-            // other sport carry nulls/zeros; per-league scoring only reads
-            // its own sport's columns via statToGameFor. (Single literal —
-            // supabase-js can't type-parse a concatenated select string.)
-            'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, game_date, matchup',
-          )
-          .in('player_id', playerIdList)
-          .gte('game_date', minStart)
-          .lte('game_date', maxEnd)
-      : Promise.resolve({ data: [] as Array<Record<string, unknown>> }),
-    playerIdList.length > 0
-      ? supabase
-          .from('players')
-          .select('id, name, position, pro_team, external_id_nba')
-          .in('id', playerIdList)
-      : Promise.resolve({ data: [] as Array<{ id: string; name: string; position: string | null; pro_team: string | null; external_id_nba: string | null }> }),
+  // 3 + 4. Game logs (in date range) + player info, in parallel. Both scale
+  //    with the player count, so both go through the chunked+paged loader too.
+  const [gameRows, playerRows] = await Promise.all([
+    fetchAllChunked<Record<string, unknown>>(playerIdList, (idChunk, from, to) =>
+      supabase
+        .from('player_games')
+        .select(
+          // One select for the whole batch, which can mix sports across
+          // leagues — basketball AND NFL columns together. Rows of the
+          // other sport carry nulls/zeros; per-league scoring only reads
+          // its own sport's columns via statToGameFor. (Single literal —
+          // supabase-js can't type-parse a concatenated select string.)
+          'player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, pass_cmp, pass_att, pass_yd, pass_td, pass_int, rush_att, rush_yd, rush_td, rec, targets, rec_yd, rec_td, fum_lost, ret_td, fg_made, fg_att, xp_made, dst_sacks, dst_int, dst_fum_rec, dst_td, dst_pts_allowed, dst_pa_pts, game_date, matchup',
+        )
+        .in('player_id', idChunk)
+        .gte('game_date', minStart)
+        .lte('game_date', maxEnd)
+        .order('id')
+        .range(from, to) as unknown as PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>,
+    ),
+    fetchAllChunked<{
+      id: string;
+      name: string;
+      position: string | null;
+      pro_team: string | null;
+      external_id_nba: string | null;
+    }>(playerIdList, (idChunk, from, to) =>
+      supabase
+        .from('players')
+        .select('id, name, position, pro_team, external_id_nba')
+        .in('id', idChunk)
+        .order('id')
+        .range(from, to),
+    ),
   ]);
 
   // Index everything by team_id (and player_id where needed) so per-team

@@ -1,5 +1,5 @@
 import { useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   Alert,
   StyleSheet,
@@ -14,6 +14,7 @@ import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
+import { useLeaguePrivateInfo } from '@/hooks/useLeaguePrivateInfo';
 import { buildDraftPicks, buildFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { Json, TablesUpdate } from '@/types/database.types';
@@ -43,19 +44,40 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
   const [maxTeams, setMaxTeams] = useState(12);
   const [saving, setSaving] = useState(false);
 
+  // Payment handles + invite code are column-revoked from clients; fetch them
+  // through the members-only RPC (commissioner is a member, so it resolves).
+  const { data: privateInfo } = useLeaguePrivateInfo(leagueId, visible);
+  const paymentHydrated = useRef(false);
+
+  // League-sourced fields load synchronously (league-info page-gates on league).
   useEffect(() => {
-    if (visible && league) {
-      setName(league.name ?? '');
-      setIsPrivate(league.private ?? false);
-      setBuyIn(league.buy_in_amount ?? 0);
-      setVenmoUsername(league.venmo_username ?? '');
-      setCashappTag(league.cashapp_tag ?? '');
-      setPaypalUsername(league.paypal_username ?? '');
-      setMaxTeams(league.teams ?? 12);
+    if (!visible) {
+      paymentHydrated.current = false;
+      return;
     }
+    if (!league) return;
+    setName(league.name ?? '');
+    setIsPrivate(league.private ?? false);
+    setBuyIn(league.buy_in_amount ?? 0);
+    setMaxTeams(league.teams ?? 12);
   }, [visible]);
 
+  // Payment handles come from the async RPC. Seed them ONLY once it resolves,
+  // with a latch so a background refetch can't clobber in-progress edits and
+  // Save can't fire against un-hydrated (empty) state and wipe real handles —
+  // the settings-modal hydration trap (see CLAUDE.md).
+  useEffect(() => {
+    if (!visible || paymentHydrated.current || !privateInfo) return;
+    setVenmoUsername(privateInfo.venmo_username ?? '');
+    setCashappTag(privateInfo.cashapp_tag ?? '');
+    setPaypalUsername(privateInfo.paypal_username ?? '');
+    paymentHydrated.current = true;
+  }, [visible, privateInfo]);
+
   async function handleSave() {
+    // Never persist before the payment handles have hydrated from the RPC, or
+    // an early Save would write empty handles over the real ones.
+    if (!paymentHydrated.current) return;
     if (!name.trim()) {
       Alert.alert('Error', 'League name cannot be empty.');
       return;
@@ -147,6 +169,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
 
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+    queryClient.invalidateQueries({ queryKey: ['leaguePrivateInfo', leagueId] });
     onClose();
   }
 

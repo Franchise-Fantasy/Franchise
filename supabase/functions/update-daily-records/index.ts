@@ -39,6 +39,24 @@ function fmtDate(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// PostgREST truncates any response at max_rows (1000) silently. The lineup and
+// game-log reads scale with team/player count and can cross that, so page each
+// with .order('id').range() until a short page proves it's exhausted.
+const PAGE = 1000;
+async function fetchAll<T>(
+  makeQuery: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
+): Promise<T[]> {
+  const out: T[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await makeQuery(from, from + PAGE - 1);
+    if (error) throw error;
+    const rows = data ?? [];
+    out.push(...rows);
+    if (rows.length < PAGE) break;
+  }
+  return out;
+}
+
 /**
  * For an entire league, fetch all roster + lineup data once, then compute
  * the best single-day score across all teams and all supplied dates.
@@ -85,14 +103,23 @@ async function findLeagueBestDay(
     }
   }
 
-  // 2) Fetch all daily lineup entries for every team in this league (single query)
-  const { data: allDailyEntries } = await supabase
-    .from("daily_lineups")
-    .select("team_id, player_id, roster_slot, lineup_date")
-    .eq("league_id", leagueId)
-    .in("team_id", teamIds)
-    .lte("lineup_date", endDate)
-    .order("lineup_date", { ascending: false });
+  // 2) Fetch daily lineup entries for every team, bounded to the scan window.
+  //    The `gte(startDate)` lower bound matters: without it this pulled the
+  //    whole season and truncated at max_rows. resolveSlot falls back to the
+  //    current roster slot when a player has no in-window entry, so bounding is
+  //    safe (same contract as finalize-week's loader).
+  const allDailyEntries = await fetchAll<{ team_id: string; player_id: string; roster_slot: string; lineup_date: string }>(
+    (from, to) =>
+      supabase
+        .from("daily_lineups")
+        .select("team_id, player_id, roster_slot, lineup_date")
+        .eq("league_id", leagueId)
+        .in("team_id", teamIds)
+        .gte("lineup_date", startDate)
+        .lte("lineup_date", endDate)
+        .order("id")
+        .range(from, to),
+  );
 
   // Group daily entries by team, then by player
   const teamDailyByPlayer = new Map<string, Map<string, Array<{ lineup_date: string; roster_slot: string }>>>();
@@ -113,6 +140,14 @@ async function findLeagueBestDay(
     const dropped = teamDroppedPlayerIds.get(entry.team_id)!;
     if (!roster.currentPlayerIds.has(entry.player_id) && !dropped.includes(entry.player_id)) {
       dropped.push(entry.player_id);
+    }
+  }
+
+  // We paged the lineups by `id` (for range stability), but resolveSlot expects
+  // each player's entries newest-first — sort now to restore that order.
+  for (const byPlayer of teamDailyByPlayer.values()) {
+    for (const arr of byPlayer.values()) {
+      arr.sort((a, b) => (a.lineup_date > b.lineup_date ? -1 : a.lineup_date < b.lineup_date ? 1 : 0));
     }
   }
 
@@ -139,21 +174,25 @@ async function findLeagueBestDay(
 
   if (allPlayerIds.size === 0) return null;
 
-  // 3) Fetch all game logs for these players across the date range (single query)
+  // 3) Fetch all game logs for these players across the date range (paged).
   const playerIdArr = [...allPlayerIds];
-  const { data: allGameLogs } = await supabase
-    .from("player_games")
-    .select('player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date')
-    .in("player_id", playerIdArr)
-    .gte("game_date", startDate)
-    .lte("game_date", endDate);
+  const allGameLogs = await fetchAll<Record<string, unknown>>((from, to) =>
+    supabase
+      .from("player_games")
+      .select('player_id, pts, reb, ast, stl, blk, tov, fgm, fga, "3pm", "3pa", ftm, fta, pf, double_double, triple_double, game_date')
+      .in("player_id", playerIdArr)
+      .gte("game_date", startDate)
+      .lte("game_date", endDate)
+      .order("id")
+      .range(from, to) as unknown as PromiseLike<{ data: Record<string, unknown>[] | null; error: unknown }>,
+  );
 
-  if (!allGameLogs || allGameLogs.length === 0) return null;
+  if (allGameLogs.length === 0) return null;
 
   // Index game logs by player_id + date for fast lookup
   const gamesByPlayerDate = new Map<string, Record<string, number>[]>();
   for (const game of allGameLogs) {
-    const key = `${game.player_id}|${game.game_date}`;
+    const key = `${String(game.player_id)}|${String(game.game_date)}`;
     if (!gamesByPlayerDate.has(key)) gamesByPlayerDate.set(key, []);
     gamesByPlayerDate.get(key)!.push(game as any);
   }

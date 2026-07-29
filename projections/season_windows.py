@@ -54,6 +54,30 @@ def fallback_window(sport: str, start_year: int) -> tuple:
     return (date(start_year, 1, 1), date(start_year, 12, 31))
 
 
+def experience_seasons(target_start_year: int, draft_year, history_seasons: int) -> int:
+    """Career seasons entering the target season, for season_project's
+    experience_curve. Prefers players.draft_year (true career length); falls
+    back to the player's Franchise game-log history depth when unknown.
+
+    Without this, history depth stood in for career length — and Franchise has
+    only ONE season of NBA game logs, so the curve read every NBA player as a
+    "1-2 seasons, still developing" +10% and the entire first NBA season
+    snapshot projected above last year's averages (532/532 players, median
+    ratio 1.104 — user-reported 2026-07-28).
+
+    Clamped to the curve's validated plateau (5): the 6+ age-decline branches
+    have never been calibrated — they were unreachable in the source engine
+    too (its training window was also 5 seasons) — so a 20-year vet gets 1.00,
+    not an untested −35%. Unclamping is a deliberate future calibration pass,
+    not a data fix."""
+    if draft_year is None:
+        seasons = history_seasons
+    else:
+        # Drafted 2024 → entering 2026-27 they have 2 pro seasons behind them.
+        seasons = target_start_year - int(draft_year)
+    return min(max(seasons, 1), 5)
+
+
 def resolve_windows(sport: str, start_years, config_rows) -> dict:
     """{start_year: (start_date, end_date)} for each requested season.
 

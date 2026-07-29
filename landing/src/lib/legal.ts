@@ -26,9 +26,9 @@ You agree not to:
 • Use automated tools or bots to interact with the App
 • Harass, abuse, or harm other users
 
-5. Intellectual Property
+5. Intellectual Property & Non-Affiliation
 
-The App, including its design, features, and content, is owned by Franchise. NBA and WNBA team names, player names, and statistics are used for informational and entertainment purposes under fair use.
+The App, including its design, features, and content, is owned by Franchise. Franchise is an independent product and is not affiliated with, endorsed by, sponsored by, or otherwise associated with the NBA, WNBA, NFL, or any of their member teams, leagues, or players' associations. All team names, team logos, uniforms, and player names, images, and likenesses are the property and trademarks of their respective owners and are used for informational and entertainment purposes only.
 
 6. Termination
 
@@ -74,6 +74,7 @@ We do not sell your personal information. We share data only with:
 • Supabase (database and authentication provider)
 • Google and Apple (only when you choose to sign in with one of these providers; we exchange authentication tokens with them to verify your identity)
 • Expo (push notification delivery)
+• PostHog (product analytics — app usage and diagnostic events that help us improve the App)
 • Other users in your league (team name, roster, trade history — as part of gameplay)
 
 4. Push Notifications

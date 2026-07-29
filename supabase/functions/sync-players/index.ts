@@ -23,8 +23,6 @@ const CURRENT_SEASON: Record<Sport, string> = {
   nfl: '2026',
 };
 
-const SLEEPER_PLAYERS_URL = 'https://api.sleeper.app/v1/players/nba';
-
 // Basketball-only enrichment (NFL has no Stats-host equivalent and is
 // filtered out before these are reached).
 type BasketballSport = Exclude<Sport, 'nfl'>;
@@ -55,48 +53,6 @@ function buildStatsHeaders(sport: BasketballSport): Record<string, string> {
     'x-nba-stats-origin': 'stats',
     'x-nba-stats-token': 'true',
   };
-}
-
-/** Convert Sleeper fantasy_positions (e.g. ["PG","SG"]) to spectrum format ("PG-SG"). */
-function buildPosition(fantasyPositions: string[] | null | undefined): string | null {
-  if (!fantasyPositions || fantasyPositions.length === 0) return null;
-  const valid = fantasyPositions.filter((p) => POSITION_SPECTRUM.includes(p));
-  if (valid.length === 0) return null;
-  const indices = valid.map((p) => POSITION_SPECTRUM.indexOf(p));
-  const lo = Math.min(...indices);
-  const hi = Math.max(...indices);
-  if (lo === hi) return POSITION_SPECTRUM[lo];
-  return `${POSITION_SPECTRUM[lo]}-${POSITION_SPECTRUM[hi]}`;
-}
-
-/** Fetch Sleeper NBA player database and return position lookup maps. */
-async function fetchSleeperPositions(): Promise<{
-  byNameTeam: Map<string, string>;
-  byName: Map<string, string>;
-}> {
-  const byNameTeam = new Map<string, string>();
-  const byName = new Map<string, string>();
-
-  const res = await fetch(SLEEPER_PLAYERS_URL, { signal: AbortSignal.timeout(25000) });
-  if (!res.ok) throw new Error(`Sleeper returned ${res.status}`);
-  const sleeper = await res.json() as Record<string, any>;
-
-  for (const sp of Object.values(sleeper)) {
-    if (sp.sport !== 'nba' || !sp.active) continue;
-    const fp: string[] | null =
-      sp.fantasy_positions ?? (sp.position ? [sp.position] : null);
-    const position = buildPosition(fp);
-    if (!position) continue;
-    const name = sp.full_name
-      ?? `${sp.first_name ?? ''} ${sp.last_name ?? ''}`.trim();
-    if (!name) continue;
-    const norm = normalizeName(name);
-    const team = (sp.team ?? '').toUpperCase();
-    if (team) byNameTeam.set(`${norm}|${team}`, position);
-    byName.set(norm, position);
-  }
-
-  return { byNameTeam, byName };
 }
 
 /**
@@ -300,31 +256,20 @@ Deno.serve(async (req: Request) => {
     }
 
     // 3. Enrichment — runs in parallel, each can fail independently.
-    //    - Sleeper position spectrum: NBA only (Sleeper has no WNBA support).
     //    - League Stats personId (for cdn.{nba,wnba}.com headshots): basketball
-    //      only. NFL has no enrichment source (no headshots in v1 — ESPN is a
-    //      forbidden source); BDL position/team data is used as-is.
+    //      only. NFL has no enrichment source (no headshots in v1); BDL
+    //      position/team data is used as-is. NBA positions also come straight
+    //      from BDL (coerceBdlPosition) — no third-party (Sleeper) position
+    //      source anymore.
     //    - WNBA additionally pulls birthdates from the same ESPN endpoint.
-    let sleeperPos: { byNameTeam: Map<string, string>; byName: Map<string, string> } | null = null;
     let statsIds: StatsLookup | null = null;
 
     const enrichmentTasks: Array<Promise<unknown>> = [];
-    const sleeperIdx = sport === 'nba' ? enrichmentTasks.push(fetchSleeperPositions()) - 1 : -1;
     const statsIdx = sport !== 'nfl'
       ? enrichmentTasks.push(fetchStatsIds(sport, CURRENT_SEASON[sport])) - 1
       : -1;
     const enrichmentResults = await Promise.allSettled(enrichmentTasks);
 
-    if (sleeperIdx >= 0) {
-      const r = enrichmentResults[sleeperIdx];
-      if (r.status === 'fulfilled') {
-        // Explicit target type — `as typeof sleeperPos` would self-reference
-        // the flow-narrowed type (null) and break narrowing in the closures.
-        sleeperPos = r.value as { byNameTeam: Map<string, string>; byName: Map<string, string> };
-      } else {
-        console.error('Sleeper fetch failed:', (r.reason as any)?.message ?? r.reason);
-      }
-    }
     if (statsIdx >= 0) {
       const r = enrichmentResults[statsIdx];
       if (r.status === 'fulfilled') {
@@ -333,11 +278,6 @@ Deno.serve(async (req: Request) => {
         console.error(`${sport} Stats fetch failed:`, (r.reason as any)?.message ?? r.reason);
       }
     }
-
-    const lookupPosition = (norm: string, team: string): string | null => {
-      if (!sleeperPos) return null;
-      return sleeperPos.byNameTeam.get(`${norm}|${team}`) ?? sleeperPos.byName.get(norm) ?? null;
-    };
 
     const lookupNbaId = (norm: string, team: string): number | null => {
       if (!statsIds) return null;
@@ -462,7 +402,7 @@ Deno.serve(async (req: Request) => {
       // and differs from what we have. Existing rows can hold stale values
       // from prior coercion logic (e.g. WNBA "G" players collapsed to "SG"),
       // and the new coercion is what we want to be authoritative.
-      const derivedPosition = lookupPosition(bp.normName, bp.pro_team) ?? bp.bdl_position;
+      const derivedPosition = bp.bdl_position;
       if (derivedPosition && derivedPosition !== match.position) {
         update.position = derivedPosition;
         hasChange = true;
@@ -516,9 +456,8 @@ Deno.serve(async (req: Request) => {
           status: 'active',
           external_id_bdl: p.bdl_id,
         };
-        // NBA: prefer Sleeper-derived spectrum, fall back to BDL.
-        // WNBA: BDL is the only source.
-        const pos = lookupPosition(p.normName, p.pro_team) ?? p.bdl_position;
+        // Position comes straight from BDL (coerceBdlPosition) for all sports.
+        const pos = p.bdl_position;
         if (pos) row.position = pos;
         const nbaId = lookupNbaId(p.normName, p.pro_team);
         if (nbaId) row.external_id_nba = nbaId;
@@ -628,7 +567,6 @@ Deno.serve(async (req: Request) => {
       draft_years_backfilled: draftYearsBackfilled,
       waived_cleared: waivedCount,
       dst_created: dstCreated,
-      sleeper_ok: sleeperPos !== null,
       nba_stats_ok: statsIds !== null,
       sample_new: sampleNames,
     });

@@ -66,7 +66,19 @@ Deno.serve(async (req: Request) => {
     const excludeUserIds = [user.id];
     const opts = localize_time ? { localize: localize_time } : undefined;
     if (team_ids && Array.isArray(team_ids) && team_ids.length > 0) {
-      await notifyTeams(supabaseAdmin, team_ids, category, prefixedTitle, body, data, excludeUserIds, opts);
+      // Constrain targets to THIS league. The membership check above only gates
+      // on league_id; without this a member of any league could push arbitrary
+      // content + deep links to arbitrary teams in other leagues.
+      const { data: leagueTeams } = await supabaseAdmin
+        .from('teams')
+        .select('id')
+        .eq('league_id', league_id)
+        .in('id', team_ids);
+      const scoped = (leagueTeams ?? []).map((t) => t.id);
+      if (scoped.length === 0) {
+        return errorResponse('No valid recipient teams in this league', 400);
+      }
+      await notifyTeams(supabaseAdmin, scoped, category, prefixedTitle, body, data, excludeUserIds, opts);
     } else {
       await notifyLeague(supabaseAdmin, league_id, category, prefixedTitle, body, data, excludeUserIds, opts);
     }

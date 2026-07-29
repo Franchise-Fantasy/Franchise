@@ -100,11 +100,12 @@ export default function JoinLeagueScreen() {
         return;
       }
 
-      const { data: league, error } = await supabase
-        .from('leagues')
-        .select('id')
-        .eq('invite_code', trimmed)
-        .maybeSingle();
+      // invite_code is column-revoked from clients, so resolve it via the
+      // members-agnostic SD RPC instead of a direct leagues select.
+      const { data: matches, error } = await supabase.rpc('resolve_invite_code', {
+        p_code: trimmed,
+      });
+      const league = Array.isArray(matches) ? matches[0] : null;
 
       if (error || !league) {
         setCodeError('No league found with that invite code.');

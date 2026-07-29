@@ -140,12 +140,15 @@ Deno.serve(async (req: Request) => {
   const now = new Date().toISOString();
   const { data: expiredReviews } = await supabase
     .from('trade_proposals')
-    .select('id')
+    .select('id, league_id')
     .eq('status', 'in_review')
     .lte('review_expires_at', now);
 
   let reviewsProcessed = 0;
   for (const review of expiredReviews ?? []) {
+    // Same archived-league guard as the pending loop above — don't auto-execute
+    // trades for a soft-deleted league (its members can't see the result).
+    if (archivedLeagueIds.has(review.league_id)) continue;
     try {
       const res = await fetch(
         `${Deno.env.get('SUPABASE_URL')}/functions/v1/execute-trade`,

@@ -38,6 +38,7 @@ import pandas as pd
 import franchise_db as fdb
 import franchise_edge as fedge
 import season_project as sea_model
+from season_windows import experience_seasons
 
 # Sport-specific season-model parameters. The season_project constants shipped
 # WNBA-fit; running NBA against them silently mis-calibrates the games-played
@@ -223,6 +224,14 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
         print(f"[season] {hist['player_id'].nunique()} players w/ history, "
               f"{len(active)} candidates, projecting {project_games} games")
 
+        # True career length for the experience curve (2026-07-28): Franchise
+        # game-log depth is capped by our own retention — one NBA season — so
+        # keying the curve on len(phist) gave EVERY NBA player the ≤2-seasons
+        # "+10%" youth boost and the whole first snapshot projected above last
+        # year (532/532, median ratio 1.104). draft_year is the career source;
+        # players without one fall back to history depth.
+        draft_years = fdb.get_draft_years(conn, sport)
+
         rows = []
         for pid in active:
             phist = hist[hist["player_id"] == pid].sort_values("season")
@@ -231,13 +240,8 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
             proj = sea_model.weighted_projection(phist)
             if proj is None:
                 continue
-            # KNOWN APPROXIMATION: len(phist) is seasons of FRANCHISE history,
-            # not true career length — capped at lookback_seasons, so the 6+
-            # decline branches never fire, and NBA year 1 (one season of logs)
-            # gives EVERY player the ≤2 "+10%" youth boost. Uniform across the
-            # board → ranking-neutral; fix needs a real career-length source
-            # (players.draft_year) and its own calibration pass (audit 2026-07-27).
-            proj = sea_model.experience_curve(proj, len(phist))
+            proj = sea_model.experience_curve(
+                proj, experience_seasons(season, draft_years.get(str(pid)), len(phist)))
             pg = sea_model.to_per_game(proj)
             proj_games, _ = sea_model.project_games_played(phist, proj["gp_pct"])
             rows.append({"player_id": pid, "projected_games": proj_games, **pg})

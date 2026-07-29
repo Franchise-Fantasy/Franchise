@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
   FlatList,
@@ -31,6 +32,14 @@ import type { CmsMappedEntry } from '@/types/cms';
 import { ms } from "@/utils/scale";
 
 export default function CmsTestScreen() {
+  // Internal CMS preview tool — never expose it in production (it's a
+  // deep-linkable route). __DEV__ is false in release builds. The guard lives in
+  // this hook-free wrapper so the Rules of Hooks stay satisfied.
+  if (!__DEV__) return <Redirect href="/(tabs)" />;
+  return <CmsTestScreenImpl />;
+}
+
+function CmsTestScreenImpl() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const [contentType, setContentType] = useState('');

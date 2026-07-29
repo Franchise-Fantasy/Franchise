@@ -8,6 +8,7 @@ test_franchise_edge.py, so projections-test.yml keeps its pytest-only install.
 from datetime import date
 
 from season_windows import (
+    experience_seasons,
     fallback_window,
     parse_start_year,
     resolve_windows,
@@ -91,6 +92,38 @@ def test_january_game_belongs_to_the_prior_start_year():
     in_2025 = w[2025][0] <= jan_game <= w[2025][1]
     in_2026 = w[2026][0] <= jan_game <= w[2026][1]
     assert in_2025 and not in_2026
+
+
+# ── experience_seasons ────────────────────────────────────────────────────────
+
+def test_veteran_career_beats_thin_history():
+    """THE 2026-07-28 bug: one season of Franchise logs made a 2003 draftee
+    read as a sophomore (+10%). draft_year must win over history depth."""
+    assert experience_seasons(2026, 2003, 1) == 5   # 23-yr vet → plateau
+    assert experience_seasons(2026, 2020, 1) == 5   # 6 seasons → plateau cap
+
+
+def test_genuine_youngsters_keep_the_boost_band():
+    assert experience_seasons(2026, 2025, 1) == 1   # true sophomore-to-be
+    assert experience_seasons(2026, 2024, 1) == 2   # 2 pro seasons
+    assert experience_seasons(2026, 2023, 1) == 3   # peak band starts
+
+
+def test_missing_draft_year_falls_back_to_history_depth():
+    assert experience_seasons(2026, None, 1) == 1
+    assert experience_seasons(2026, None, 4) == 4
+
+
+def test_bad_draft_year_data_clamps_to_one():
+    # Future/current draft year (data quirk) can't yield 0 or negative.
+    assert experience_seasons(2026, 2026, 1) == 1
+    assert experience_seasons(2026, 2030, 1) == 1
+
+
+def test_decline_branches_stay_unreachable():
+    # The 6+ age-decline branches are uncalibrated — nothing may reach them.
+    for dy in range(1990, 2027):
+        assert experience_seasons(2026, dy, 1) <= 5
 
 
 def test_wnba_windows_do_not_overlap_year_to_year():

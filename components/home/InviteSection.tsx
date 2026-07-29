@@ -59,7 +59,9 @@ export function InviteSection({ isCommissioner, inviteCode, leagueId, isFull }: 
           if (error) {
             Alert.alert('Error', error.message);
           } else {
-            queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
+            // invite_code is now served by useLeaguePrivateInfo, not the league
+            // query — invalidate that so the regenerated code shows immediately.
+            queryClient.invalidateQueries({ queryKey: ['leaguePrivateInfo', leagueId] });
           }
         },
       },

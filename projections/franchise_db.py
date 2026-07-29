@@ -63,7 +63,14 @@ PG_DSN = os.environ["PG_DSN"].strip()
 #   franchise-v1.1 — 2026-07-13: recent-minutes min>0 conditioning, minutes/stat
 #                    level calibration, phantom gate, OUT-player zero-row
 #                    retraction, stale-OUT guard
-MODEL_VERSION = "franchise-v1.1"
+#   franchise-v1.2 — 2026-07-28: season_config date windows replace calendar-year
+#                    bucketing (prior seasons now exclude playoff games); season
+#                    horizon: in-progress-prior gp_pct uses completed-game
+#                    denominators, per-sport GP constants (NBA enabled), and the
+#                    experience curve keys on true career length (draft_year)
+#                    instead of history depth — kills the uniform +10% that put
+#                    every first-snapshot NBA projection above last year's line
+MODEL_VERSION = "franchise-v1.2"
 
 # Per-36 rate stats projected by the season snapshot (mirrors
 # season_project.RATE_STATS).
@@ -495,6 +502,18 @@ def fetch_player_seasons(conn, sport: str, windows: dict) -> pd.DataFrame:
     """
     min_minutes, min_games = 3.0, 5
     return pd.read_sql(q, conn, params=(*wparams, sport, min_minutes, min_games))
+
+
+def get_draft_years(conn, sport: str) -> dict:
+    """player_id (uuid str) -> draft_year, for players where it's known.
+    Feeds season_windows.experience_seasons: true career length for the season
+    snapshot's experience curve, instead of Franchise game-log depth (which is
+    capped by our own data retention — one season for NBA — and misread every
+    veteran as a still-developing sophomore)."""
+    df = pd.read_sql(
+        "SELECT id, draft_year FROM players WHERE sport = %s AND draft_year IS NOT NULL",
+        conn, params=(sport,))
+    return {str(r["id"]): int(r["draft_year"]) for _, r in df.iterrows()}
 
 
 def fetch_active_players(conn, sport: str, window: tuple) -> list:

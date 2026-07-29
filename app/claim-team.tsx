@@ -84,12 +84,14 @@ export default function ClaimTeamScreen() {
 
       if (claimError) throw claimError;
 
-      // Now that we own the team, set commissioner flag if needed
+      // Now that we own the team, set commissioner flag if needed. Server-side
+      // (become_league_commissioner) so a spoofed isCommissioner param can't
+      // self-promote — the RPC verifies the caller created this league.
       if (isCommissioner === 'true') {
-        await supabase
-          .from('teams')
-          .update({ is_commissioner: true })
-          .eq('id', team.id);
+        const { error: commishErr } = await supabase.rpc('become_league_commissioner', {
+          p_team_id: team.id,
+        });
+        if (commishErr) throw commishErr;
       }
 
       // Imported leagues have no draft to trigger schedule

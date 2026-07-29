@@ -6697,6 +6697,7 @@ export type Database = {
         Args: { p_division_1_team_ids: string[]; p_league_id: string }
         Returns: undefined
       }
+      become_league_commissioner: { Args: { p_team_id: string }; Returns: undefined }
       award_waiver_claim: {
         Args: {
           p_bid_amount: number
@@ -6993,6 +6994,15 @@ export type Database = {
         }[]
       }
       get_draft_room_init: { Args: { p_draft_id: string }; Returns: Json }
+      get_league_private_info: {
+        Args: { p_league_id: string }
+        Returns: {
+          invite_code: string | null
+          venmo_username: string | null
+          cashapp_tag: string | null
+          paypal_username: string | null
+        }[]
+      }
       get_league_roster_stats: {
         Args: { p_league_id: string }
         Returns: {
@@ -7610,6 +7620,10 @@ export type Database = {
       replace_scoring_settings: {
         Args: { p_league_id: string; p_rows: Json }
         Returns: undefined
+      }
+      resolve_invite_code: {
+        Args: { p_code: string }
+        Returns: { id: string; name: string }[]
       }
       respond_to_league_invite: {
         Args: { p_action: string; p_invite_id: string }

@@ -4,6 +4,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import {
   SubscriptionTier,
   TIER_RANK,
+  PAYWALL_ENABLED,
   hasAccess,
   featureTier,
 } from '@/constants/Subscriptions';
@@ -98,7 +99,9 @@ export function useSubscription() {
       if (data.expires_at && new Date(data.expires_at) < new Date()) return null;
       return data;
     },
-    enabled: !!userId,
+    // Monetization off pre-launch: skip the subscription-table reads entirely.
+    // hasAccess() already grants everything while PAYWALL_ENABLED is false.
+    enabled: PAYWALL_ENABLED && !!userId,
     staleTime: 1000 * 60 * 5,
   });
 
@@ -116,7 +119,7 @@ export function useSubscription() {
       if (data.expires_at && new Date(data.expires_at) < new Date()) return null;
       return data;
     },
-    enabled: !!leagueId,
+    enabled: PAYWALL_ENABLED && !!leagueId,
     staleTime: 1000 * 60 * 5,
   });
 

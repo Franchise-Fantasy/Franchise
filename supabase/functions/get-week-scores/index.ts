@@ -1076,22 +1076,33 @@ Deno.serve(async (req: Request) => {
       return jsonResponse({ ok: true, skipped: true, reason: "no games for live-week sports" });
     }
 
-    const settled = await Promise.allSettled(
-      (liveWeeks ?? []).map(async (week) => {
-        const result = await computeWeekScores(week.league_id, week.id);
-        await upsertScores(week.league_id, week.id, result.teamScores);
-        if (result.isCategories) await upsertCategoryWins(result.categoryUpdates);
-        return {
-          league_id: week.league_id,
-          schedule_id: week.id,
-          teams: Object.keys(result.teamScores).length,
-          teamScores: result.teamScores,
-          isCategories: result.isCategories,
-          inverseByStat: result.inverseByStat,
-          categoryUpdates: result.categoryUpdates,
-        };
-      }),
-    );
+    const scoreWeek = async (week: (typeof liveWeeks)[number]) => {
+      const result = await computeWeekScores(week.league_id, week.id);
+      await upsertScores(week.league_id, week.id, result.teamScores);
+      if (result.isCategories) await upsertCategoryWins(result.categoryUpdates);
+      return {
+        league_id: week.league_id,
+        schedule_id: week.id,
+        teams: Object.keys(result.teamScores).length,
+        teamScores: result.teamScores,
+        isCategories: result.isCategories,
+        inverseByStat: result.inverseByStat,
+        categoryUpdates: result.categoryUpdates,
+      };
+    };
+
+    // Cap concurrency: this cron fans out to EVERY live league in one
+    // invocation. Unbounded Promise.allSettled is fine at ~dozens of leagues
+    // but at 10x would fire hundreds of parallel computeWeekScores and exhaust
+    // the connection pool. Run CONCURRENCY leagues in parallel per batch;
+    // batches run sequentially. Batch shape is preserved so the dispatch below
+    // is unchanged.
+    const CONCURRENCY = 10;
+    const settled: PromiseSettledResult<Awaited<ReturnType<typeof scoreWeek>>>[] = [];
+    for (let i = 0; i < liveWeeks.length; i += CONCURRENCY) {
+      const batch = liveWeeks.slice(i, i + CONCURRENCY);
+      settled.push(...(await Promise.allSettled(batch.map(scoreWeek))));
+    }
 
     const results: Array<{ league_id: string; schedule_id: string; teams: number }> = [];
     for (const r of settled) {

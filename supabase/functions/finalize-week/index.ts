@@ -30,6 +30,11 @@ import {
   type MatchupTeamRef,
 } from '../_shared/finalizeWeek/dataLoader.ts';
 import {
+  playoffResultBody,
+  playoffRoundIcon,
+  playoffRoundLabel,
+} from '../_shared/finalizeWeek/playoffCopy.ts';
+import {
   calcRounds,
   compareCategoryStats,
   extractBestDay,
@@ -322,6 +327,33 @@ Deno.serve(async (req: Request) => {
     }
     const teamDataMap = await loadTeamDataBatch(supabase, teamRefs);
 
+    // ── Which finalizing matchups are the 3rd place game? ──
+    // It's created alongside the final and shares its `playoff_round`, so
+    // `playoff_bracket.is_third_place` is the ONLY way to tell the two apart.
+    // Used for the result-notification copy and to keep the champion
+    // announcement below off the 3rd-place winner. Non-fatal: a failure here
+    // must never block scoring, it just degrades the push wording.
+    const thirdPlaceMatchupIds = new Set<string>();
+    const playoffMatchupIds = unfinalizedMatchups.filter((m) => m.playoff_round != null).map((m) => m.id);
+    if (playoffMatchupIds.length > 0) {
+      try {
+        const bracketRows = (await Promise.all(chunked(playoffMatchupIds, 500).map(async (ids) => {
+          const { data, error } = await supabase
+            .from('playoff_bracket')
+            .select('matchup_id')
+            .eq('is_third_place', true)
+            .in('matchup_id', ids);
+          if (error) throw error;
+          return data ?? [];
+        }))).flat();
+        for (const row of bracketRows) {
+          if (row.matchup_id) thirdPlaceMatchupIds.add(row.matchup_id);
+        }
+      } catch (bracketErr) {
+        log.warn('3rd-place bracket lookup failed; playoff copy may mislabel', { error: String(bracketErr) });
+      }
+    }
+
     const affectedTeams = new Set<string>();
     const teamLeagueMap = new Map<string, string>();
     const playoffMatchupsFinalized = new Map<string, Array<{ matchup_id: string; playoff_round: number; winner_id: string | null }>>();
@@ -333,7 +365,7 @@ Deno.serve(async (req: Request) => {
       notification: {
         leagueId: string; homeTeamId: string; awayTeamId: string;
         homeScore: number; awayScore: number; winnerId: string | null;
-        isPlayoff: boolean; playoffRound: number | null;
+        isPlayoff: boolean; playoffRound: number | null; isThirdPlace: boolean;
         homeCatWins?: number | null; awayCatWins?: number | null;
         catTies?: number | null; scoringType?: string;
       } | null;
@@ -456,6 +488,7 @@ Deno.serve(async (req: Request) => {
             awayTeamId: matchup.away_team_id,
             homeScore, awayScore, winnerId,
             isPlayoff, playoffRound: matchup.playoff_round,
+            isThirdPlace: thirdPlaceMatchupIds.has(matchup.id),
             homeCatWins, awayCatWins, catTies, scoringType,
           },
           affectedTeamIds,
@@ -577,11 +610,15 @@ Deno.serve(async (req: Request) => {
       const leagueName = new Map<string, string>(leagueRows.map((l) => [l.id, l.name]));
       const leaguePlayoffTeams = new Map<string, number>(leagueRows.map((l) => [l.id, l.playoff_teams ?? 8]));
 
-      function playoffRoundLabel(round: number, totalRounds: number): string {
-        if (round >= totalRounds) return 'Championship';
-        if (round === totalRounds - 1) return 'Semifinals';
-        if (round === totalRounds - 2) return 'Quarterfinals';
-        return `Playoff Round ${round}`;
+      // generate-playoff-round builds the 3rd place game from the two semifinal
+      // losers, so a league whose semis BOTH resolved this run gets one — which
+      // means "Season over." is the wrong send-off for those losers.
+      const resolvedSemisByLeague = new Map<string, number>();
+      for (const r of matchupResults) {
+        if (!r.isPlayoff || r.playoffRound == null || r.winnerId == null) continue;
+        const totalRounds = calcRounds(leaguePlayoffTeams.get(r.leagueId) ?? 8);
+        if (r.playoffRound !== totalRounds - 1) continue;
+        resolvedSemisByLeague.set(r.leagueId, (resolvedSemisByLeague.get(r.leagueId) ?? 0) + 1);
       }
 
       // Build every per-team message up front, then send in a few bulk calls
@@ -602,34 +639,22 @@ Deno.serve(async (req: Request) => {
         const tied = r.winnerId === null;
 
         if (r.isPlayoff && r.playoffRound != null) {
-          const totalRounds = calcRounds(leaguePlayoffTeams.get(r.leagueId) ?? 8);
-          const roundName = playoffRoundLabel(r.playoffRound, totalRounds);
-          const isChampionship = r.playoffRound >= totalRounds;
-          const isSemis = r.playoffRound === totalRounds - 1;
+          const ctx = {
+            round: r.playoffRound,
+            totalRounds: calcRounds(leaguePlayoffTeams.get(r.leagueId) ?? 8),
+            isThirdPlace: r.isThirdPlace,
+            thirdPlaceGameFollows: resolvedSemisByLeague.get(r.leagueId) === 2,
+          };
+          const roundName = playoffRoundLabel(ctx);
+          const title = `${playoffRoundIcon(ctx)} ${ln} — ${roundName}`;
 
           const scoreLine = r.scoringType === 'h2h_categories'
             ? `${r.homeCatWins ?? 0}-${r.awayCatWins ?? 0}${(r.catTies ?? 0) > 0 ? `-${r.catTies}` : ''}`
             : `${r.homeScore} - ${r.awayScore}`;
 
-          function buildPlayoffBody(won: boolean, opponentName: string, isTied: boolean): string {
-            if (isTied) return `Tied ${scoreLine} vs ${opponentName}. What a battle.`;
-            if (isChampionship) {
-              return won
-                ? `You beat ${opponentName} ${scoreLine} and won the championship! 🏆`
-                : `${opponentName} wins ${scoreLine}. Tough loss in the finals.`;
-            }
-            if (won) {
-              const next = isSemis ? 'On to the championship!' : 'You advance!';
-              return `You beat ${opponentName} ${scoreLine}. ${next}`;
-            }
-            return `${opponentName} wins ${scoreLine}. Season over.`;
-          }
-
-          const icon = isChampionship ? '🏆' : '🏀';
-          const title = `${icon} ${ln} — ${roundName}`;
           playoffNotifs.push(
-            { teamIds: [r.homeTeamId], title, body: buildPlayoffBody(homeWon, awayName, tied), data: { screen: 'playoff-bracket' }, subtitle: roundName, priority: 'high' },
-            { teamIds: [r.awayTeamId], title, body: buildPlayoffBody(awayWon, homeName, tied), data: { screen: 'playoff-bracket' }, subtitle: roundName, priority: 'high' },
+            { teamIds: [r.homeTeamId], title, body: playoffResultBody(ctx, { won: homeWon, tied, opponentName: awayName, scoreLine }), data: { screen: 'playoff-bracket' }, subtitle: roundName, priority: 'high' },
+            { teamIds: [r.awayTeamId], title, body: playoffResultBody(ctx, { won: awayWon, tied, opponentName: homeName, scoreLine }), data: { screen: 'playoff-bracket' }, subtitle: roundName, priority: 'high' },
           );
         } else {
           const scoreLine = r.scoringType === 'h2h_categories'
@@ -709,9 +734,11 @@ Deno.serve(async (req: Request) => {
                 .not('matchup_id', 'is', null)
                 .limit(1)
                 .maybeSingle();
+              // The fallback must still exclude the 3rd place game — it shares
+              // maxRound with the final, so a bare round match can crown it.
               const champMatchup = champBracket?.matchup_id
                 ? playoffFinalized.find((p) => p.matchup_id === champBracket.matchup_id && p.winner_id)
-                : playoffFinalized.find((p) => p.playoff_round === maxRound && p.winner_id);
+                : playoffFinalized.find((p) => p.playoff_round === maxRound && p.winner_id && !thirdPlaceMatchupIds.has(p.matchup_id));
               if (champMatchup?.winner_id) {
                 const { data: champTeam } = await supabase.from('teams').select('name').eq('id', champMatchup.winner_id).single();
                 const champName = champTeam?.name ?? 'The champion';

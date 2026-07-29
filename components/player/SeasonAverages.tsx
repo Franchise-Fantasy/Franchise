@@ -240,7 +240,13 @@ export function SeasonAverages({
         : rowsFrom(player);
     out.push({
       key: "season",
-      chip: currentSeasonLabel,
+      // Pre-tipoff the slot's content is the season PROJECTION, and the chip
+      // must say so — a bare "2026-27" read as if these were real averages
+      // (user-reported 2026-07-28). Same "'27 PROJ" idiom as the in-season
+      // proj lens below; the meta row already reads "PROJECTED · SEASON".
+      chip: seasonProjected
+        ? `'${currentSeasonLabel.slice(-2)} PROJ`
+        : currentSeasonLabel,
       gpText: seasonProjected
         ? ""
         : `${player.games_played}${currentGamesDenominator ? `/${currentGamesDenominator}` : ""}`,
@@ -345,7 +351,9 @@ export function SeasonAverages({
                 accessibilityState={{ selected: sel }}
                 accessibilityLabel={
                   lens.projected
-                    ? `Projected ${lens.chip} season averages`
+                    ? // Chip text already carries "PROJ" — strip it so the
+                      // announcement isn't "Projected '27 PROJ season averages".
+                      `Projected ${lens.chip.replace(" PROJ", "")} season averages`
                     : lens.key.startsWith("L")
                       ? `Last ${lens.chip.slice(1)} games`
                       : `${lens.chip} season`

@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -51,6 +51,7 @@ import { useActionPicker, useConfirm, useTextPrompt } from '@/context/ConfirmPro
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
+import { useLeaguePrivateInfo } from '@/hooks/useLeaguePrivateInfo';
 import { useLeagueRosterConfig } from '@/hooks/useLeagueRosterConfig';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
@@ -110,7 +111,24 @@ export default function LeagueInfoScreen() {
   const router = useRouter();
   const { leagueId, teamId, setLeagueId, setTeamId, switchLeague } = useAppState();
 
-  const { data: league, isLoading: leagueLoading } = useLeague();
+  const { data: baseLeague, isLoading: leagueLoading } = useLeague();
+  // invite_code + payment handles are column-revoked from clients; fetch via the
+  // members-only RPC and merge back onto `league` so the invite/dues rows and
+  // the modals below read them unchanged.
+  const { data: leaguePrivate } = useLeaguePrivateInfo(leagueId);
+  const league = useMemo(
+    () =>
+      baseLeague
+        ? {
+            ...baseLeague,
+            invite_code: leaguePrivate?.invite_code ?? null,
+            venmo_username: leaguePrivate?.venmo_username ?? null,
+            cashapp_tag: leaguePrivate?.cashapp_tag ?? null,
+            paypal_username: leaguePrivate?.paypal_username ?? null,
+          }
+        : baseLeague,
+    [baseLeague, leaguePrivate],
+  );
   const { data: rosterConfig } = useLeagueRosterConfig(leagueId ?? '');
   const { data: scoring } = useLeagueScoring(leagueId ?? '');
 

@@ -6,6 +6,7 @@ import Purchases, {
   PurchasesPackage,
 } from "react-native-purchases";
 
+import { PAYWALL_ENABLED } from "@/constants/Subscriptions";
 import { supabase } from "@/lib/supabase";
 
 const API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY ?? "";
@@ -62,6 +63,10 @@ export function isReady(): boolean {
  */
 export async function initPurchases(userId: string): Promise<void> {
   if (isExpoGo) return;
+  // Monetization is off pre-launch (PAYWALL_ENABLED). Never configure the RC
+  // SDK while it's off — no network calls, no dashboard dependency. Flip the
+  // flag in constants/Subscriptions.ts to bring RevenueCat back for launch.
+  if (!PAYWALL_ENABLED) return;
   try {
     if (isConfigured) {
       await Purchases.logIn(userId);
