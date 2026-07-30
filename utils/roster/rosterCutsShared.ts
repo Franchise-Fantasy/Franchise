@@ -77,6 +77,13 @@ export interface CutsPlan {
   toDrop: CutsCandidate[];
 }
 
+/** Whole days from `fromIso` to `toIso` (both "YYYY-MM-DD"). */
+export function daysBetweenIsoDates(fromIso: string, toIso: string): number {
+  const from = Date.parse(`${fromIso}T12:00:00Z`);
+  const to = Date.parse(`${toIso}T12:00:00Z`);
+  return Math.round((to - from) / 86_400_000);
+}
+
 /**
  * Is this row part of the pool `leagues.roster_size` caps?
  *

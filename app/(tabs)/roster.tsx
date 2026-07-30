@@ -267,12 +267,13 @@ export default function RosterScreen() {
   const irLocked = !!illegalIRPlayers && illegalIRPlayers.length > 0;
   const { data: overCap } = useOverCap(leagueId, teamId);
   const overCapLocked = !!overCap?.isOver;
-  // Offseason only: preview which players the cuts deadline would take. Skipped
-  // entirely when the team is legal or no deadline is armed.
+  // Preview which players the cuts deadline would take. Gated on the deadline
+  // rather than the offseason: a deadline survives into the regular season, so
+  // an over-cap team still needs to see what's at risk after kickoff.
   const { data: cutsPlan } = useCutsPlan(
     leagueId,
     teamId,
-    overCapLocked && !!league?.offseason_step && !!league?.roster_cuts_deadline,
+    overCapLocked && !!league?.roster_cuts_deadline,
   );
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");

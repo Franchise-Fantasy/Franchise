@@ -234,70 +234,32 @@ export function useOffseasonActions({ leagueId, season }: Args) {
   };
 
   const handleStartNewSeason = async () => {
-    // Rookie drafts don't enforce roster size, so a team can reach this point
-    // over the active cap — which must not bleed into regular-season matchups.
-    // Any still-over-cap team gets its cuts applied now (taxi-eligible players
-    // stashed first, then newest acquisitions dropped) so an absent GM can never
-    // block the season. generate-schedule re-checks server-side.
+    // Starting the season NEVER blocks on roster size and never cuts anyone.
+    // Rookie drafts don't enforce the cap, so teams can cross into the season
+    // over it — the app already tolerates that state (the over-cap lock gates
+    // their adds and lineup edits until they fix it), and the cuts deadline is
+    // the one thing that resolves it, on its own date, season or not.
+    //
+    // So the only job here is to tell the commissioner what's outstanding.
     let overCapPlans: TeamCutsPlan[] = [];
     try {
       overCapPlans = await fetchLeagueCutsPlans(leagueId);
     } catch (err) {
-      Alert.alert('Error', 'Could not check roster sizes. Please try again.');
+      // Advisory only — never let a failed roster read block the season.
       console.warn('roster cuts pre-check failed:', err);
-      return;
     }
 
-    if (overCapPlans.length === 0) {
-      confirm({
-        title: 'Start New Season',
-        message: `This will generate the schedule for ${season} and begin the new season. Continue?`,
-        action: { label: 'Start Season', onPress: startSeason },
-      });
-      return;
-    }
-
-    const summary = overCapPlans
-      .map((p) => {
-        const clauses = [
-          p.toTaxi.length > 0 && `to taxi — ${p.toTaxi.map((x) => x.name).join(', ')}`,
-          p.toDrop.length > 0 && `dropped — ${p.toDrop.map((x) => x.name).join(', ')}`,
-        ].filter(Boolean);
-        return `${p.teamName} (${p.activeCount}/${p.rosterSize}):\n  ${clauses.join('\n  ')}`;
-      })
-      .join('\n\n');
+    const overCapNote =
+      overCapPlans.length > 0
+        ? `\n\n${overCapPlans.length} team${overCapPlans.length === 1 ? ' is' : 's are'} still over the roster cap:\n${overCapPlans
+            .map((p) => `  ${p.teamName} (${p.activeCount}/${p.rosterSize})`)
+            .join('\n')}\n\nThat's fine — they can start the season over the cap. Their roster moves stay locked until they trim, and anyone still over on the cuts deadline is trimmed automatically.`
+        : '';
 
     confirm({
-      title: 'Roster Cuts Required',
-      message: `These teams are over the roster cap. Starting the season will apply these cuts now:\n\n${summary}\n\nThen the ${season} schedule will be generated. Continue?`,
-      action: {
-        label: 'Make Cuts & Start',
-        destructive: true,
-        onPress: async () => {
-          setLoading(true);
-          setLoadingLabel('Applying roster cuts…');
-          try {
-            const { error } = await supabase.functions.invoke('enforce-roster-cuts', {
-              body: { league_id: leagueId },
-            });
-            if (error) throw error;
-
-            queryClient.invalidateQueries({ queryKey: ['over-cap'] });
-            queryClient.invalidateQueries({ queryKey: ['cutsPlan', leagueId] });
-            queryClient.invalidateQueries({ queryKey: ['rosterOverage', leagueId] });
-          } catch (err: unknown) {
-            Alert.alert(
-              'Error',
-              await functionErrorDetail(err, 'Failed to apply roster cuts'),
-            );
-            setLoading(false);
-            setLoadingLabel(null);
-            return;
-          }
-
-          await startSeason();
-        },
-      },
+      title: 'Start New Season',
+      message: `This will generate the schedule for ${season} and begin the new season.${overCapNote}\n\nContinue?`,
+      action: { label: 'Start Season', onPress: startSeason },
     });
   };
 

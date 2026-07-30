@@ -1,57 +1,40 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-import { requireUser } from '../_shared/auth.ts';
 import { deferWork } from '../_shared/background.ts';
-import { CORS_HEADERS } from '../_shared/cors.ts';
 import { recordHeartbeat } from '../_shared/heartbeat.ts';
-import { HttpError, errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
+import { errorResponse, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyTeamsBulk, type BulkTeamsNotification } from '../_shared/push.ts';
-import { checkRateLimit } from '../_shared/rate-limit.ts';
 import {
   computeCutsPlan,
   fetchLeagueCutsInputs,
   formatDeadline,
 } from '../_shared/rosterCuts.ts';
-import { parseBody, z } from '../_shared/validate.ts';
 import { getSportToday } from '../../../utils/leagueTime.ts';
+import { daysBetweenIsoDates } from '../../../utils/roster/rosterCutsShared.ts';
 import type { Database } from '../../../types/database.types.ts';
 
 /**
- * Roster-cuts enforcement for the dynasty offseason. The WHY and the ordering
- * rules live in utils/roster/rosterCutsShared.ts — this is the driver.
+ * Roster-cuts enforcement. The WHY and the ordering rules live in
+ * utils/roster/rosterCutsShared.ts — this is the driver.
  *
- * Two callers:
- *   - pg_cron daily at 10:25 UTC (Bearer CRON_SECRET, no body). Sends T-3 and
- *     day-of warnings, and enforces the morning after the deadline day.
- *   - the commissioner's Start Season tap (user JWT + { league_id }), so an
- *     over-cap league can never block the new season.
+ * `leagues.roster_cuts_deadline` is the DEFINITIVE cutoff and the ONLY thing
+ * that cuts a player. Nothing else may: the commissioner is never blocked from
+ * starting the season with over-cap rosters, and starting it doesn't cut anyone
+ * early. The deadline therefore survives into the regular season, and this cron
+ * honours it whether the league is still in the offseason or already playing —
+ * which is why enforce_team_roster_cuts snapshots the scoring week and routes
+ * cut players through waivers (see 20260730000200).
  *
- * enforce_team_roster_cuts applies one team per transaction and is
- * self-limiting, so a racing GM move or a second caller is harmless.
+ * Cron-only (Bearer CRON_SECRET), daily at 10:25 UTC: warns at T-3 and on the
+ * deadline day, enforces the morning after. enforce_team_roster_cuts applies one
+ * team per transaction and is self-limiting, so a racing GM move is harmless.
  *
  * Deploy with --no-verify-jwt.
  */
 
-// Only parsed on the commissioner path — the cron branch never reads a body.
-const Body = z.object({
-  league_id: z.string().uuid(),
-});
-
 const JOB_NAME = 'enforce-roster-cuts';
 
-/**
- * Offseason steps where an oversized roster is expected and safe to resolve.
- * Applied to BOTH auth paths — see the Mode A gate for why this is load-bearing.
- */
-const ENFORCEABLE_STEPS = ['rookie_draft_complete', 'ready_for_new_season'];
-
-/** Whole days from `fromIso` to `toIso` (both "YYYY-MM-DD"). */
-function daysBetweenIso(fromIso: string, toIso: string): number {
-  const from = Date.parse(`${fromIso}T12:00:00Z`);
-  const to = Date.parse(`${toIso}T12:00:00Z`);
-  return Math.round((to - from) / 86_400_000);
-}
 
 function nameList(names: string[], max = 3): string {
   if (names.length <= max) return names.join(', ');
@@ -194,91 +177,26 @@ async function warningNotifications(
 }
 
 Deno.serve(async (req) => {
-  if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: CORS_HEADERS });
-  }
-
   try {
+    const cronSecret = Deno.env.get('CRON_SECRET') ?? '';
+    const authHeader = req.headers.get('Authorization') ?? '';
+    if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+      return errorResponse('Unauthorized', 401);
+    }
+
     const supabaseAdmin = createClient<Database>(
       Deno.env.get('SUPABASE_URL') ?? '',
       Deno.env.get('SB_SECRET_KEY') ?? '',
     );
 
-    const authHeader = req.headers.get('Authorization') ?? '';
-    const cronSecret = Deno.env.get('CRON_SECRET') ?? '';
-    const isCronCall = !!cronSecret && authHeader === `Bearer ${cronSecret}`;
-
-    // ---- Mode A: commissioner backstop for a single league -----------------
-    if (!isCronCall) {
-      const user = await requireUser(req);
-      const rateLimited = await checkRateLimit(supabaseAdmin, user.id, JOB_NAME);
-      if (rateLimited) return rateLimited;
-
-      const { league_id } = parseBody(Body, await req.json().catch(() => ({})));
-
-      const { data: league } = await supabaseAdmin
-        .from('leagues')
-        .select('created_by, archived_at, offseason_step')
-        .eq('id', league_id)
-        .single();
-      if (!league) throw new HttpError('League not found', 404);
-      if (league.archived_at) throw new HttpError('League is archived', 409);
-      if (league.created_by !== user.id) {
-        throw new HttpError('Only the commissioner can enforce roster cuts', 403);
-      }
-      // Offseason-only, matching the cron's working set. This is load-bearing,
-      // not defensive: enforce_team_roster_cuts deliberately skips
-      // snapshotBeforeDrop because there is no live scoring week in the
-      // offseason. In-season it would delete daily_lineups for a partially
-      // played week, silently corrupting that week's scoring with no undo.
-      if (!ENFORCEABLE_STEPS.includes(league.offseason_step ?? '')) {
-        throw new HttpError(
-          'Roster cuts can only be enforced during the offseason',
-          409,
-        );
-      }
-
-      const { enforced, failedTeams, leagueName } = await enforceLeague(
-        supabaseAdmin,
-        league_id,
-        'Roster cuts enforced at season start',
-      );
-
-      if (failedTeams.length > 0) {
-        // Teams already resolved stay resolved — they're legitimately compliant
-        // now. Surfacing the failure lets the caller abort Start Season.
-        return errorResponse(
-          `Could not resolve roster cuts for: ${failedTeams.join(', ')}. Please try again.`,
-          409,
-        );
-      }
-
-      if (enforced.length > 0) {
-        deferWork(
-          notifyTeamsBulk(supabaseAdmin, 'commissioner', appliedNotifications(leagueName, enforced)),
-          `${JOB_NAME} applied push`,
-        );
-      }
-
-      return jsonResponse({
-        enforced: enforced.map((t) => ({
-          team_id: t.teamId,
-          team_name: t.teamName,
-          stashed: t.stashed,
-          dropped: t.dropped,
-        })),
-      });
-    }
-
-    // ---- Mode B: daily cron sweep -----------------------------------------
-    // Service role bypasses the leagues RLS that hides archived leagues from
-    // clients, so filter them here or we'd keep cutting rosters in a league
-    // nobody can open.
+    // Every league carrying a deadline, in-season or not — the deadline is the
+    // cutoff regardless of whether the commissioner has already started the
+    // season. Service role bypasses the leagues RLS that hides archived
+    // leagues, so filter those or we'd cut rosters nobody can see.
     const { data: leagues, error } = await supabaseAdmin
       .from('leagues')
-      .select('id, name, sport, roster_cuts_deadline, offseason_step')
+      .select('id, name, sport, roster_cuts_deadline')
       .not('roster_cuts_deadline', 'is', null)
-      .in('offseason_step', ENFORCEABLE_STEPS)
       .is('archived_at', null);
     if (error) throw error;
 
@@ -294,7 +212,7 @@ Deno.serve(async (req) => {
 
       try {
         const today = getSportToday(league.sport);
-        const daysLeft = daysBetweenIso(today, deadline);
+        const daysLeft = daysBetweenIsoDates(today, deadline);
 
         if (daysLeft === 3 || daysLeft === 0) {
           warnings.push(
@@ -318,9 +236,10 @@ Deno.serve(async (req) => {
           continue;
         }
 
-        // One-shot: clearing the deadline means a later commissioner force_add
-        // can't be surprise-dropped the next morning. Start Season stays the
-        // backstop from here.
+        // One-shot: the deadline has done its job, so clear it. Without this a
+        // later commissioner force_add (or a trade that puts a team back over
+        // cap) would be silently cut the next morning by a deadline everyone
+        // has forgotten about.
         const { error: clearErr } = await supabaseAdmin
           .from('leagues')
           .update({ roster_cuts_deadline: null })

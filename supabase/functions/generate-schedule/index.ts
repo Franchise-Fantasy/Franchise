@@ -6,7 +6,6 @@ import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { sportSlateDate } from '../../../utils/leagueTime.ts';
 import { planScheduleWeeks, type MergeWindow } from '../../../utils/league/scheduleWindows.ts';
-import { isActiveSlot } from '../../../utils/roster/rosterCutsShared.ts';
 import { getSportModule } from '../../../utils/sports/registry.ts';
 
 const Body = z.object({
@@ -110,46 +109,12 @@ Deno.serve(async (req: Request) => {
       return errorResponse(`Cannot generate schedule during offseason step: ${league.offseason_step}`, 409);
     }
 
-    // Roster compliance: an over-cap roster must not bleed into regular-season
-    // matchups. Rookie drafts don't enforce roster size, so this is the last gate
-    // before the overage becomes a scoring problem. The client normally resolves
-    // it first (Start Season invokes enforce-roster-cuts), so reaching this is
-    // either a direct function call or a race.
-    //
-    // Only checked DURING the offseason: first-time schedule generation for an
-    // imported league is deliberately exempt, since an import can legitimately
-    // land over cap and relies on the in-season over-cap lock to force a trim.
-    if (league.offseason_step) {
-      const [{ data: complianceTeams }, { data: rosterRows }] = await Promise.all([
-        supabase.from("teams").select("id, name").eq("league_id", league_id),
-        supabase
-          .from("league_players")
-          .select("team_id, roster_slot")
-          .eq("league_id", league_id)
-          .lte("acquired_at", new Date().toISOString()),
-      ]);
-
-      // Active roster = anything not parked on IR or the taxi squad; roster_size
-      // caps that pool alone. Shares `isActiveSlot` with the cuts planner so
-      // this gate can't disagree with the enforcement it backstops.
-      const rosterSize = league.roster_size ?? 13;
-      const activeByTeam = new Map<string, number>();
-      for (const row of rosterRows ?? []) {
-        if (!row.team_id || !isActiveSlot(row.roster_slot)) continue;
-        activeByTeam.set(row.team_id, (activeByTeam.get(row.team_id) ?? 0) + 1);
-      }
-
-      const overTeams = (complianceTeams ?? [])
-        .map((t) => ({ name: t.name, count: activeByTeam.get(t.id) ?? 0 }))
-        .filter((t) => t.count > rosterSize);
-
-      if (overTeams.length > 0) {
-        return errorResponse(
-          `These teams are over the roster cap: ${overTeams.map((t) => `${t.name} (${t.count}/${rosterSize})`).join(', ')}. Resolve roster cuts before starting the season.`,
-          409,
-        );
-      }
-    }
+    // NOTE: deliberately no roster-size gate here. An over-cap roster may enter
+    // the regular season — the in-season over-cap lock freezes that team's adds
+    // and lineup edits until they trim, and leagues.roster_cuts_deadline is the
+    // one thing that cuts a player, on its own date, whether or not the season
+    // has started. Blocking here would put the commissioner back at the mercy of
+    // an absent GM, which is the problem the deadline exists to solve.
 
     // Defensive: a non-positive week count (seen in the wild from a non-wizard
     // write path) would otherwise silently produce a schedule with zero
