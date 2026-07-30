@@ -274,7 +274,6 @@ export default function HomeScreen() {
   const offseasonActions = useOffseasonActions({
     leagueId: league?.id ?? '',
     season: league?.season ?? '',
-    isDynasty: isDynastyLeague,
   });
 
   // Dynasty roster-cap overage — returns both the aggregate count (how
@@ -309,6 +308,10 @@ export default function HomeScreen() {
         const playerRow = Array.isArray(p.players) ? p.players[0] : p.players;
         const status = playerRow?.status ?? null;
         if (p.roster_slot === 'IR' && isIrEligibleStatus(status)) continue;
+        // Taxi players sit outside the active pool that roster_size caps, and
+        // stashing to taxi is the resolution this feature promotes — counting
+        // them would keep flagging a team that just fixed its overage.
+        if (p.roster_slot === 'TAXI') continue;
         counts.set(p.team_id, (counts.get(p.team_id) ?? 0) + 1);
       }
       const cap = league.roster_size ?? 13;

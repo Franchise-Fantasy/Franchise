@@ -6,12 +6,27 @@ import { Alert } from 'react-native';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { supabase } from '@/lib/supabase';
+import { fetchLeagueCutsPlans, type TeamCutsPlan } from '@/utils/roster/rosterCuts';
 
 type Args = {
   leagueId: string;
   season: string;
-  isDynasty: boolean;
 };
+
+/**
+ * Pull the real reason out of a FunctionsHttpError body (e.g. a stale season
+ * start date, or the roster-cap 409) instead of the generic non-2xx message.
+ */
+async function functionErrorDetail(err: unknown, fallback: string): Promise<string> {
+  let detail = (err instanceof Error && err.message) || fallback;
+  try {
+    const body = await (err as { context?: Response }).context?.json?.();
+    if (body?.error) detail = body.error;
+  } catch {
+    // Body wasn't JSON or context unavailable — keep the fallback.
+  }
+  return detail;
+}
 
 /**
  * Offseason action handlers — drives the home hero's contextual action
@@ -20,7 +35,7 @@ type Args = {
  * invalidation. The returned `loading` flag reflects whichever action
  * is in flight.
  */
-export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
+export function useOffseasonActions({ leagueId, season }: Args) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const confirm = useConfirm();
@@ -201,74 +216,86 @@ export function useOffseasonActions({ leagueId, season, isDynasty }: Args) {
     }
   };
 
+  const startSeason = async () => {
+    setLoading(true);
+    setLoadingLabel('Starting the season…');
+    try {
+      const { error } = await supabase.functions.invoke('generate-schedule', {
+        body: { league_id: leagueId },
+      });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+    } catch (err: unknown) {
+      Alert.alert('Error', await functionErrorDetail(err, 'Failed to start season'));
+    } finally {
+      setLoading(false);
+      setLoadingLabel(null);
+    }
+  };
+
   const handleStartNewSeason = async () => {
-    // Dynasty-only pre-check: every team must be at or below the roster
-    // limit before we generate the new schedule, or rookie-draft overage
-    // bleeds into regular-season matchups.
-    if (isDynasty) {
-      const { data: teams } = await supabase
-        .from('teams')
-        .select('id, name')
-        .eq('league_id', leagueId);
-
-      const { data: league } = await supabase
-        .from('leagues')
-        .select('roster_size')
-        .eq('id', leagueId)
-        .single();
-
-      if (teams && league) {
-        const overTeams: string[] = [];
-        for (const team of teams) {
-          const { count } = await supabase
-            .from('league_players')
-            .select('id', { count: 'exact', head: true })
-            .eq('league_id', leagueId)
-            .eq('team_id', team.id);
-          if ((count ?? 0) > league.roster_size) {
-            overTeams.push(team.name);
-          }
-        }
-        if (overTeams.length > 0) {
-          Alert.alert(
-            'Roster Overage',
-            `These teams are over the roster limit and need to make cuts before the season can start:\n\n${overTeams.join('\n')}`,
-          );
-          return;
-        }
-      }
+    // Rookie drafts don't enforce roster size, so a team can reach this point
+    // over the active cap — which must not bleed into regular-season matchups.
+    // Any still-over-cap team gets its cuts applied now (taxi-eligible players
+    // stashed first, then newest acquisitions dropped) so an absent GM can never
+    // block the season. generate-schedule re-checks server-side.
+    let overCapPlans: TeamCutsPlan[] = [];
+    try {
+      overCapPlans = await fetchLeagueCutsPlans(leagueId);
+    } catch (err) {
+      Alert.alert('Error', 'Could not check roster sizes. Please try again.');
+      console.warn('roster cuts pre-check failed:', err);
+      return;
     }
 
+    if (overCapPlans.length === 0) {
+      confirm({
+        title: 'Start New Season',
+        message: `This will generate the schedule for ${season} and begin the new season. Continue?`,
+        action: { label: 'Start Season', onPress: startSeason },
+      });
+      return;
+    }
+
+    const summary = overCapPlans
+      .map((p) => {
+        const clauses = [
+          p.toTaxi.length > 0 && `to taxi — ${p.toTaxi.map((x) => x.name).join(', ')}`,
+          p.toDrop.length > 0 && `dropped — ${p.toDrop.map((x) => x.name).join(', ')}`,
+        ].filter(Boolean);
+        return `${p.teamName} (${p.activeCount}/${p.rosterSize}):\n  ${clauses.join('\n  ')}`;
+      })
+      .join('\n\n');
+
     confirm({
-      title: 'Start New Season',
-      message: `This will generate the schedule for ${season} and begin the new season. Continue?`,
+      title: 'Roster Cuts Required',
+      message: `These teams are over the roster cap. Starting the season will apply these cuts now:\n\n${summary}\n\nThen the ${season} schedule will be generated. Continue?`,
       action: {
-        label: 'Start Season',
+        label: 'Make Cuts & Start',
+        destructive: true,
         onPress: async () => {
           setLoading(true);
-          setLoadingLabel('Starting the season…');
+          setLoadingLabel('Applying roster cuts…');
           try {
-            const { error } = await supabase.functions.invoke('generate-schedule', {
+            const { error } = await supabase.functions.invoke('enforce-roster-cuts', {
               body: { league_id: leagueId },
             });
             if (error) throw error;
-            queryClient.invalidateQueries({ queryKey: queryKeys.league(leagueId) });
+
+            queryClient.invalidateQueries({ queryKey: ['over-cap'] });
+            queryClient.invalidateQueries({ queryKey: ['cutsPlan', leagueId] });
+            queryClient.invalidateQueries({ queryKey: ['rosterOverage', leagueId] });
           } catch (err: unknown) {
-            // Pull the real reason out of the FunctionsHttpError body (e.g. a
-            // stale season start date) instead of the generic non-2xx message.
-            let detail =
-              (err instanceof Error && err.message) || 'Failed to start season';
-            try {
-              const body = await (err as { context?: Response }).context?.json?.();
-              if (body?.error) detail = body.error;
-            } catch {
-              // Body wasn't JSON or context unavailable — keep the fallback.
-            }
-            Alert.alert('Error', detail);
-          } finally {
+            Alert.alert(
+              'Error',
+              await functionErrorDetail(err, 'Failed to apply roster cuts'),
+            );
             setLoading(false);
             setLoadingLabel(null);
+            return;
           }
+
+          await startSeason();
         },
       },
     });

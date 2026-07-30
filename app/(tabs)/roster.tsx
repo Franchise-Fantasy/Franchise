@@ -36,6 +36,7 @@ import { ByeWeekBanner } from "@/components/roster/ByeWeekBanner";
 import { IrLockBanner } from "@/components/roster/IrLockBanner";
 import { MyPicksSection } from "@/components/roster/MyPicksSection";
 import { OverCapBanner } from "@/components/roster/OverCapBanner";
+import { ParkedSlotSection } from "@/components/roster/ParkedSlotSection";
 import {
   buildSeasonAverages,
   computeSlotStats,
@@ -93,6 +94,7 @@ import { useActionPicker } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { useCutsPlan } from "@/hooks/useCutsPlan";
 import { useIllegalIR } from "@/hooks/useIllegalIR";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
@@ -265,6 +267,13 @@ export default function RosterScreen() {
   const irLocked = !!illegalIRPlayers && illegalIRPlayers.length > 0;
   const { data: overCap } = useOverCap(leagueId, teamId);
   const overCapLocked = !!overCap?.isOver;
+  // Offseason only: preview which players the cuts deadline would take. Skipped
+  // entirely when the team is legal or no deadline is armed.
+  const { data: cutsPlan } = useCutsPlan(
+    leagueId,
+    teamId,
+    overCapLocked && !!league?.offseason_step && !!league?.roster_cuts_deadline,
+  );
   const { data: rosterConfig, isLoading: isLoadingConfig } =
     useLeagueRosterConfig(leagueId ?? "");
 
@@ -2184,6 +2193,9 @@ export default function RosterScreen() {
           overBy={overCap.overBy}
           hasTaxi={taxiSlots.length > 0}
           hasIR={irSlots.length > 0}
+          deadline={league?.roster_cuts_deadline}
+          atRiskToTaxi={cutsPlan?.toTaxi.map((p) => p.name)}
+          atRiskToDrop={cutsPlan?.toDrop.map((p) => p.name)}
         />
       )}
       {byeStarters.length > 0 && <ByeWeekBanner players={byeStarters} />}
@@ -2299,37 +2311,16 @@ export default function RosterScreen() {
           </View>
         </View>
 
-        {/* IR */}
-        {irSlots.length > 0 && (
-          <View style={styles.section}>
-            <SectionEyebrow label="INJURED RESERVE" />
-            <View
-              style={[
-                styles.card,
-                { backgroundColor: c.card, borderColor: c.border },
-              ]}
-            >
-              {irSlots.map((slot, idx) => renderSlotRow(slot, idx, irSlots))}
-            </View>
-          </View>
-        )}
-
-        {/* Taxi Squad */}
-        {taxiSlots.length > 0 && (
-          <View style={styles.section}>
-            <SectionEyebrow label="TAXI SQUAD" />
-            <View
-              style={[
-                styles.card,
-                { backgroundColor: c.card, borderColor: c.border },
-              ]}
-            >
-              {taxiSlots.map((slot, idx) =>
-                renderSlotRow(slot, idx, taxiSlots),
-              )}
-            </View>
-          </View>
-        )}
+        <ParkedSlotSection
+          label="INJURED RESERVE"
+          slots={irSlots}
+          renderSlotRow={renderSlotRow}
+        />
+        <ParkedSlotSection
+          label="TAXI SQUAD"
+          slots={taxiSlots}
+          renderSlotRow={renderSlotRow}
+        />
         </View>
 
         {/* Draft Picks — outside the share capture, below Taxi */}

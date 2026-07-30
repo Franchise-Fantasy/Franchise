@@ -290,7 +290,6 @@ export default function LeagueInfoScreen() {
   } = useOffseasonActions({
     leagueId: leagueId ?? '',
     season: league?.season ?? '',
-    isDynasty: (league?.league_type ?? 'dynasty') === 'dynasty',
   });
 
   const payWithConfirm = usePaymentLink();

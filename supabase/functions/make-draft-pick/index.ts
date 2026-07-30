@@ -10,6 +10,7 @@ import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { rosterCutsSentence } from '../_shared/rosterCuts.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
 import { isQuietNow } from '../../../utils/draft/quietHours.ts';
@@ -215,7 +216,7 @@ Deno.serve(async (req)=>{
         deferWork(notifyLeague(supabaseAdmin, league_id, 'draft',
           isRookieDraft ? `${ln} — Rookie Draft Complete!` : `${ln} — Draft Complete!`,
           isRookieDraft
-            ? 'The rookie draft has finished. Check your new players.'
+            ? `The rookie draft has finished. Check your new players.${rosterCutsSentence(pickResult.roster_cuts_deadline)}`
             : 'Your league\'s draft has finished. Check your roster.',
           { screen: 'roster' }
         ), 'make-draft-pick complete push');

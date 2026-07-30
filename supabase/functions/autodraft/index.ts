@@ -2,11 +2,13 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { Receiver } from 'https://esm.sh/@upstash/qstash';
 import { deferWork } from '../_shared/background.ts';
+import { findBestSlot } from '../_shared/findBestSlot.ts';
 import { handleError, jsonResponse, errorResponse, HttpError } from '../_shared/http.ts';
 import { checkPositionLimits } from '../_shared/positionLimits.ts';
 import { notifyTeams, notifyLeague } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
+import { rosterCutsSentence } from '../_shared/rosterCuts.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { effectiveDraftPts, restrictToRosterNeeds } from '../../../utils/draft/draftRanking.ts';
 import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts';
@@ -18,37 +20,6 @@ const Body = z.object({
   pick_number: z.number().int().positive(),
   autopick_triggered: z.boolean().optional(),
 });
-
-// Pure variant: takes pre-fetched roster config + current roster so the caller
-// can batch the underlying queries with the rest of phase-2 reads.
-function findBestSlot(
-  configs: { position: string; slot_count: number }[],
-  currentPlayers: { roster_slot: string | null }[],
-  playerPosition: string,
-): string {
-  const occupiedSlots = new Set<string>(
-    currentPlayers.map((p) => p.roster_slot ?? 'BE'),
-  );
-
-  const starterConfigs = configs.filter((c) => c.position !== 'BE' && c.position !== 'IR');
-  for (const config of starterConfigs) {
-    if (!isEligibleForSlot(playerPosition, config.position)) continue;
-    if (config.position === 'UTIL') {
-      for (let i = 1; i <= config.slot_count; i++) {
-        const slot = `UTIL${i}`;
-        if (!occupiedSlots.has(slot)) return slot;
-      }
-    } else {
-      let filled = 0;
-      for (const p of currentPlayers) {
-        if (p.roster_slot === config.position) filled++;
-      }
-      if (filled < config.slot_count) return config.position;
-    }
-  }
-
-  return 'BE';
-}
 
 
 Deno.serve(async (req) => {
@@ -423,7 +394,11 @@ Deno.serve(async (req) => {
       }
       throw rpcError;
     }
-    const claim = claimData as { claimed?: boolean; is_complete?: boolean } | null;
+    const claim = claimData as {
+      claimed?: boolean;
+      is_complete?: boolean;
+      roster_cuts_deadline?: string | null;
+    } | null;
     if (!claim?.claimed) {
       return jsonResponse({ message: 'Pick already made' });
     }
@@ -500,7 +475,7 @@ Deno.serve(async (req) => {
           await notifyLeague(supabaseAdmin, draft.league_id, 'draft',
             isRookieDraft ? `${ln} — Rookie Draft Complete!` : `${ln} — Draft Complete!`,
             isRookieDraft
-              ? 'The rookie draft has finished. Check your new players.'
+              ? `The rookie draft has finished. Check your new players.${rosterCutsSentence(claim.roster_cuts_deadline)}`
               : 'Your league\'s draft has finished. Check your roster.',
             { screen: 'roster' }
           );

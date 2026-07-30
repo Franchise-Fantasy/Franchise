@@ -12,11 +12,13 @@ import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { Fonts } from '@/constants/Colors';
 import { DEFAULT_CATEGORIES, DEFAULT_SCORING, type Sport } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { Json } from '@/types/database.types';
 import { ms, s } from '@/utils/scale';
+import { DST_PA_TIERS } from '@/utils/scoring/nflStatLine';
 import { getSportModule, scoringStep } from '@/utils/sports/registry';
 
 /** Friendly label for a stat key, from the league's OWN sport sheet (falling
@@ -186,25 +188,68 @@ export function EditScoringModal({ visible, onClose, leagueId, sport, scoring, s
           </View>
         ))
       ) : (
-        editScoring.map((row, idx) => (
-          <NumberStepper
-            key={row.stat_name}
-            label={statLabel(row.stat_name, defaultScoring)}
-            value={row.point_value}
-            onValueChange={(v) => {
-              const next = [...editScoring];
-              next[idx] = { ...row, point_value: v };
-              setEditScoring(next);
-            }}
-            min={-10}
-            max={10}
-            // Fractional stats (NFL yardage: 0.04/yd passing) need a 0.01 step —
-            // a 0.5 step can't express them. See scoringStep.
-            step={scoringStep(
-              defaultScoring.find((d) => d.stat_name === row.stat_name)?.point_value ?? 1,
-            )}
-          />
-        ))
+        <>
+          {editScoring.map((row, idx) => (
+            <NumberStepper
+              key={row.stat_name}
+              label={statLabel(row.stat_name, defaultScoring)}
+              value={row.point_value}
+              onValueChange={(v) => {
+                const next = [...editScoring];
+                next[idx] = { ...row, point_value: v };
+                setEditScoring(next);
+              }}
+              min={-10}
+              max={10}
+              // Fractional stats (NFL yardage: 0.04/yd passing) need a 0.01 step —
+              // a 0.5 step can't express them. See scoringStep.
+              step={scoringStep(
+                defaultScoring.find((d) => d.stat_name === row.stat_name)?.point_value ?? 1,
+              )}
+              // DST_PA's number is a multiplier on the tier table below, not a
+              // points-per-occurrence rate like every other row — the "×"
+              // marks that distinction at a glance. Matches StepScoring.
+              suffix={row.stat_name === 'DST_PA' ? '×' : undefined}
+            />
+          ))}
+
+          {sport === 'nfl' && (
+            <View style={styles.tierNote}>
+              <ThemedText style={[styles.description, { color: c.secondaryText }]}>
+                <ThemedText style={[styles.tierNoteLead, { color: c.text }]}>
+                  How Points Allowed Tier works:{' '}
+                </ThemedText>
+                Unlike the stats above, D/ST doesn't score at a flat rate — it
+                scores from the tier table below, based on total points the
+                defense allows in the game. The number in "Points Allowed Tier"
+                is a multiplier on that table: 1× applies the standard tiers
+                shown, 2× doubles them, 0× turns the bonus off.
+              </ThemedText>
+              <View style={styles.tierGrid}>
+                {DST_PA_TIERS.map((t) => (
+                  <View
+                    key={t.label}
+                    style={[styles.tierChip, { borderColor: c.border }]}
+                    accessible
+                    accessibilityLabel={`Allowing ${t.label} points scores ${t.pts} fantasy points`}
+                  >
+                    <ThemedText style={[styles.tierChipRange, { color: c.secondaryText }]}>
+                      {t.label}
+                    </ThemedText>
+                    <ThemedText
+                      style={[
+                        styles.tierChipPts,
+                        { color: t.pts > 0 ? c.success : t.pts < 0 ? c.danger : c.secondaryText },
+                      ]}
+                    >
+                      {t.pts > 0 ? `+${t.pts}` : t.pts}
+                    </ThemedText>
+                  </View>
+                ))}
+              </View>
+            </View>
+          )}
+        </>
       )}
     </BottomSheet>
   );
@@ -223,4 +268,40 @@ const styles = StyleSheet.create({
   catLeft: { flex: 1, marginRight: s(12) },
   catLabel: { fontSize: ms(16), fontWeight: '600' },
   catSublabel: { fontSize: ms(12), marginTop: 1 },
+  description: {
+    fontSize: ms(13),
+    lineHeight: ms(18),
+  },
+  tierNote: {
+    gap: s(8),
+    paddingTop: s(12),
+  },
+  tierNoteLead: {
+    fontSize: ms(13),
+    lineHeight: ms(18),
+    fontWeight: '700',
+  },
+  tierGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: s(6),
+  },
+  tierChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(5),
+    borderWidth: 1,
+    borderRadius: 6,
+    paddingVertical: s(4),
+    paddingHorizontal: s(8),
+  },
+  tierChipRange: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(11),
+  },
+  tierChipPts: {
+    fontFamily: Fonts.mono,
+    fontSize: ms(11),
+    fontWeight: '700',
+  },
 });

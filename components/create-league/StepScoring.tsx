@@ -163,6 +163,10 @@ export function StepScoring({
               step={scoringStep(
                 sportDefaults.find((d) => d.stat_name === cat.stat_name)?.point_value ?? 1,
               )}
+              // DST_PA's number is a multiplier on the tier table below, not a
+              // points-per-occurrence rate like every other row — the "×"
+              // marks that distinction at a glance.
+              suffix={cat.stat_name === 'DST_PA' ? '×' : undefined}
               last={index === state.scoring.length - 1}
             />
           ))}
@@ -173,9 +177,11 @@ export function StepScoring({
                 <ThemedText style={[styles.tierNoteLead, { color: c.text }]}>
                   How Points Allowed Tier works:{' '}
                 </ThemedText>
-                a defense earns points based on how few points it gives up in the
-                game — not per point allowed. Keep the value at 1 to use these
-                standard tiers, 0 to turn the bonus off, or raise it to amplify them.
+                Unlike the stats above, D/ST doesn't score at a flat rate — it
+                scores from the tier table below, based on total points the
+                defense allows in the game. The number in "Points Allowed Tier"
+                is a multiplier on that table: 1× applies the standard tiers
+                shown, 2× doubles them, 0× turns the bonus off.
               </ThemedText>
               <View style={styles.tierGrid}>
                 {DST_PA_TIERS.map((t) => (

@@ -18,7 +18,13 @@ export function findBestSlot(
     currentPlayers.map((p) => p.roster_slot ?? 'BE'),
   );
 
-  const starterConfigs = configs.filter((c) => c.position !== 'BE' && c.position !== 'IR');
+  // Holding slots are never auto-filled by a draft pick. TAXI is excluded
+  // explicitly (not just via isEligibleForSlot never matching it) because the
+  // roster-cuts planner counts open taxi seats — a drafted player landing in one
+  // would corrupt that math.
+  const starterConfigs = configs.filter(
+    (c) => c.position !== 'BE' && c.position !== 'IR' && c.position !== 'TAXI',
+  );
   for (const config of starterConfigs) {
     if (!isEligibleForSlot(playerPosition, config.position)) continue;
     if (config.position === 'UTIL') {

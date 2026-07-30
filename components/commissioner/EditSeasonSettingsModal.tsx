@@ -13,11 +13,14 @@ import {
 } from 'react-native';
 
 import { BracketPreview } from '@/components/playoff/BracketPreview';
+import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
+import { DateField } from '@/components/ui/DateField';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { type Sport, getCurrentSeason, getMaxPlayoffWeeks, getSchedulableSeasonEnd, parseSeasonStartYear, PLAYOFF_SEEDING_OPTIONS, PlayoffSeedingOption, seedingDisplay, SEEDING_TO_DB, SPORT_OPENING_MONTH, startDateBelongsToSeason, TIEBREAKER_DISPLAY, TIEBREAKER_OPTIONS, TIEBREAKER_TO_DB, TiebreakerOption } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -70,9 +73,13 @@ export function EditSeasonSettingsModal({
   // ISO `yyyy-mm-dd`, or null when no date is set for the upcoming season yet.
   const [startDate, setStartDate] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
+  // ISO `yyyy-mm-dd`, or null for no deadline. Dynasty only — rookie-draft
+  // completion arms it automatically, so this is the override.
+  const [cutsDeadline, setCutsDeadline] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   const sport = (league?.sport as Sport) ?? 'nba';
+  const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
 
   // Playoff structure is sized to the league's CONFIGURED size (`league.teams`),
   // not how many members have joined yet. A partially-filled create-league
@@ -112,6 +119,7 @@ export function EditSeasonSettingsModal({
           ? league.season_start_date
           : null,
       );
+      setCutsDeadline(league.roster_cuts_deadline ?? null);
       setShowDatePicker(false);
     }
   }, [visible, league, bracketSize]);
@@ -185,6 +193,10 @@ export function EditSeasonSettingsModal({
     // Only persist the start date when one has actually been picked — never
     // overwrite the stored value with null if the commissioner left it unset.
     if (startDate) update.season_start_date = startDate;
+    // Unlike the start date, null IS meaningful here: toggling the deadline off
+    // is an explicit opt-out. (The next rookie draft re-arms a default via
+    // COALESCE, which is intended.) Dynasty-only, so never touch it otherwise.
+    if (isDynasty) update.roster_cuts_deadline = cutsDeadline;
 
     const { error } = await supabase
       .from('leagues')
@@ -213,6 +225,15 @@ export function EditSeasonSettingsModal({
     () => defaultSeasonStart(sport, league?.season ?? getCurrentSeason(sport)),
     [visible, sport, league?.season],
   );
+  // Cuts can't be due in the past. Keyed on `visible` so a long-lived mount
+  // refreshes the floor each time the sheet opens.
+  const minCutsDate = useMemo(() => {
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setHours(0, 0, 0, 0);
+    return tomorrow;
+  }, [visible]);
+
   const seasonEndStr = league?.season ? getSchedulableSeasonEnd(sport, league.season) : undefined;
   const maxDate = seasonEndStr
     ? new Date(seasonEndStr + 'T00:00:00')
@@ -433,6 +454,43 @@ export function EditSeasonSettingsModal({
             : 'Tied teams compared by total points first, then head-to-head record.'}
         </ThemedText>
       </View>
+
+      {/* Roster Cuts Deadline — dynasty only. Rookie drafts don't enforce
+          roster size, so teams can carry an oversized roster through the
+          offseason; this is the date that gets resolved automatically. */}
+      {isDynasty && (
+        <>
+          <ToggleRow
+            icon="cut-outline"
+            label="Roster Cuts Deadline"
+            description={
+              cutsDeadline
+                ? `Teams still over the cap after ${formatIsoDate(cutsDeadline)} have their newest additions moved to taxi or dropped automatically.`
+                : 'Off — a deadline is set automatically 14 days after the rookie draft finishes.'
+            }
+            value={!!cutsDeadline}
+            onToggle={(v) => {
+              if (!v) {
+                setCutsDeadline(null);
+                return;
+              }
+              const twoWeeks = new Date();
+              twoWeeks.setDate(twoWeeks.getDate() + 14);
+              setCutsDeadline(toIsoDate(twoWeeks));
+            }}
+            c={c}
+          />
+          <AnimatedSection visible={!!cutsDeadline}>
+            <DateField
+              label="Cuts Due By"
+              value={cutsDeadline}
+              onChange={setCutsDeadline}
+              minimumDate={minCutsDate}
+              last
+            />
+          </AnimatedSection>
+        </>
+      )}
 
       <ThemedText style={[styles.helperText, { color: c.secondaryText }]}>
         Changes take effect for future weeks. Active matchups are not affected.

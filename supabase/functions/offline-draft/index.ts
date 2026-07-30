@@ -7,6 +7,7 @@ import { findBestSlot } from '../_shared/findBestSlot.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { rosterCutsSentence } from '../_shared/rosterCuts.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import type { Database } from '../../../types/database.types.ts';
 
@@ -180,7 +181,7 @@ Deno.serve(async (req) => {
         return { pick_number: p.pick_number, player_id: p.player_id, team_id: teamId, position, roster_slot: rosterSlot };
       });
 
-    const { error: rpcErr } = await supabase.rpc('apply_offline_draft', {
+    const { data: publishResult, error: rpcErr } = await supabase.rpc('apply_offline_draft', {
       p_draft_id: draft.id,
       p_league_id: leagueId,
       p_mode: 'publish',
@@ -191,6 +192,10 @@ Deno.serve(async (req) => {
       throw rpcErr;
     }
 
+    // The RPC returns jsonb, so narrow it before reading the armed deadline.
+    const cutsDeadline = (publishResult as { roster_cuts_deadline?: string | null } | null)
+      ?.roster_cuts_deadline;
+
     const ln = league.name ?? 'Your League';
     deferWork(
       notifyLeague(
@@ -198,7 +203,7 @@ Deno.serve(async (req) => {
         leagueId,
         'draft',
         `${ln} — Rookie Draft Results Are In`,
-        'The commissioner has published the offline rookie draft results. Check your new players.',
+        `The commissioner has published the offline rookie draft results. Check your new players.${rosterCutsSentence(cutsDeadline)}`,
         { screen: 'roster' },
       ),
       'offline-draft-publish push',

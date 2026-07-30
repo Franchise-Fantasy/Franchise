@@ -18,6 +18,7 @@ const RATE_LIMITS: Record<string, RateLimitConfig> = {
   'create-rookie-draft':      { maxRequests: 3,  windowSeconds: 300 },
   'run-lottery':              { maxRequests: 3,  windowSeconds: 300 },
   'finalize-keepers':         { maxRequests: 3,  windowSeconds: 300 },
+  'enforce-roster-cuts':      { maxRequests: 3,  windowSeconds: 300 },
   'generate-playoff-round':   { maxRequests: 5,  windowSeconds: 300 },
 
   // Trade actions: moderate

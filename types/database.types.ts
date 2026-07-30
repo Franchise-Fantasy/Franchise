@@ -12,6 +12,31 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
       activity_tokens: {
@@ -1856,7 +1881,7 @@ export type Database = {
           combine_cup_week: boolean
           commissioner: string | null
           created_at: string | null
-          created_by: string
+          created_by: string | null
           current_teams: number | null
           division_1_name: string
           division_2_name: string
@@ -1890,6 +1915,7 @@ export type Database = {
           rookie_draft_order: string
           rookie_draft_rounds: number
           rookie_pick_time_limit: number | null
+          roster_cuts_deadline: string | null
           roster_size: number
           schedule_generated: boolean
           scoring_type: string
@@ -1921,7 +1947,7 @@ export type Database = {
           combine_cup_week?: boolean
           commissioner?: string | null
           created_at?: string | null
-          created_by: string
+          created_by?: string | null
           current_teams?: number | null
           division_1_name?: string
           division_2_name?: string
@@ -1955,6 +1981,7 @@ export type Database = {
           rookie_draft_order?: string
           rookie_draft_rounds?: number
           rookie_pick_time_limit?: number | null
+          roster_cuts_deadline?: string | null
           roster_size: number
           schedule_generated?: boolean
           scoring_type?: string
@@ -1986,7 +2013,7 @@ export type Database = {
           combine_cup_week?: boolean
           commissioner?: string | null
           created_at?: string | null
-          created_by?: string
+          created_by?: string | null
           current_teams?: number | null
           division_1_name?: string
           division_2_name?: string
@@ -2020,6 +2047,7 @@ export type Database = {
           rookie_draft_order?: string
           rookie_draft_rounds?: number
           rookie_pick_time_limit?: number | null
+          roster_cuts_deadline?: string | null
           roster_size?: number
           schedule_generated?: boolean
           scoring_type?: string
@@ -6697,7 +6725,6 @@ export type Database = {
         Args: { p_division_1_team_ids: string[]; p_league_id: string }
         Returns: undefined
       }
-      become_league_commissioner: { Args: { p_team_id: string }; Returns: undefined }
       award_waiver_claim: {
         Args: {
           p_bid_amount: number
@@ -6722,6 +6749,10 @@ export type Database = {
       }
       batch_update_team_standings: {
         Args: { p_updates: Json }
+        Returns: undefined
+      }
+      become_league_commissioner: {
+        Args: { p_team_id: string }
         Returns: undefined
       }
       can_view_message: { Args: { p_message_id: string }; Returns: boolean }
@@ -6806,6 +6837,16 @@ export type Database = {
       dedup_active_lineup_slots: {
         Args: { p_end_date: string; p_start_date: string }
         Returns: number
+      }
+      enforce_team_roster_cuts: {
+        Args: {
+          p_league_id: string
+          p_notes: string
+          p_team_id: string
+          p_to_drop: string[]
+          p_to_taxi: string[]
+        }
+        Returns: Json
       }
       execute_autodraft_pick: {
         Args: {
@@ -6997,10 +7038,10 @@ export type Database = {
       get_league_private_info: {
         Args: { p_league_id: string }
         Returns: {
-          invite_code: string | null
-          venmo_username: string | null
-          cashapp_tag: string | null
-          paypal_username: string | null
+          cashapp_tag: string
+          invite_code: string
+          paypal_username: string
+          venmo_username: string
         }[]
       }
       get_league_roster_stats: {
@@ -7623,7 +7664,10 @@ export type Database = {
       }
       resolve_invite_code: {
         Args: { p_code: string }
-        Returns: { id: string; name: string }[]
+        Returns: {
+          id: string
+          name: string
+        }[]
       }
       respond_to_league_invite: {
         Args: { p_action: string; p_invite_id: string }
@@ -7826,6 +7870,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {},
   },

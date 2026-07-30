@@ -709,7 +709,11 @@ export default function CreateLeague() {
         position_limits: Object.keys(state.positionLimits).length > 0 ? state.positionLimits : null,
         trade_deadline: state.tradeDeadlineDate,
       })
-      .select()
+      // Only `id` is consumed below, and the 4 sensitive columns (invite_code,
+      // venmo/cashapp/paypal) are column-revoked from `authenticated` — a bare
+      // `.select()` here is RETURNING *, which trips "permission denied for
+      // column invite_code" under the 20260729 protection. Return only `id`.
+      .select('id')
       .single();
 
     if (leagueError) {
