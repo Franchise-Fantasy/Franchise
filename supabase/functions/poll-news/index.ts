@@ -78,9 +78,16 @@ const RSS_FEEDS_BY_SPORT: Record<Sport, { url: string; source: string; expectedC
 // dozens of blurbs in minutes, so a 5-item RSS window overflows almost
 // immediately. WNBA stays RSS-only until its news-page URL/markup is confirmed
 // (lower volume there, so the 5-item cap rarely bites).
-const HTML_NEWS_BY_SPORT: Partial<Record<Sport, { url: string; source: string }>> = {
-  nba: { url: 'https://www.rotowire.com/basketball/news.php', source: 'rotowire' },
-  nfl: { url: 'https://www.rotowire.com/football/news.php', source: 'rotowire' },
+//
+// `guidPrefix` MUST equal the prefix RotoWire puts on that sport's RSS <guid>
+// ("nba530883", "nfl632214") — the HTML page only exposes the bare numeric id,
+// and it's the prefix+id pair that has to hash to the same external_id as the
+// RSS copy. Get it wrong and the two sources stop deduping: every story lands
+// twice and pushes twice (this is exactly what NFL did, since the prefix used
+// to be hardcoded to 'nba').
+const HTML_NEWS_BY_SPORT: Partial<Record<Sport, { url: string; source: string; guidPrefix: string }>> = {
+  nba: { url: 'https://www.rotowire.com/basketball/news.php', source: 'rotowire', guidPrefix: 'nba' },
+  nfl: { url: 'https://www.rotowire.com/football/news.php', source: 'rotowire', guidPrefix: 'nfl' },
 };
 
 // ── RSS Parsing ────────────────────────────────
@@ -215,7 +222,7 @@ Deno.serve(async (req: Request) => {
           { attempts: 3, baseMs: 300, maxMs: 2500 },
         );
         const html = await res.text();
-        for (const item of parseRotowireNewsHtml(html, htmlSource.source)) {
+        for (const item of parseRotowireNewsHtml(html, htmlSource.source, htmlSource.guidPrefix)) {
           if (seenGuids.has(item.guid)) continue;
           seenGuids.add(item.guid);
           htmlOverflowItems.push(item);

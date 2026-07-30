@@ -13,10 +13,16 @@
 // post-game burst never overflows between our once-a-minute polls.
 //
 // Returned items use the SAME shape and the SAME `guid` scheme as the RSS parser
-// ('nba' + the trailing article id on the headline URL), so external_id dedup
-// makes an item indistinguishable whether it arrived via RSS or HTML. The caller
-// seeds its dedup set from the RSS items first, so RSS still wins on overlap —
-// the RSS feed carries a precise publish time, whereas this list is date-only.
+// (RotoWire's own sport prefix + the trailing article id on the headline URL, e.g.
+// 'nba530883' / 'nfl632214'), so external_id dedup makes an item indistinguishable
+// whether it arrived via RSS or HTML. The caller seeds its dedup set from the RSS
+// items first, so RSS still wins on overlap — the RSS feed carries a precise
+// publish time, whereas this list is date-only.
+//
+// The prefix MUST be passed in per sport. It was hardcoded to 'nba' when only
+// basketball had an HTML source; the moment NFL was added, every football blurb
+// hashed to a different external_id than its own RSS copy, so dedup missed and
+// each story was inserted twice — and pushed twice.
 //
 // Pure module (imports only the dependency-free newsText helpers) so the regex
 // parsing is unit-testable in jest — see __tests__/newsText.test.ts siblings.
@@ -50,7 +56,11 @@ function toSafeRotowireUrl(href: string): string | null {
   }
 }
 
-export function parseRotowireNewsHtml(html: string, source: string): RotowireNewsItem[] {
+export function parseRotowireNewsHtml(
+  html: string,
+  source: string,
+  guidPrefix: string,
+): RotowireNewsItem[] {
   const items: RotowireNewsItem[] = [];
 
   // Each news card opens with `<div class="news-update">` (optionally with a
@@ -76,10 +86,10 @@ export function parseRotowireNewsHtml(html: string, source: string): RotowireNew
     if (!link) continue;
 
     // The trailing `-<id>` on the headline URL is RotoWire's per-article id.
-    // Reuse the RSS `nba<id>` guid scheme so external_id matches across sources.
+    // Reuse the RSS `<sport><id>` guid scheme so external_id matches across sources.
     const idMatch = link.match(/-(\d+)\/?$/);
     if (!idMatch) continue;
-    const guid = `nba${idMatch[1]}`;
+    const guid = `${guidPrefix}${idMatch[1]}`;
 
     // `news-update__news` is the real blurb body. `news-update__analysis` is the
     // paywalled "Subscribe now" take — deliberately ignored.

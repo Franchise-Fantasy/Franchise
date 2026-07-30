@@ -47,8 +47,7 @@ import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useTotalUnread } from '@/hooks/chat';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
-import { useLeague } from '@/hooks/useLeague';
-import { useLeaguePrivateInfo } from '@/hooks/useLeaguePrivateInfo';
+import { useLeagueWithPrivate } from '@/hooks/useLeague';
 import { useOfflineDraftMode } from '@/hooks/useOfflineDraftMode';
 import { useOffseasonActions } from '@/hooks/useOffseasonActions';
 import { usePaymentLedger, useSelfReportPayment } from '@/hooks/usePaymentLedger';
@@ -144,26 +143,8 @@ function computeOffseasonHeroAction({
 }
 
 export default function HomeScreen() {
-  const { data: baseLeague, isLoading, isError, refetch } = useLeague();
-  const { teamId, leagueId } = useAppState();
-  // invite_code + payment handles are column-revoked from clients and fetched
-  // via a members-only RPC; merge them back onto `league` so the existing
-  // reads (invite banners, share, dues buttons) work unchanged and recompute
-  // when the private info resolves.
-  const { data: leaguePrivate } = useLeaguePrivateInfo(leagueId);
-  const league = useMemo(
-    () =>
-      baseLeague
-        ? {
-            ...baseLeague,
-            invite_code: leaguePrivate?.invite_code ?? null,
-            venmo_username: leaguePrivate?.venmo_username ?? null,
-            cashapp_tag: leaguePrivate?.cashapp_tag ?? null,
-            paypal_username: leaguePrivate?.paypal_username ?? null,
-          }
-        : baseLeague,
-    [baseLeague, leaguePrivate],
-  );
+  const { data: league, isLoading, isError, refetch } = useLeagueWithPrivate();
+  const { teamId } = useAppState();
   const session = useSession();
   const isCommissioner = session?.user?.id === league?.created_by;
   const scheme = useColorScheme() ?? 'light';
