@@ -1,4 +1,4 @@
-export type Json =
+﻿export type Json =
   | string
   | number
   | boolean
@@ -1916,6 +1916,7 @@ export type Database = {
           rookie_draft_rounds: number
           rookie_pick_time_limit: number | null
           roster_cuts_deadline: string | null
+          roster_cuts_grace_days: number | null
           roster_size: number
           schedule_generated: boolean
           scoring_type: string
@@ -1982,6 +1983,7 @@ export type Database = {
           rookie_draft_rounds?: number
           rookie_pick_time_limit?: number | null
           roster_cuts_deadline?: string | null
+          roster_cuts_grace_days?: number | null
           roster_size: number
           schedule_generated?: boolean
           scoring_type?: string
@@ -2048,6 +2050,7 @@ export type Database = {
           rookie_draft_rounds?: number
           rookie_pick_time_limit?: number | null
           roster_cuts_deadline?: string | null
+          roster_cuts_grace_days?: number | null
           roster_size?: number
           schedule_generated?: boolean
           scoring_type?: string
@@ -6700,6 +6703,10 @@ export type Database = {
       archive_season_player_stats: {
         Args: { p_season: string; p_sport: string }
         Returns: number
+      }
+      arm_roster_cuts_deadline: {
+        Args: { p_league_id: string }
+        Returns: string
       }
       assert_can_add_free_agent: {
         Args: { p_league_id: string; p_player_id?: string; p_team_id: string }

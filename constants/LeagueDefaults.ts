@@ -805,4 +805,7 @@ export interface LeagueWizardState {
   division2Name: string;
   /** Per-position roster limits. Empty object = no limits. */
   positionLimits: PositionLimits;
+  /** Dynasty: days after the rookie draft that over-cap teams get to trim
+   *  before automatic cuts run. null = never cut automatically. */
+  rosterCutsGraceDays: number | null;
 }

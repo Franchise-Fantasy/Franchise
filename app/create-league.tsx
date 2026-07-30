@@ -171,6 +171,7 @@ const initialState: LeagueWizardState = {
   division1Name: 'Division 1',
   division2Name: 'Division 2',
   positionLimits: {},
+  rosterCutsGraceDays: 14,
 };
 
 /** Parse a 'YYYY-MM-DD' string to a local-midnight Date. */
@@ -708,6 +709,10 @@ export default function CreateLeague() {
         division_2_name: state.divisionCount === 2 ? state.division2Name.trim() || 'Division 2' : 'Division 2',
         position_limits: Object.keys(state.positionLimits).length > 0 ? state.positionLimits : null,
         trade_deadline: state.tradeDeadlineDate,
+        // Only dynasty leagues run a rookie draft, and the rookie draft is what
+        // arms the deadline — so a grace period on a redraft/keeper league would
+        // never fire. Store null there rather than a misleading 14.
+        roster_cuts_grace_days: isDynasty ? state.rosterCutsGraceDays : null,
       })
       // Only `id` is consumed below, and the 4 sensitive columns (invite_code,
       // venmo/cashapp/paypal) are column-revoked from `authenticated` — a bare

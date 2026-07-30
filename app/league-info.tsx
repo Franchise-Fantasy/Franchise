@@ -16,6 +16,7 @@ import { LeagueNotificationModal } from '@/components/banners/LeagueNotification
 import { AssignDivisionsModal } from '@/components/commissioner/AssignDivisionsModal';
 import { EditBasicsModal } from '@/components/commissioner/EditBasicsModal';
 import { EditDraftSettingsModal } from '@/components/commissioner/EditDraftSettingsModal';
+import { EditRosterCutsModal } from '@/components/commissioner/EditRosterCutsModal';
 import { EditRosterModal } from '@/components/commissioner/EditRosterModal';
 import { EditScoringModal } from '@/components/commissioner/EditScoringModal';
 import { EditSeasonSettingsModal } from '@/components/commissioner/EditSeasonSettingsModal';
@@ -78,9 +79,14 @@ function getLifecycle(draftStatus: string | undefined, scheduleGenerated: boolea
   return 'mid_season';
 }
 
-type SettingGroup = 'basics' | 'roster' | 'scoring' | 'draft' | 'trade' | 'waivers' | 'season';
+type SettingGroup = 'basics' | 'roster' | 'roster_cuts' | 'scoring' | 'draft' | 'trade' | 'waivers' | 'season';
 
 function sectionEditable(group: SettingGroup, lifecycle: Lifecycle, isCommissioner: boolean): boolean {
+  // Roster cuts are the one setting deliberately editable at EVERY point in the
+  // lifecycle, mid-draft included: a pending deadline survives the season start
+  // and is what actually cuts players, so the commissioner must always be able
+  // to postpone or cancel it. Nothing here changes a roster or a score directly.
+  if (group === 'roster_cuts') return isCommissioner;
   if (!isCommissioner || lifecycle === 'mid_draft') return false;
   if (group === 'basics' || group === 'trade' || group === 'waivers') return true;
   if (group === 'roster' || group === 'scoring') return lifecycle !== 'mid_season';
@@ -241,6 +247,7 @@ export default function LeagueInfoScreen() {
   // Settings modals
   const [showBasicsModal, setShowBasicsModal] = useState(false);
   const [showRosterModal, setShowRosterModal] = useState(false);
+  const [showRosterCutsModal, setShowRosterCutsModal] = useState(false);
   const [showScoringModal, setShowScoringModal] = useState(false);
   const [showDraftModal, setShowDraftModal] = useState(false);
   const [showTradeModal, setShowTradeModal] = useState(false);
@@ -686,6 +693,30 @@ export default function LeagueInfoScreen() {
           />
         </SectionCard>
 
+        {/* ── Roster Cuts (dynasty) ──
+            Its own card rather than a row inside Roster: the Roster card locks
+            once the season starts, but a cuts deadline routinely survives into
+            the regular season and has to stay adjustable. */}
+        {(league.league_type ?? 'dynasty') === 'dynasty' && (
+          <SectionCard title="Roster Cuts" c={c} editable={sectionEditable('roster_cuts', lifecycle, isCommissioner)} onEdit={() => setShowRosterCutsModal(true)}>
+            <Row
+              label="Automatic Cuts"
+              value={
+                league.roster_cuts_grace_days != null
+                  ? `${league.roster_cuts_grace_days} day${league.roster_cuts_grace_days === 1 ? '' : 's'} after rookie draft`
+                  : 'Off'
+              }
+              c={c}
+            />
+            <Row
+              label="Deadline"
+              value={league.roster_cuts_deadline ? formatIsoDate(league.roster_cuts_deadline) : 'None pending'}
+              c={c}
+              last
+            />
+          </SectionCard>
+        )}
+
         {/* ── Scoring ── */}
         <SectionCard title={league?.scoring_type === 'h2h_categories' ? 'Categories' : 'Scoring'} c={c} editable={sectionEditable('scoring', lifecycle, isCommissioner)} onEdit={() => setShowScoringModal(true)}>
           {scoring ? (
@@ -1033,6 +1064,12 @@ export default function LeagueInfoScreen() {
             sport={(league?.sport as Sport) ?? 'nba'}
             rosterConfig={rosterConfig}
             positionLimits={league?.position_limits as Record<string, number> | null}
+          />
+          <EditRosterCutsModal
+            visible={showRosterCutsModal}
+            onClose={() => setShowRosterCutsModal(false)}
+            league={league}
+            leagueId={leagueId}
           />
           <EditScoringModal
             visible={showScoringModal}

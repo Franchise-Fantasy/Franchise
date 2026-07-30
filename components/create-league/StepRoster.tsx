@@ -6,6 +6,7 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
+import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors, Fonts } from '@/constants/Colors';
 import { LeagueWizardState, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -30,6 +31,11 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
   // all, so they don't get it either — see SportModule.supportsTaxi.
   const isDynasty =
     (state.leagueType ?? 'Dynasty') === 'Dynasty' && getSportModule(state.sport).supportsTaxi;
+  // Roster cuts key off the ROOKIE DRAFT, which every dynasty league runs. All
+  // three sports currently support taxi, but the deadline still applies to a
+  // league that configured 0 taxi seats (or to a future sport with
+  // supportsTaxi: false) — an over-cap team there is simply all drops.
+  const isDynastyLeague = (state.leagueType ?? 'Dynasty') === 'Dynasty';
   const activeSlots = state.rosterSlots.filter((s) => s.position !== 'IR' && s.position !== ROSTER_SLOT.TAXI);
   const irSlot = state.rosterSlots.find((s) => s.position === 'IR');
   const irIndex = state.rosterSlots.findIndex((s) => s.position === 'IR');
@@ -131,6 +137,44 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
           </View>
         )}
       </FormSection>
+
+      {/* Roster Cuts — dynasty only. Rookie drafts deliberately don't enforce
+          roster size, so teams finish the draft over the cap on purpose. This
+          is how long they have to get legal before it resolves itself. */}
+      {isDynastyLeague && (
+        <FormSection title="Roster Cuts">
+          <ThemedText style={[styles.description, { color: c.secondaryText }]}>
+            Rookie drafts don&apos;t enforce roster size, so teams can draft their way over the limit on purpose. An over-cap team keeps every player, but its roster moves stay locked until it trims back down.
+          </ThemedText>
+          <ToggleRow
+            icon="cut-outline"
+            label="Automatic Cuts"
+            description={
+              state.rosterCutsGraceDays == null
+                ? 'Off — nothing is ever trimmed for you. Over-cap teams stay locked until they trim, or the commissioner resolves it by hand.'
+                : undefined
+            }
+            value={state.rosterCutsGraceDays != null}
+            onToggle={(v) => onChange('rosterCutsGraceDays', v ? 14 : null)}
+            c={c}
+            last={state.rosterCutsGraceDays == null}
+          />
+          <AnimatedSection visible={state.rosterCutsGraceDays != null}>
+            <NumberStepper
+              label="Grace Period"
+              value={state.rosterCutsGraceDays ?? 14}
+              onValueChange={(v) => onChange('rosterCutsGraceDays', v)}
+              min={0}
+              max={60}
+              suffix=" days"
+              last
+            />
+            <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginTop: s(8) }]}>
+              Counted from the day the rookie draft ends. Anyone still over the cap the next morning has their newest additions moved to an open taxi seat where one fits, and dropped where none does — so the last players drafted go first.
+            </ThemedText>
+          </AnimatedSection>
+        </FormSection>
+      )}
 
       {/* Position Limits */}
       <FormSection title="Position Limits">

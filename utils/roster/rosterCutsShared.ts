@@ -21,12 +21,22 @@
  * Rules:
  *   - Only the active pool counts (roster_slot NOT IN ('IR','TAXI')), matching
  *     the repo-wide invariant that `leagues.roster_size` caps that pool alone.
- *   - Exactly `overBy` players are resolved — never more.
- *   - Newest acquisition first. Offseason adds are gated, so a team's newest
- *     rows ARE its just-drafted rookies: the last pick goes first.
- *   - Each candidate is stashed to an open taxi seat when eligible, and only
- *     dropped when taxi can't hold them. Leagues with no taxi seats degrade to
- *     an all-drops plan.
+ *   - Exactly the `overBy` NEWEST acquisitions are resolved — never more, and
+ *     never anyone else. Offseason adds are gated, so a team's newest rows ARE
+ *     its just-drafted rookies: the last pick is first on the block.
+ *   - Taxi seats are then handed out inside that set BEST ASSET FIRST — earliest
+ *     rookie pick, then oldest acquisition. A seat is a rescue, so it saves the
+ *     1st-rounder and lets the later pick be the one dropped. (The reverse —
+ *     giving the seat to whoever was first in line to be cut — meant a team with
+ *     one seat kept its 2nd-rounder and lost its 1st.)
+ *   - Anyone in the set who can't take a seat (none open, or taxi-ineligible) is
+ *     dropped, newest first. Leagues with no taxi seats degrade to all drops.
+ *     A seat left open because everyone on the block is ineligible STAYS open —
+ *     we don't reach past the cut set for an eligible body, because that would
+ *     silently demote a player the GM was never warned about. Taxi-ineligible is
+ *     not an edge case: `draft_year` is NULL for ~20% of NFL and ~52% of WNBA
+ *     players, and BDL's "1st Season" bucket (real NFL UDFAs) maps to NULL on
+ *     purpose — see utils/sports/nflExperience.ts.
  *
  * Untouched by design: IR players (outside the cap), players already on taxi,
  * and any team at or under the cap. A healthy player parked on IR is the
@@ -153,12 +163,19 @@ export function computeCutsPlan(
   const taxiUsed = roster.filter((p) => p.roster_slot === ROSTER_SLOT.TAXI).length;
   let openSeats = Math.max(0, config.taxiSeats - taxiUsed);
 
+  // Who leaves the active roster: the `overBy` newest, and nobody else. Slicing
+  // here rather than looping with a running counter is what keeps a previously
+  // safe player from being pulled in when someone on the block can't take a seat.
   const candidates = [...active].sort(cutsSortKey);
+  const affected = candidates.slice(0, overBy);
+
+  // Who gets rescued: best asset first. `affected` is newest-first, so reversing
+  // it walks earliest rookie pick / oldest acquisition first — the 1st-rounder
+  // takes the seat and the later pick is the one dropped.
   const toTaxi: CutsCandidate[] = [];
   const stashed = new Set<string>();
-
-  for (const player of candidates) {
-    if (toTaxi.length >= overBy || openSeats === 0) break;
+  for (const player of [...affected].reverse()) {
+    if (openSeats === 0) break;
     const eligible = canSendToTaxi(
       player.draft_year,
       config.currentSeason,
@@ -171,12 +188,8 @@ export function computeCutsPlan(
     openSeats -= 1;
   }
 
-  const toDrop: CutsCandidate[] = [];
-  for (const player of candidates) {
-    if (toTaxi.length + toDrop.length >= overBy) break;
-    if (stashed.has(player.player_id)) continue;
-    toDrop.push(player);
-  }
+  // Everyone on the block who didn't get a seat, still newest-first.
+  const toDrop = affected.filter((p) => !stashed.has(p.player_id));
 
   return { activeCount, rosterSize: config.rosterSize, overBy, toTaxi, toDrop };
 }

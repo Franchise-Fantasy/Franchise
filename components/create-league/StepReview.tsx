@@ -88,6 +88,17 @@ export function StepReview({
         {taxiSlotCount > 0 && (
           <Row label="Taxi Eligibility" value={taxiExperienceLabel(state.taxiMaxExperience)} c={c} />
         )}
+        {isDynasty && (
+          <Row
+            label="Roster Cuts"
+            value={
+              state.rosterCutsGraceDays != null
+                ? `${state.rosterCutsGraceDays} day${state.rosterCutsGraceDays === 1 ? '' : 's'} after rookie draft`
+                : 'Off'
+            }
+            c={c}
+          />
+        )}
         {Object.keys(state.positionLimits).length > 0 && (
           <ThemedText style={[styles.summaryLine, { color: c.secondaryText, marginTop: s(6) }]}>
             Position Limits: {getLimitablePositions(state.sport).filter((p) => state.positionLimits[p] != null).map((p) => `${p}: ${state.positionLimits[p]}`).join('  |  ')}

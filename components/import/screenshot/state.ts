@@ -178,6 +178,7 @@ export const initialWizard: LeagueWizardState = {
   division1Name: 'Division 1',
   division2Name: 'Division 2',
   positionLimits: {},
+  rosterCutsGraceDays: 14,
 };
 
 export const initialState: ScreenshotImportState = {

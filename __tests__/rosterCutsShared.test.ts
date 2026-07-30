@@ -170,11 +170,15 @@ describe('computeCutsPlan — taxi stashing', () => {
     ];
     const plan = computeCutsPlan(roster, { ...BASE_CONFIG, taxiSeats: 2 });
     expect(plan.overBy).toBe(2);
-    expect(names(plan.toTaxi)).toEqual(['r2', 'r1']);
+    // Seats are handed out best-asset-first, so the earlier pick is listed first.
+    expect(names(plan.toTaxi)).toEqual(['r1', 'r2']);
     expect(plan.toDrop).toHaveLength(0);
   });
 
-  it('splits: fills the open seats, then drops the remainder', () => {
+  it('gives the last open seat to the EARLIER pick and drops the later one', () => {
+    // The scenario that motivated this rule: 2 players over, 1 seat. Saving
+    // whoever was first in line to be cut would keep the 2nd-rounder and send
+    // the 1st-rounder to waivers — backwards, since a seat is a rescue.
     const roster = [
       player('vet'),
       rookie('r1', 1, '2026-07-20T12:00:00.000Z'),
@@ -183,9 +187,25 @@ describe('computeCutsPlan — taxi stashing', () => {
     ];
     const plan = computeCutsPlan(roster, { ...BASE_CONFIG, rosterSize: 2, taxiSeats: 1 });
     expect(plan.overBy).toBe(2);
-    // Newest goes to the one open seat; next-newest is dropped.
-    expect(names(plan.toTaxi)).toEqual(['r3']);
-    expect(names(plan.toDrop)).toEqual(['r2']);
+    expect(names(plan.toTaxi)).toEqual(['r2']);
+    expect(names(plan.toDrop)).toEqual(['r3']);
+    // r1 was never on the block at all — only the 2 newest are ever touched.
+    expect([...names(plan.toTaxi), ...names(plan.toDrop)]).not.toContain('r1');
+  });
+
+  it('applies the same rule to a shared-timestamp offline class, by pick number', () => {
+    // One now() for the whole class, so pick number is the only signal: the
+    // seat goes to the earliest pick on the block, the latest pick is dropped.
+    const stamp = '2026-07-20T12:00:00.000Z';
+    const roster = [
+      player('vet'),
+      rookie('early', 5, stamp),
+      rookie('mid', 17, stamp),
+      rookie('late', 29, stamp),
+    ];
+    const plan = computeCutsPlan(roster, { ...BASE_CONFIG, rosterSize: 2, taxiSeats: 1 });
+    expect(names(plan.toTaxi)).toEqual(['mid']);
+    expect(names(plan.toDrop)).toEqual(['late']);
   });
 
   it('counts occupied seats, so a full taxi squad yields an all-drops plan', () => {
@@ -207,7 +227,7 @@ describe('computeCutsPlan — taxi stashing', () => {
     expect(plan.toDrop).toHaveLength(1);
   });
 
-  it('skips a promoted-from-taxi player and gives the open seat to the next eligible player', () => {
+  it('drops a promoted-from-taxi player rather than reaching past the cut set', () => {
     const roster = [
       player('vet'),
       rookie('promoted', 1, '2026-07-20T12:10:00.000Z', { promoted_from_taxi: true }),
@@ -218,10 +238,24 @@ describe('computeCutsPlan — taxi stashing', () => {
       rosterSize: 2,
       taxiSeats: 3,
     });
-    // 'promoted' is newest so it's considered first, but promotion is one-way —
-    // it can't return to taxi, so the eligible 'fresh' takes the seat instead.
-    expect(names(plan.toTaxi)).toEqual(['fresh']);
-    expect(plan.toDrop).toHaveLength(0);
+    // Only 'promoted' (the newest) is on the block, and promotion is one-way so
+    // it can't return to taxi. The seats stay empty rather than demoting the
+    // safe 'fresh' — a player nobody was warned about.
+    expect(plan.toTaxi).toHaveLength(0);
+    expect(names(plan.toDrop)).toEqual(['promoted']);
+  });
+
+  it('leaves a seat open when everyone on the block is taxi-ineligible', () => {
+    // Not hypothetical: draft_year is NULL for ~52% of WNBA and ~20% of NFL
+    // players, and BDL's "1st Season" bucket (real NFL UDFAs) maps to NULL.
+    const roster = [
+      player('vet'),
+      player('udfa', { acquired_at: '2026-07-20T12:00:00.000Z', draft_year: null }),
+      rookie('safe', 1, '2026-07-19T12:00:00.000Z'),
+    ];
+    const plan = computeCutsPlan(roster, { ...BASE_CONFIG, rosterSize: 2, taxiSeats: 3 });
+    expect(plan.toTaxi).toHaveLength(0);
+    expect(names(plan.toDrop)).toEqual(['udfa']);
   });
 
   it('drops an experience-ineligible veteran rather than stashing him', () => {
