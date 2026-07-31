@@ -1,13 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { Modal, Pressable, StyleSheet, Text, View } from 'react-native';
 import Animated, { FadeIn, FadeInDown, ZoomIn } from 'react-native-reanimated';
 
 import { Brand, Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
+import { useDismissals } from '@/hooks/useDismissals';
 import { useLeague } from '@/hooks/useLeague';
 import { useMatchupResult } from '@/hooks/useMatchupResult';
 import { ms, s } from '@/utils/scale';
@@ -41,19 +41,6 @@ function playoffRoundLabel(round: number, totalRounds: number, isThirdPlace: boo
   return `Playoff Round ${round}`;
 }
 
-const DISMISSED_KEY = '@dismissed_matchup_results';
-
-async function getDismissedIds(): Promise<string[]> {
-  const raw = await AsyncStorage.getItem(DISMISSED_KEY);
-  return raw ? JSON.parse(raw) : [];
-}
-
-async function addDismissedId(id: string): Promise<void> {
-  const ids = await getDismissedIds();
-  const updated = [...ids.slice(-19), id];
-  await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify(updated));
-}
-
 interface ScoreRow {
   name: string;
   /** Pre-formatted score / category-win count for the right-hand digits. */
@@ -67,35 +54,20 @@ export function MatchupResultModal() {
   const router = useRouter();
   const { data: league } = useLeague();
   const { data: result } = useMatchupResult(league?.scoring_type);
+  const { ready, isDismissed, dismiss } = useDismissals();
 
-  const [visible, setVisible] = useState(false);
-  const [checkedId, setCheckedId] = useState<string | null>(null);
+  // Stays closed until the seen-set loads, so an already-dismissed result can't
+  // flash on top of the app during the fetch.
+  const visible = !!result && ready && !isDismissed('matchup_result', result.id);
 
-  // Check if the latest result has been dismissed
-  useEffect(() => {
+  const handleDismiss = useCallback(() => {
     if (!result?.id) return;
-    if (result.id === checkedId) return;
-    let cancelled = false;
-    getDismissedIds().then((ids) => {
-      if (cancelled) return;
-      setCheckedId(result.id);
-      if (!ids.includes(result.id)) {
-        setVisible(true);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [result?.id, checkedId]);
+    dismiss('matchup_result', result.id);
+  }, [result?.id, dismiss]);
 
-  const handleDismiss = useCallback(async () => {
+  const handleViewMatchup = useCallback(() => {
     if (!result?.id) return;
-    setVisible(false);
-    await addDismissedId(result.id);
-  }, [result?.id]);
-
-  const handleViewMatchup = useCallback(async () => {
-    if (!result?.id) return;
-    setVisible(false);
-    await addDismissedId(result.id);
+    dismiss('matchup_result', result.id);
     if (result.isPlayoff) {
       router.push('/playoff-bracket');
     } else {
@@ -104,7 +76,7 @@ export function MatchupResultModal() {
         params: { matchupId: result.id },
       });
     }
-  }, [result?.id, result?.isPlayoff, router]);
+  }, [result?.id, result?.isPlayoff, dismiss, router]);
 
   if (!result) return null;
 

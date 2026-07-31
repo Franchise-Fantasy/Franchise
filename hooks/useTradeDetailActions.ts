@@ -10,7 +10,22 @@ import { sendNotification } from '@/lib/notifications';
 import { capture } from '@/lib/posthog';
 import { DB_REGION_HEADERS, supabase } from '@/lib/supabase';
 import { isOnline } from '@/utils/network';
-import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
+import { fetchActiveRosterCount, fetchInactiveSlotPlayerIds } from '@/utils/roster/rosterCounts';
+
+/**
+ * Pull the real reason out of a FunctionsHttpError body (e.g. execute-trade's
+ * IR-trading or roster validation errors) instead of the generic non-2xx message.
+ */
+async function functionErrorDetail(err: unknown, fallback: string): Promise<string> {
+  let detail = (err instanceof Error && err.message) || fallback;
+  try {
+    const body = await (err as { context?: Response }).context?.json?.();
+    if (body?.error) detail = body.error;
+  } catch {
+    // Body wasn't JSON or context unavailable — keep the fallback.
+  }
+  return detail;
+}
 
 interface UseTradeDetailActionsParams {
   proposal: TradeProposalRow;
@@ -22,7 +37,6 @@ interface UseTradeDetailActionsParams {
     trade_votes_to_veto: number | null;
     roster_size: number | null;
   } | undefined;
-  myNetGain: number;
   selectedDropPlayerIds: string[];
   onClose: () => void;
 }
@@ -32,7 +46,6 @@ export function useTradeDetailActions({
   leagueId,
   teamId,
   leagueSettings,
-  myNetGain,
   selectedDropPlayerIds,
   onClose,
 }: UseTradeDetailActionsParams) {
@@ -56,6 +69,13 @@ export function useTradeDetailActions({
 
   const myProposalTeam = proposal.teams.find((t) => t.team_id === teamId);
 
+  const myIncomingCount = proposal.items.filter(
+    (i) => i.player_id && i.to_team_id === teamId,
+  ).length;
+  const myOutgoingIds = proposal.items
+    .filter((i) => i.player_id && i.from_team_id === teamId)
+    .map((i) => i.player_id!);
+
   const invalidate = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.tradeProposals(leagueId) });
     queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
@@ -66,11 +86,17 @@ export function useTradeDetailActions({
   const handleAccept = async (onNeedDrop: () => void) => {
     if (!(await isOnline())) { showToast('error', 'No internet connection'); return; }
 
-    // If gaining players and not enough drops selected, trigger the drop picker
-    if (myNetGain > 0) {
+    // If gaining players and not enough drops selected, trigger the drop picker.
+    // Outgoing players only free active-roster room when they occupy an active
+    // slot — a traded-away IR/taxi player frees no seat.
+    if (myIncomingCount > 0) {
       const rosterSize = leagueSettings?.roster_size ?? 13;
-      const activeCount = await fetchActiveRosterCount(leagueId, teamId);
-      const dropsNeeded = Math.max(0, activeCount + myNetGain - rosterSize);
+      const [activeCount, inactiveIds] = await Promise.all([
+        fetchActiveRosterCount(leagueId, teamId),
+        fetchInactiveSlotPlayerIds(leagueId, myOutgoingIds),
+      ]);
+      const outgoingActive = myOutgoingIds.filter((id) => !inactiveIds.has(id)).length;
+      const dropsNeeded = Math.max(0, activeCount + myIncomingCount - outgoingActive - rosterSize);
       if (dropsNeeded > 0 && selectedDropPlayerIds.length < dropsNeeded) {
         onNeedDrop();
         return;
@@ -116,9 +142,20 @@ export function useTradeDetailActions({
 
       const myTeamName = myProposalTeam?.team_name ?? 'A team';
 
+      // The accept itself has succeeded at this point — record it before
+      // execution, which can still fail independently (e.g. IR trading
+      // disabled, roster rules).
+      capture('trade_accepted');
+      postUpdate('accepted', myTeamName);
+
       if (result.all_accepted && !result.needs_review && !result.already_finalized) {
         // All parties accepted, no veto review configured — fire execution now.
-        await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
+        const { error: execError } = await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
+        if (execError) {
+          invalidate();
+          Alert.alert('Trade Not Completed', await functionErrorDetail(execError, 'The trade could not be executed.'));
+          return;
+        }
       } else if (result.all_accepted && result.needs_review) {
         sendNotification({
           league_id: leagueId,
@@ -138,8 +175,6 @@ export function useTradeDetailActions({
         });
       }
 
-      capture('trade_accepted');
-      postUpdate('accepted', myTeamName);
       invalidate();
       onClose();
     } catch (err: any) {
@@ -252,7 +287,12 @@ export function useTradeDetailActions({
   const handleCommissionerApprove = async () => {
     setProcessing(true);
     try {
-      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
+      const { error: execError } = await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
+      if (execError) {
+        invalidate();
+        Alert.alert('Trade Not Completed', await functionErrorDetail(execError, 'The trade could not be executed.'));
+        return;
+      }
       invalidate();
       onClose();
     } catch (err: any) {
@@ -318,8 +358,15 @@ export function useTradeDetailActions({
         .eq('team_id', teamId);
 
       // Let the server determine if all drops are satisfied — it checks actual
-      // roster counts, not just net gain, so it handles teams with spare room correctly.
-      await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
+      // roster counts, not just net gain, so it handles teams with spare room
+      // correctly. A 200 with pending_drops: true (other teams still owe drops)
+      // is NOT an error — close and invalidate as usual.
+      const { error: execError } = await supabase.functions.invoke('execute-trade', { body: { proposal_id: proposal.id }, headers: DB_REGION_HEADERS });
+      if (execError) {
+        invalidate();
+        Alert.alert('Trade Not Completed', await functionErrorDetail(execError, 'Failed to submit roster drop'));
+        return;
+      }
 
       invalidate();
       onClose();

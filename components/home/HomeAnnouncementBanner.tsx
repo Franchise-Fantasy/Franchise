@@ -7,7 +7,7 @@ import { HomeAnnouncementCard } from '@/components/home/HomeAnnouncementCard';
 import { type Sport } from '@/constants/LeagueDefaults';
 import { useAnnouncementBanners } from '@/hooks/useAnnouncementBanners';
 import { useColors } from '@/hooks/useColors';
-import { useDismissedAnnouncements } from '@/hooks/useDismissedAnnouncements';
+import { useDismissals } from '@/hooks/useDismissals';
 import type { HomeAnnouncement } from '@/types/cms';
 import { s } from '@/utils/scale';
 
@@ -21,19 +21,24 @@ interface Props {
 
 /**
  * Homepage announcement banner surface. Fetches Contentful `alertBanner`
- * entries targeted to the current league, drops locally-dismissed ones, and
- * renders the survivor(s): a single card, or a swipeable carousel when more
- * than one is live. Renders nothing when there's nothing to show.
+ * entries targeted to the current league, drops the ones this user has already
+ * dismissed (on any device), and renders the survivor(s): a single card, or a
+ * swipeable carousel when more than one is live. Renders nothing when there's
+ * nothing to show.
  */
 export function HomeAnnouncementBanner({ sport, leagueType, scoringType }: Props) {
   const router = useRouter();
   const { data } = useAnnouncementBanners({ sport, leagueType, scoringType });
-  const { dismissedIds, dismiss } = useDismissedAnnouncements();
+  const { ready, isDismissed, dismiss } = useDismissals();
 
+  // Empty until the seen-set loads, so a dismissed banner doesn't flash in and
+  // then pop out on cold start.
   const visible = useMemo(
-    () => data.filter((b) => !dismissedIds.has(b.id)),
-    [data, dismissedIds],
+    () => (ready ? data.filter((b) => !isDismissed('home_banner', b.id)) : []),
+    [data, ready, isDismissed],
   );
+
+  const handleDismiss = useCallback((id: string) => dismiss('home_banner', id), [dismiss]);
 
   // External (`http…`) → in-app browser. Internal path (`/…`) → in-app
   // navigation (expo-router resolves dynamic segments natively). Anything
@@ -55,13 +60,21 @@ export function HomeAnnouncementBanner({ sport, leagueType, scoringType }: Props
   if (visible.length === 1) {
     return (
       <View style={styles.wrap}>
-        <HomeAnnouncementCard banner={visible[0]} onDismiss={dismiss} onCtaPress={handleCtaPress} />
+        <HomeAnnouncementCard
+          banner={visible[0]}
+          onDismiss={handleDismiss}
+          onCtaPress={handleCtaPress}
+        />
       </View>
     );
   }
 
   return (
-    <AnnouncementCarousel banners={visible} onDismiss={dismiss} onCtaPress={handleCtaPress} />
+    <AnnouncementCarousel
+      banners={visible}
+      onDismiss={handleDismiss}
+      onCtaPress={handleCtaPress}
+    />
   );
 }
 

@@ -32,7 +32,6 @@ import { OfflineDraftEntryModal } from '@/components/commissioner/OfflineDraftEn
 import { PaymentLedgerModal } from '@/components/commissioner/PaymentLedgerModal';
 import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
-import { TransferOwnershipModal } from '@/components/commissioner/TransferOwnershipModal';
 import { ScoringSummary } from '@/components/create-league/ScoringSummary';
 import { TeamAssigner } from '@/components/import/TeamAssigner';
 import { TeamLogo } from '@/components/team/TeamLogo';
@@ -266,7 +265,6 @@ export default function LeagueInfoScreen() {
   const [showSendAnnouncement, setShowSendAnnouncement] = useState(false);
   const [showLeagueNotifs, setShowLeagueNotifs] = useState(false);
   const [showDivisionsModal, setShowDivisionsModal] = useState(false);
-  const [showTransferOwnership, setShowTransferOwnership] = useState(false);
   const [showLeagueUpgrade, setShowLeagueUpgrade] = useState(false);
   const [showInviteSheet, setShowInviteSheet] = useState(false);
   const [importRosterTeam, setImportRosterTeam] = useState<{ id: string; name: string } | null>(null);
@@ -399,7 +397,7 @@ export default function LeagueInfoScreen() {
           }
           if (res?.error) { Alert.alert('Error', "Couldn't remove that member. Please try again."); return; }
           queryClient.invalidateQueries({ queryKey: ['league'] });
-          Alert.alert('Removed', `${name} has been removed. Their team is now unclaimed — use Transfer Team Ownership to assign it to a new owner.`);
+          Alert.alert('Removed', `${name} has been removed. Their team is now unclaimed — use Invite Members to hand it to a new owner.`);
         },
       },
     });
@@ -495,6 +493,13 @@ export default function LeagueInfoScreen() {
                 League Management
               </ThemedText>
               <CommAction
+                icon="mail-outline"
+                label="Invite Members"
+                subLabel="Email an invite, or hand an unclaimed team to a new owner"
+                c={c}
+                onPress={() => setShowInviteSheet(true)}
+              />
+              <CommAction
                 icon="megaphone"
                 label="Send Announcement"
                 c={c}
@@ -506,12 +511,6 @@ export default function LeagueInfoScreen() {
                 badgeCount={unconfirmedPaymentCount}
                 c={c}
                 onPress={() => setShowPaymentLedger(true)}
-              />
-              <CommAction
-                icon="people"
-                label="Transfer Team Ownership"
-                c={c}
-                onPress={() => setShowTransferOwnership(true)}
               />
               <CommAction
                 icon="time"
@@ -763,6 +762,7 @@ export default function LeagueInfoScreen() {
           {(league.league_type ?? 'dynasty') === 'dynasty' && (
             <Row label="Pick Protections & Swaps" value={league.pick_conditions_enabled ? 'Enabled' : 'Disabled'} c={c} />
           )}
+          <Row label="IR Player Trading" value={league.ir_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
           <Row
             label="Trade Deadline"
             value={league.trade_deadline ? `After ${formatIsoDate(league.trade_deadline)}` : 'None'}
@@ -976,20 +976,6 @@ export default function LeagueInfoScreen() {
           </Section>
         )}
 
-        {/* ── Members ── */}
-        {isCommissioner && leagueId && (
-          <Section title="Members" cardStyle={styles.sectionCardInner}>
-            <CommAction
-              icon="mail-outline"
-              label="Invite Members"
-              subLabel="Send an email invite to anyone with an account"
-              c={c}
-              onPress={() => setShowInviteSheet(true)}
-              last
-            />
-          </Section>
-        )}
-
         {/* ── Danger Zone ── */}
         <Section title="Danger Zone" cardStyle={styles.sectionCardInner}>
           {isCommissioner && ownedOtherMembers.length > 0 && (
@@ -1173,12 +1159,6 @@ export default function LeagueInfoScreen() {
               setImportRosterTeam(null);
             }}
           />
-          <TransferOwnershipModal
-            visible={showTransferOwnership}
-            onClose={() => setShowTransferOwnership(false)}
-            leagueId={leagueId}
-            teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name, user_id: t.user_id }))}
-          />
           {league?.division_count === 2 && (
             <AssignDivisionsModal
               visible={showDivisionsModal}
@@ -1229,6 +1209,12 @@ export default function LeagueInfoScreen() {
           visible={showInviteSheet}
           leagueId={leagueId}
           inviteCode={league?.invite_code ?? null}
+          teams={(league?.league_teams ?? []).map((t: any) => ({
+            id: t.id,
+            name: t.name,
+            user_id: t.user_id ?? null,
+          }))}
+          leagueFull={(league?.current_teams ?? 0) >= (league?.teams ?? 0)}
           onClose={() => setShowInviteSheet(false)}
         />
       )}

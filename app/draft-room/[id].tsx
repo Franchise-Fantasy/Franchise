@@ -3,7 +3,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import * as Haptics from 'expo-haptics';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Alert, FlatList, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { FlatList, Pressable, StyleSheet, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LeagueChatPanel } from '@/components/chat/LeagueChatPanel';
@@ -31,6 +31,7 @@ import { useToast } from '@/context/ToastProvider';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColors } from '@/hooks/useColors';
 import { useDraftQueue } from '@/hooks/useDraftQueue';
+import { useDraftTimer } from '@/hooks/useDraftTimer';
 import { useRosterChanges } from '@/hooks/useRosterChanges';
 import { useTradeProposals, TradeProposalRow } from '@/hooks/useTrades';
 import { setDraftRoomOpen } from '@/lib/activeScreen';
@@ -147,6 +148,49 @@ function DeskMetaItem({
         {label}
       </ThemedText>
       <ThemedText style={[styles.deskMetaValue, { color: colors.text }]}>{value}</ThemedText>
+    </View>
+  );
+}
+
+/**
+ * The live pick clock for the desktop header.
+ *
+ * Its own component on purpose: `useDraftTimer` re-renders once a second while
+ * a pick is running, and the draft room screen around it is expensive. Keeping
+ * the subscription down here means the tick repaints three lines of text
+ * instead of the whole room.
+ */
+function DeskClockItem({
+  draftState,
+  colors,
+}: {
+  draftState: DraftState;
+  colors: typeof Colors.light;
+}) {
+  const isPaused = draftState.status === 'paused';
+  const { display, expired } = useDraftTimer(
+    draftState.current_pick_timestamp,
+    draftState.current_pick_time_limit ?? draftState.time_limit,
+    isPaused ? (draftState.paused_remaining_ms ?? 0) : null,
+  );
+
+  // Expired means the clock ran out and autopick hasn't landed yet — say that
+  // rather than sitting at a misleading 0:00.
+  const value = expired ? 'Expired' : display;
+
+  return (
+    <View style={styles.deskMetaItem} accessibilityLabel={`Clock ${value}`}>
+      <ThemedText type="varsitySmall" style={[styles.deskMetaLabel, { color: colors.secondaryText }]}>
+        {isPaused ? 'Paused' : 'Clock'}
+      </ThemedText>
+      <ThemedText
+        style={[
+          styles.deskMetaValue,
+          { color: expired ? colors.danger : isPaused ? colors.secondaryText : colors.text },
+        ]}
+      >
+        {value}
+      </ThemedText>
     </View>
   );
 }
@@ -384,7 +428,7 @@ export default function DraftRoomScreen() {
         });
         if (error) {
           setAutopickOn(false);
-          Alert.alert('Error', 'Failed to turn on autopick. Please try again.');
+          showToast('error', 'Failed to turn on autopick. Please try again.');
           return;
         }
         if (isMyTurn) {
@@ -412,7 +456,7 @@ export default function DraftRoomScreen() {
       if (error) {
         // Revert local state if DB update failed
         setAutopickOn(true);
-        Alert.alert('Error', 'Failed to turn off autopick. Please try again.');
+        showToast('error', 'Failed to turn off autopick. Please try again.');
       } else {
         queryClient.invalidateQueries({ queryKey: ['autopickStatus', draftId, teamData.id] });
       }
@@ -568,12 +612,12 @@ export default function DraftRoomScreen() {
                 />
                 <View style={[styles.deskMetaRule, { backgroundColor: colors.border }]} />
                 <DeskMetaItem
-                  label="Pick"
+                  label="Overall"
                   value={`${draftState.current_pick_number} / ${draftState.rounds * draftState.picks_per_round}`}
                   colors={colors}
                 />
                 <View style={[styles.deskMetaRule, { backgroundColor: colors.border }]} />
-                <DeskMetaItem label="Clock" value={`${draftState.time_limit}s`} colors={colors} />
+                <DeskClockItem draftState={draftState} colors={colors} />
               </View>
             )}
 
@@ -1167,6 +1211,12 @@ const styles = StyleSheet.create({
   autopickLabel: {
     fontSize: 12,
     letterSpacing: 0.6,
+    // "AUTOPICK OFF" is a character wider than "AUTOPICK ON", so letting the
+    // text size the pill made toggling shove the commissioner + chat buttons
+    // sideways. Reserve the wider state's width for both. Sized past the
+    // measured ~85px: over-reserving costs a few px of trailing space,
+    // under-reserving would leave the shift in place.
+    minWidth: 92,
   },
   content: {
     flex: 1,

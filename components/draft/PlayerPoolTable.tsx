@@ -14,6 +14,7 @@ import type { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
+import { shootingPct } from "@/utils/scoring/shootingPct";
 
 /**
  * The draft pool as a scouting table — desktop only.
@@ -82,9 +83,9 @@ function colWidth(col: StatCol): number {
 
 const fixed1 = (v: number | null | undefined) => (v ?? 0).toFixed(1);
 
-function pct(makes: number | null | undefined, attempts: number | null | undefined): string {
-  if (!attempts) return "—";
-  return (((makes ?? 0) / attempts) * 100).toFixed(0);
+// Whole-number percent, no "%" suffix — the column header carries it.
+function pct(value: number | null): string {
+  return value == null ? "—" : value.toFixed(0);
 }
 
 function statValue(p: PlayerSeasonStats, col: StatCol, fpts: number | undefined): string {
@@ -109,9 +110,9 @@ function statValue(p: PlayerSeasonStats, col: StatCol, fpts: number | undefined)
     case "BLK":
       return fixed1(p.avg_blk);
     case "FG%":
-      return pct(p.avg_fgm, p.avg_fga);
+      return pct(shootingPct(p, "fg"));
     case "FT%":
-      return pct(p.avg_ftm, p.avg_fta);
+      return pct(shootingPct(p, "ft"));
     case "TO":
       return fixed1(p.avg_tov);
     case "FPTS":

@@ -11,6 +11,7 @@ import type { ProjectionRow } from "@/hooks/usePlayerProjections";
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import { ms, s } from "@/utils/scale";
 import { projAvgRowToFpts, seasonAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
+import { formatShootingPct, projShootingPct, shootingPct } from "@/utils/scoring/shootingPct";
 import { averageGames } from "@/utils/scoring/windowAverages";
 
 interface SeasonAveragesProps {
@@ -36,7 +37,10 @@ interface SeasonAveragesProps {
   seasonStarted: boolean;
 }
 
-/** Source stat shape shared by season rows and windowed averages. */
+/** Source stat shape shared by season rows and windowed averages. Lists only
+ *  the columns read directly — the shooting rates come off whichever of
+ *  `*_pct` / `total_*` / `avg_*` the concrete row happens to carry, resolved
+ *  by `shootingPct`. */
 type AvgRow = {
   games_played: number;
   avg_pts: number; avg_reb: number; avg_ast: number; avg_stl: number;
@@ -71,17 +75,14 @@ const f1 = (n: unknown) => {
   return Number.isFinite(num) ? num.toFixed(1) : "—";
 };
 
-const pct = (made: unknown, att: unknown) => {
-  const a = Number(att);
-  const m = Number(made);
-  return a > 0 ? `${((m / a) * 100).toFixed(1)}%` : "—";
-};
-
+// Shooting rows go through shootingPct, which reads the row's stored rate or
+// season totals in preference to the avg_* columns — dividing those (they're
+// numeric(5,1) in the DB) reported Al Horford's 2024-25 FT% as 100.0%.
 function rowsFrom(r: AvgRow): [[string, string], [string, string]][] {
   return [
-    [["PTS", f1(r.avg_pts)], ["FG%", pct(r.avg_fgm, r.avg_fga)]],
-    [["REB", f1(r.avg_reb)], ["3P%", pct(r.avg_3pm, r.avg_3pa)]],
-    [["AST", f1(r.avg_ast)], ["FT%", pct(r.avg_ftm, r.avg_fta)]],
+    [["PTS", f1(r.avg_pts)], ["FG%", formatShootingPct(shootingPct(r, "fg"))]],
+    [["REB", f1(r.avg_reb)], ["3P%", formatShootingPct(shootingPct(r, "fg3"))]],
+    [["AST", f1(r.avg_ast)], ["FT%", formatShootingPct(shootingPct(r, "ft"))]],
     [["STL", f1(r.avg_stl)], ["MIN", f1(r.avg_min)]],
     [["BLK", f1(r.avg_blk)], ["TO", f1(r.avg_tov)]],
   ];
@@ -141,9 +142,9 @@ function nflRowsFrom(
 
 function rowsFromProj(p: ProjectionRow): [[string, string], [string, string]][] {
   return [
-    [["PTS", f1(p.proj_pts)], ["FG%", pct(p.proj_fgm, p.proj_fga)]],
-    [["REB", f1(p.proj_reb)], ["3P%", pct(p.proj_3pm, p.proj_3pa)]],
-    [["AST", f1(p.proj_ast)], ["FT%", pct(p.proj_ftm, p.proj_fta)]],
+    [["PTS", f1(p.proj_pts)], ["FG%", formatShootingPct(projShootingPct(p, "fg"))]],
+    [["REB", f1(p.proj_reb)], ["3P%", formatShootingPct(projShootingPct(p, "fg3"))]],
+    [["AST", f1(p.proj_ast)], ["FT%", formatShootingPct(projShootingPct(p, "ft"))]],
     [["STL", f1(p.proj_stl)], ["MIN", f1(p.proj_min)]],
     [["BLK", f1(p.proj_blk)], ["TO", f1(p.proj_tov)]],
   ];

@@ -816,9 +816,13 @@ const DESK_CELL_GAP = 6;
 
 const deskStyles = StyleSheet.create({
   strip: {
+    // minHeight, not height: the clock panel stacks three lines (label /
+    // tricode+pick / countdown) and a fixed height clipped the countdown off
+    // the bottom. The line heights below make that stack deterministic, and
+    // this leaves it room to grow rather than crop.
+    minHeight: 76,
     flexDirection: "row",
     alignItems: "stretch",
-    height: 68,
     borderBottomWidth: 1,
   },
   clock: {
@@ -835,7 +839,9 @@ const deskStyles = StyleSheet.create({
     gap: 6,
   },
   clockRule: { height: 2, width: 12 },
-  clockLabel: { fontSize: 9, letterSpacing: 1.4 },
+  // Explicit lineHeights so the three-line stack measures the same everywhere.
+  // Left to the platform default, web resolved taller than the strip allowed.
+  clockLabel: { fontSize: 9, lineHeight: 12, letterSpacing: 1.4 },
   clockRow: {
     flexDirection: "row",
     alignItems: "baseline",
@@ -854,6 +860,7 @@ const deskStyles = StyleSheet.create({
   clockValue: {
     fontFamily: Fonts.mono,
     fontSize: 13,
+    lineHeight: 16,
     letterSpacing: 0.4,
   },
   ticker: { flex: 1 },

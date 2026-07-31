@@ -167,6 +167,22 @@ export async function setLeagueRosterSize(leagueId: string, size: number): Promi
   return before!.roster_size;
 }
 
+/**
+ * Set leagues.ir_trading_enabled and return the prior value so tests can
+ * restore it. Prior value defaults to false (read-path rule: rows predating
+ * the column read as disabled).
+ */
+export async function setLeagueIrTrading(leagueId: string, enabled: boolean): Promise<boolean> {
+  const admin = adminClient();
+  const { data: before } = await admin
+    .from('leagues')
+    .select('ir_trading_enabled')
+    .eq('id', leagueId)
+    .single();
+  await admin.from('leagues').update({ ir_trading_enabled: enabled }).eq('id', leagueId);
+  return before?.ir_trading_enabled ?? false;
+}
+
 export async function setTeamDrops(
   proposalId: string,
   teamId: string,
@@ -449,6 +465,33 @@ export async function getPlayerSlot(leagueId: string, playerId: string): Promise
     .maybeSingle();
   if (error) throw error;
   return data?.roster_slot ?? null;
+}
+
+/**
+ * Set a rostered player's roster_slot (e.g. 'IR', 'TAXI', 'BE') and return the
+ * prior slot so tests can restore it. Note restoreCanonicalRosters only resets
+ * roster_slot for players that MOVED teams — a player parked on IR/TAXI in
+ * place keeps that slot, so tests that use this must reset slots themselves.
+ */
+export async function setPlayerSlot(
+  leagueId: string,
+  playerId: string,
+  slot: string,
+): Promise<string | null> {
+  const admin = adminClient();
+  const { data: before } = await admin
+    .from('league_players')
+    .select('roster_slot')
+    .eq('league_id', leagueId)
+    .eq('player_id', playerId)
+    .maybeSingle();
+  const { error } = await admin
+    .from('league_players')
+    .update({ roster_slot: slot })
+    .eq('league_id', leagueId)
+    .eq('player_id', playerId);
+  if (error) throw new Error(`Set player slot failed: ${error.message}`);
+  return before?.roster_slot ?? null;
 }
 
 /**

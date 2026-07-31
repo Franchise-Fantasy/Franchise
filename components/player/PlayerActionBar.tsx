@@ -28,6 +28,10 @@ interface PlayerActionBarProps {
   playerGameStarted: boolean;
   canMoveToIR: boolean;
   canMoveToTaxi: boolean;
+  /** False when the player sits on IR and the league has IR player trading
+   *  disabled — hides the trade-block toggle entirely (same treatment as the
+   *  other unavailable actions above). */
+  canTradeBlock: boolean;
   isOnTradeBlock: boolean;
   // handlers
   onAdd: () => void;
@@ -61,6 +65,7 @@ export function PlayerActionBar({
   playerGameStarted,
   canMoveToIR,
   canMoveToTaxi,
+  canTradeBlock,
   isOnTradeBlock,
   onAdd,
   onDraft,
@@ -148,30 +153,32 @@ export function PlayerActionBar({
             accessibilityLabel={`Move ${playerName} to taxi squad`}
           />
         )}
-        <TouchableOpacity
-          style={[
-            styles.btn,
-            styles.iconBtn,
-            isOnTradeBlock
-              ? { backgroundColor: c.warning }
-              : { borderWidth: 1, borderColor: c.warning },
-            isProcessing && styles.disabled,
-          ]}
-          onPress={onToggleTradeBlock}
-          disabled={isProcessing}
-          accessibilityRole="button"
-          accessibilityLabel={
-            isOnTradeBlock
-              ? `Remove ${playerName} from trade block`
-              : `Add ${playerName} to trade block`
-          }
-        >
-          <Ionicons
-            name={isOnTradeBlock ? "megaphone" : "megaphone-outline"}
-            size={ms(16)}
-            color={isOnTradeBlock ? c.statusText : c.warning}
-          />
-        </TouchableOpacity>
+        {canTradeBlock && (
+          <TouchableOpacity
+            style={[
+              styles.btn,
+              styles.iconBtn,
+              isOnTradeBlock
+                ? { backgroundColor: c.warning }
+                : { borderWidth: 1, borderColor: c.warning },
+              isProcessing && styles.disabled,
+            ]}
+            onPress={onToggleTradeBlock}
+            disabled={isProcessing}
+            accessibilityRole="button"
+            accessibilityLabel={
+              isOnTradeBlock
+                ? `Remove ${playerName} from trade block`
+                : `Add ${playerName} to trade block`
+            }
+          >
+            <Ionicons
+              name={isOnTradeBlock ? "megaphone" : "megaphone-outline"}
+              size={ms(16)}
+              color={isOnTradeBlock ? c.statusText : c.warning}
+            />
+          </TouchableOpacity>
+        )}
       </View>
     );
   }

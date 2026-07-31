@@ -121,6 +121,21 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     });
   }, [isMyTurn, currentPick, draftPlayer, hasLimits, positionLimits, myRoster]);
 
+  // DraggableFlatList's reorder is a long-press-and-drag gesture, which needs
+  // touch — with a mouse the handle does nothing, so the queue can't be
+  // reordered on web at all. Desktop swaps it for explicit move buttons, which
+  // are also keyboard-reachable (dragging never was).
+  const moveInQueue = useCallback(
+    (index: number, delta: number) => {
+      const target = index + delta;
+      if (target < 0 || target >= queue.length) return;
+      const next = [...queue];
+      [next[index], next[target]] = [next[target], next[index]];
+      reorderQueue(next.map((q) => q.queue_id));
+    },
+    [queue, reorderQueue],
+  );
+
   const renderItem = useCallback(({ item, getIndex, drag, isActive }: RenderItemParams<QueuedPlayer>) => {
     const index = getIndex() ?? 0;
     const fpts = scoringWeights && !isCategories
@@ -213,7 +228,10 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             style={[
               styles.draftButton,
               isDesktop && styles.draftButtonDesktop,
-              { backgroundColor: draftDisabled ? c.buttonDisabled : c.link },
+              // c.primary/onPrimary is the app's CTA pair (what BrandButton
+              // 'primary' uses). This row was on c.link, which resolves to a
+              // heavy sport-tinted fill that outweighed the player name.
+              { backgroundColor: draftDisabled ? c.buttonDisabled : c.primary },
             ]}
             onPress={() => handleDraft(item)}
             disabled={draftDisabled}
@@ -225,7 +243,11 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             }
             accessibilityState={{ disabled: draftDisabled }}
           >
-            <ThemedText style={[styles.draftButtonText, { color: draftDisabled ? c.secondaryText : c.statusText }]}>
+            <ThemedText
+              type="varsitySmall"
+              style={[styles.draftButtonText, { color: draftDisabled ? c.secondaryText : c.onPrimary }]}
+              numberOfLines={1}
+            >
               {limitBlocked ? `Max ${limitViolation.position}` : 'Draft'}
             </ThemedText>
           </TouchableOpacity>
@@ -240,23 +262,61 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
             <Ionicons name="close-circle" size={20} color={c.secondaryText} />
           </TouchableOpacity>
 
-          {/* Drag handle — long-press to reorder. Right-edge so it doesn't
-              fight scroll on the card body. */}
-          <TouchableOpacity
-            onLongPress={drag}
-            delayLongPress={180}
-            disabled={isActive}
-            hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
-            style={styles.dragHandle}
-            accessibilityRole="button"
-            accessibilityLabel={`Reorder ${item.player.name} — long press and drag`}
-            accessibilityHint="Long press and drag to change queue position"
-          >
-            <Ionicons name="reorder-three" size={22} color={c.secondaryText} />
-          </TouchableOpacity>
+          {/* Reorder control. Touch gets the drag handle; a pointer gets
+              explicit move buttons, because the drag gesture never fires with
+              a mouse. */}
+          {isDesktop ? (
+            <View style={styles.moveCol}>
+              <TouchableOpacity
+                onPress={() => moveInQueue(index, -1)}
+                disabled={index === 0}
+                hitSlop={{ top: 2, bottom: 2, left: 6, right: 6 }}
+                style={styles.moveBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${item.player.name} up in the queue`}
+                accessibilityState={{ disabled: index === 0 }}
+              >
+                <Ionicons
+                  name="chevron-up"
+                  size={14}
+                  color={index === 0 ? c.buttonDisabled : c.secondaryText}
+                />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => moveInQueue(index, 1)}
+                disabled={index === queue.length - 1}
+                hitSlop={{ top: 2, bottom: 2, left: 6, right: 6 }}
+                style={styles.moveBtn}
+                accessibilityRole="button"
+                accessibilityLabel={`Move ${item.player.name} down in the queue`}
+                accessibilityState={{ disabled: index === queue.length - 1 }}
+              >
+                <Ionicons
+                  name="chevron-down"
+                  size={14}
+                  color={index === queue.length - 1 ? c.buttonDisabled : c.secondaryText}
+                />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            <TouchableOpacity
+              onLongPress={drag}
+              delayLongPress={180}
+              disabled={isActive}
+              hitSlop={{ top: 12, bottom: 12, left: 8, right: 8 }}
+              style={styles.dragHandle}
+              accessibilityRole="button"
+              accessibilityLabel={`Reorder ${item.player.name} — long press and drag`}
+              accessibilityHint="Long press and drag to change queue position"
+            >
+              <Ionicons name="reorder-three" size={22} color={c.secondaryText} />
+            </TouchableOpacity>
+          )}
         </View>
     );
-  }, [c, sport, scoringWeights, isCategories, isMyTurn, isDrafting, hasLimits, positionLimits, myRoster, handleDraft, removeFromQueue]);
+    // isDesktop/rowHeight were already read here but missing from the deps, so
+    // a resize across the breakpoint kept rendering the stale variant.
+  }, [c, sport, scoringWeights, isCategories, isMyTurn, isDrafting, hasLimits, positionLimits, myRoster, handleDraft, removeFromQueue, isDesktop, rowHeight, queue.length, moveInQueue]);
 
   if (isLoading) {
     return (
@@ -455,7 +515,10 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 5,
   },
-  draftButtonText: { fontSize: ms(12), fontWeight: 'bold' },
+  draftButtonText: { fontSize: ms(11), letterSpacing: 0.8 },
   iconButton: { padding: s(2) },
   dragHandle: { paddingVertical: s(4), paddingLeft: s(2) },
+  // Stacked chevrons, sized to sit inside the 46px desktop row.
+  moveCol: { justifyContent: 'center', paddingLeft: 2 },
+  moveBtn: { paddingVertical: 1 },
 });

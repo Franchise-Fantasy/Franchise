@@ -128,9 +128,16 @@ export function TransactionCard({ txn }: Props) {
   const isTrade = txn.type === 'trade' && items.length > 0;
   const tradeSummary = isTrade ? buildTradeSummary(items) : [];
   const tradeTeams = isTrade ? getTradeTeams(items) : [];
-  const descriptions = isTrade
-    ? []
-    : (items.map(formatItemDescription).filter(Boolean) as string[]);
+
+  // Commissioner actions: the initiator row shows the AFFECTED team, so a bare
+  // item line ("Added X") reads as the team's own move. The server-composed
+  // note ("Commissioner added X to Team") names the actor, so prefer it.
+  const commishNote =
+    txn.type === 'commissioner' && txn.notes ? txn.notes : null;
+  const descriptions =
+    isTrade || commishNote
+      ? []
+      : (items.map(formatItemDescription).filter(Boolean) as string[]);
 
   // Logo cluster: trades show every involved team; everything else uses the
   // initiator. Keeps trade activity visually distinct at a glance.
@@ -156,9 +163,11 @@ export function TransactionCard({ txn }: Props) {
       ? `, ${tradeSummary
           .map((g) => `${g.team} sends ${g.assets.join(', ')}`)
           .join('; ')}`
-      : descriptions.length > 0
-        ? `, ${descriptions.join(', ')}`
-        : ''
+      : commishNote
+        ? `, ${commishNote}`
+        : descriptions.length > 0
+          ? `, ${descriptions.join(', ')}`
+          : ''
   }`;
 
   return (
@@ -245,6 +254,12 @@ export function TransactionCard({ txn }: Props) {
               ))}
             </View>
           ))}
+        </View>
+      ) : commishNote ? (
+        <View style={styles.body}>
+          <ThemedText style={[styles.assetLine, { color: c.text }]}>
+            {commishNote}
+          </ThemedText>
         </View>
       ) : descriptions.length > 0 ? (
         <View style={styles.body}>

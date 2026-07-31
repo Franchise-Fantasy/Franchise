@@ -116,6 +116,10 @@ export function Sidebar() {
         <ThemedText style={[styles.wordmark, { color: c.text }]}>FRANCHISE</ThemedText>
       </View>
 
+      {/* Everything below the brand. The league switcher panel absolutely
+          fills THIS box rather than the whole sidebar, so it reads as the
+          league card expanding down over the nav while the wordmark stays. */}
+      <View style={styles.belowBrand}>
       <TouchableOpacity
         style={[styles.switcher, { backgroundColor: c.cardAlt, borderColor: c.border }]}
         onPress={() => setSwitcherVisible(true)}
@@ -195,7 +199,12 @@ export function Sidebar() {
         </View>
       </View>
 
-      <LeagueSwitcher visible={switcherVisible} onClose={() => setSwitcherVisible(false)} />
+      <LeagueSwitcher
+        visible={switcherVisible}
+        onClose={() => setSwitcherVisible(false)}
+        variant="sidebar"
+      />
+      </View>
     </View>
   );
 }
@@ -207,6 +216,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 22,
     paddingBottom: 14,
+  },
+  belowBrand: {
+    flex: 1,
   },
   brand: {
     flexDirection: "row",

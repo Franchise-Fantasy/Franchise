@@ -284,6 +284,7 @@ function buildWizardState(data: SleeperPreviewResult): LeagueWizardState {
     playoffSeedingFormat: 'Standard',
     combineCupWeek: false,
     pickConditionsEnabled: false,
+    irTradingEnabled: true,
     draftPickTradingEnabled: true,
     tradeDeadlineWeek: 0,
     tradeDeadlineDate: null,
@@ -351,6 +352,7 @@ const initialState: ImportState = {
     playoffSeedingFormat: 'Standard',
     combineCupWeek: false,
     pickConditionsEnabled: false,
+    irTradingEnabled: true,
     draftPickTradingEnabled: false,
     tradeDeadlineWeek: 0,
     tradeDeadlineDate: null,
@@ -751,6 +753,8 @@ export default function ImportLeague() {
         trade_votes_to_veto: ws.tradeVotesToVeto,
         draft_pick_trading_enabled: ws.draftPickTradingEnabled,
         pick_conditions_enabled: ws.pickConditionsEnabled,
+        // ?? true: a persisted (pre-flag) saved import lacks the key.
+        ir_trading_enabled: ws.irTradingEnabled ?? true,
         waiver_type: ws.waiverType === 'Standard'
           ? 'standard'
           : ws.waiverType === 'FAAB'

@@ -85,33 +85,37 @@ function compareVersions(a: string, b: string): number {
 
 const FOREGROUND_CHANNELS = ["draft", "trades", "playoffs", "commissioner"];
 
-Notifications.setNotificationHandler({
-  handleNotification: async (notification) => {
-    const channelId =
-      (notification.request.content.data as any)?.channelId ??
-      (notification.request.trigger as any)?.channelId;
+// Native-only: nothing delivers a foreground notification on web, so there is
+// no presentation decision to make there.
+if (Platform.OS !== "web") {
+  Notifications.setNotificationHandler({
+    handleNotification: async (notification) => {
+      const channelId =
+        (notification.request.content.data as any)?.channelId ??
+        (notification.request.trigger as any)?.channelId;
 
-    // Don't show draft alerts when the user is already in the draft room
-    if (channelId === "draft" && isDraftRoomOpen()) {
+      // Don't show draft alerts when the user is already in the draft room
+      if (channelId === "draft" && isDraftRoomOpen()) {
+        return {
+          shouldShowAlert: false,
+          shouldShowBanner: false,
+          shouldShowList: false,
+          shouldPlaySound: false,
+          shouldSetBadge: false,
+        };
+      }
+
+      const show = FOREGROUND_CHANNELS.includes(channelId);
       return {
-        shouldShowAlert: false,
-        shouldShowBanner: false,
-        shouldShowList: false,
-        shouldPlaySound: false,
+        shouldShowAlert: show,
+        shouldShowBanner: show,
+        shouldShowList: true,
+        shouldPlaySound: show,
         shouldSetBadge: false,
       };
-    }
-
-    const show = FOREGROUND_CHANNELS.includes(channelId);
-    return {
-      shouldShowAlert: show,
-      shouldShowBanner: show,
-      shouldShowList: true,
-      shouldPlaySound: show,
-      shouldSetBadge: false,
-    };
-  },
-});
+    },
+  });
+}
 
 // Sync React Query's online state with actual device connectivity
 onlineManager.setEventListener((setOnline) => {
@@ -658,8 +662,12 @@ function NotificationAndLinkHandler() {
     [router, session?.user, authReady, switchLeague],
   );
 
-  // Cold-start: check if a notification response launched the app
+  // Cold-start: check if a notification response launched the app.
+  // Web has no push transport — the getLastNotificationResponse /
+  // addNotificationResponseReceivedListener natives don't exist there, so both
+  // effects are native-only rather than throwing an UnavailabilityError on boot.
   useEffect(() => {
+    if (Platform.OS === "web") return;
     Notifications.getLastNotificationResponseAsync()
       .then((response) => {
         if (response) handleNotificationResponse(response);
@@ -671,6 +679,7 @@ function NotificationAndLinkHandler() {
 
   // Handle notification taps while app is running
   useEffect(() => {
+    if (Platform.OS === "web") return;
     const sub = Notifications.addNotificationResponseReceivedListener(
       handleNotificationResponse,
     );

@@ -162,6 +162,7 @@ export const initialWizard: LeagueWizardState = {
   playoffSeedingFormat: 'Standard',
   combineCupWeek: false,
   pickConditionsEnabled: false,
+  irTradingEnabled: true,
   draftPickTradingEnabled: true,
   tradeDeadlineWeek: 0,
   tradeDeadlineDate: null,

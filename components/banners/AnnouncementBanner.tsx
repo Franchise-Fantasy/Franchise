@@ -1,7 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -9,65 +8,36 @@ import { Colors } from '@/constants/Colors';
 import { useAppState } from '@/context/AppStateProvider';
 import { useLatestAnnouncement } from '@/hooks/useAnnouncements';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useDismissals } from '@/hooks/useDismissals';
 import { ms, s } from '@/utils/scale';
-
-const DISMISSED_KEY = '@dismissed_announcements';
-
-async function getDismissedIds(): Promise<string[]> {
-  const raw = await AsyncStorage.getItem(DISMISSED_KEY);
-  return raw ? JSON.parse(raw) : [];
-}
-
-async function dismissAnnouncement(id: string): Promise<void> {
-  const ids = await getDismissedIds();
-  // Keep only last 20 to prevent unbounded growth
-  const updated = [...ids.slice(-19), id];
-  await AsyncStorage.setItem(DISMISSED_KEY, JSON.stringify(updated));
-}
 
 export function AnnouncementBanner() {
   const { leagueId } = useAppState();
   const scheme = useColorScheme() ?? 'light';
   const router = useRouter();
   const { data: latest } = useLatestAnnouncement(leagueId ?? null);
-  const [dismissed, setDismissed] = useState<string | null>(null);
-  const [checkedId, setCheckedId] = useState<string | null>(null);
+  const { ready, isDismissed, dismiss } = useDismissals();
   const insets = useSafeAreaInsets();
 
-  // Check if latest announcement has been dismissed
-  useEffect(() => {
-    if (!latest?.id) return;
-    if (latest.id === checkedId) return; // already checked this one
-    let cancelled = false;
-    getDismissedIds().then((ids) => {
-      if (cancelled) return;
-      setCheckedId(latest.id);
-      if (ids.includes(latest.id)) {
-        setDismissed(latest.id);
-      } else {
-        setDismissed(null);
-      }
-    });
-    return () => { cancelled = true; };
-  }, [latest?.id, checkedId]);
+  const shown = !!latest && ready && !isDismissed('announcement', latest.id);
 
-  const handleDismiss = useCallback(async () => {
+  const handleDismiss = useCallback(() => {
     if (!latest?.id) return;
-    setDismissed(latest.id);
-    await dismissAnnouncement(latest.id);
-  }, [latest?.id]);
+    dismiss('announcement', latest.id);
+  }, [latest?.id, dismiss]);
 
   // Auto-dismiss after 8 seconds
   useEffect(() => {
-    if (!latest?.id || dismissed === latest.id || checkedId !== latest.id) return;
+    if (!shown) return;
     const timer = setTimeout(() => {
       handleDismiss();
     }, 8000);
     return () => clearTimeout(timer);
-  }, [latest?.id, dismissed, checkedId, handleDismiss]);
+  }, [shown, handleDismiss]);
 
-  // Don't render if no announcement, already dismissed, or still checking
-  if (!latest || dismissed === latest.id || checkedId !== latest.id) return null;
+  // Don't render if no announcement, already dismissed, or the seen-set is
+  // still loading — showing early would flash a banner the user killed days ago.
+  if (!latest || !shown) return null;
 
   const c = Colors[scheme];
 

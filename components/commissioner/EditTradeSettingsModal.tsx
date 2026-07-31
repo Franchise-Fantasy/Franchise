@@ -57,6 +57,7 @@ export function EditTradeSettingsModal({
   const [reviewHours, setReviewHours] = useState(24);
   const [votesToVeto, setVotesToVeto] = useState(4);
   const [pickConditions, setPickConditions] = useState(false);
+  const [irTrading, setIrTrading] = useState(false);
   const [autoRumors, setAutoRumors] = useState(false);
   // ISO `yyyy-mm-dd`, or null for no deadline — this is the actual persisted
   // value; the "Deadline Week" stepper below is a quick-set shortcut that
@@ -71,6 +72,7 @@ export function EditTradeSettingsModal({
     setReviewHours(league.trade_review_period_hours ?? 24);
     setVotesToVeto(league.trade_votes_to_veto ?? 4);
     setPickConditions(league.pick_conditions_enabled ?? false);
+    setIrTrading(league.ir_trading_enabled ?? false);
     setAutoRumors(league.auto_rumors_enabled ?? false);
     setTradeDeadlineDate(league.trade_deadline ?? null);
   }, [visible]);
@@ -111,6 +113,7 @@ export function EditTradeSettingsModal({
         trade_review_period_hours: vetoDb === 'none' ? 0 : reviewHours,
         trade_votes_to_veto: votesToVeto,
         pick_conditions_enabled: pickConditions,
+        ir_trading_enabled: irTrading,
         auto_rumors_enabled: autoRumors,
         trade_deadline: hasStartDate ? tradeDeadlineDate : null,
       })
@@ -202,6 +205,16 @@ export function EditTradeSettingsModal({
         label="Pick Protections & Swaps"
         value={pickConditions}
         onToggle={setPickConditions}
+        c={c}
+      />
+
+      {/* IR Player Trading */}
+      <ToggleRow
+        icon="bandage-outline"
+        label="IR Player Trading"
+        description="Allow IR players to be included in trades. A traded IR player lands on the receiving team's bench."
+        value={irTrading}
+        onToggle={setIrTrading}
         c={c}
       />
 

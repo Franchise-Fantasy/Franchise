@@ -25,8 +25,8 @@ import { TradeItemRow, TradeProposalRow, useTradeVotes } from '@/hooks/useTrades
 import { supabase } from '@/lib/supabase';
 import { PlayerSeasonStats } from '@/types/player';
 import { estimatePickFpts, TRADE_STATUS, TEAM_RESPONSE } from '@/types/trade';
-import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
-import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
+import { fetchActiveRosterCount, fetchInactiveSlotPlayerIds } from '@/utils/roster/rosterCounts';
+import { isActiveSlot } from '@/utils/roster/rosterCutsShared';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
@@ -127,12 +127,12 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const isEditable = proposal.status === TRADE_STATUS.PENDING && isProposer && !!onEdit &&
     proposal.teams.filter((t) => t.team_id !== teamId).every((t) => t.status === TEAM_RESPONSE.PENDING);
 
-  const myNetGain = proposal.items.reduce((acc, item) => {
-    if (!item.player_id) return acc;
-    if (item.to_team_id === teamId) return acc + 1;
-    if (item.from_team_id === teamId) return acc - 1;
-    return acc;
-  }, 0);
+  const myIncomingCount = proposal.items.filter(
+    (i) => i.player_id && i.to_team_id === teamId,
+  ).length;
+  const myOutgoingIds = proposal.items
+    .filter((i) => i.player_id && i.from_team_id === teamId)
+    .map((i) => i.player_id!);
 
   const mySubmittedDropCount = myProposalTeam?.drop_player_ids?.length ?? 0;
   const newItemKeys = getNewItemKeys(proposal.items, proposal.original_items);
@@ -196,14 +196,21 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   const sport = useActiveLeagueSport(leagueId);
 
   // How many players must this team drop to accommodate the incoming players?
+  // Outgoing players only free active-roster room when they occupy an active
+  // slot — a traded-away IR/taxi player frees no seat.
   const { data: dropsNeeded = 0 } = useQuery<number>({
     queryKey: queryKeys.tradeRosterCheck(teamId, leagueId, proposal.id),
     queryFn: async () => {
       const rosterSize = leagueSettings?.roster_size ?? 13;
-      const activeCount = await fetchActiveRosterCount(leagueId, teamId);
-      return Math.max(0, activeCount + myNetGain - rosterSize);
+      const [activeCount, inactiveIds] = await Promise.all([
+        fetchActiveRosterCount(leagueId, teamId),
+        fetchInactiveSlotPlayerIds(leagueId, myOutgoingIds),
+      ]);
+      const outgoingActive = myOutgoingIds.filter((id) => !inactiveIds.has(id)).length;
+      const netActive = myIncomingCount - outgoingActive;
+      return Math.max(0, activeCount + netActive - rosterSize);
     },
-    enabled: isInvolved && myNetGain > 0 && !!leagueSettings,
+    enabled: isInvolved && myIncomingCount > 0 && !!leagueSettings,
     staleTime: 1000 * 30,
   });
   const wouldExceedRoster = dropsNeeded > 0;
@@ -211,7 +218,7 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
   // Drops picker appears while the proposal is blocked on drops AND I still
   // owe more than I've already submitted. If `dropsNeeded` is 0 it means I
   // have spare roster room and the server won't flag me — no picker needed,
-  // even when `myNetGain > 0`. If I've already submitted enough drops, we
+  // even when `myIncomingCount > 0`. If I've already submitted enough drops, we
   // fall through to the "waiting on other teams" chip instead.
   const needsMyDrop = proposal.status === TRADE_STATUS.PENDING_DROPS && isInvolved && dropsNeeded > mySubmittedDropCount;
 
@@ -260,11 +267,11 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
         .filter((p) =>
           !tradedAwayIds.has(p.player_id!)
           && !lockedInOtherTrades.has(p.player_id!)
-          && p.roster_slot !== 'IR',
+          && isActiveSlot(p.roster_slot),
         )
         .sort((a, b) => {
-          const aIsBench = a.roster_slot === 'BE' || a.roster_slot === ROSTER_SLOT.TAXI ? 0 : 1;
-          const bIsBench = b.roster_slot === 'BE' || b.roster_slot === ROSTER_SLOT.TAXI ? 0 : 1;
+          const aIsBench = a.roster_slot === 'BE' ? 0 : 1;
+          const bIsBench = b.roster_slot === 'BE' ? 0 : 1;
           return aIsBench - bIsBench;
         }) as unknown as (PlayerSeasonStats & { roster_slot: string | null })[];
     },
@@ -278,7 +285,6 @@ export function TradeDetailModal({ proposal, leagueId, teamId, onClose, onCounte
     leagueId,
     teamId,
     leagueSettings,
-    myNetGain,
     selectedDropPlayerIds,
     onClose,
   });

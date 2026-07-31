@@ -6,6 +6,7 @@ import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { foldSearchText } from '@/utils/formatting';
 import { getEligiblePositions } from '@/utils/roster/rosterSlots';
 import { calculateAvgFantasyPoints, type GameWindow } from '@/utils/scoring/fantasyPoints';
+import { shootingPct } from '@/utils/scoring/shootingPct';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG' | 'FG%' | 'FT%' | 'TO';
 // Game-based windows (L5/L10/L15), not day-based — the same `GameWindow` the
@@ -30,10 +31,12 @@ const SORT_FIELD: Record<string, keyof PlayerSeasonStats> = {
   TO: 'avg_tov',
 };
 
-// FG% and FT% are computed from makes/attempts, not stored directly
+// FG% and FT% aren't stored on the matview — shootingPct derives them from the
+// exact season totals (never the 1dp avg_* columns, which mis-rank low-volume
+// shooters). Players with no attempts sort last, as before.
 function getComputedSort(p: PlayerSeasonStats, key: SortKey): number {
-  if (key === 'FG%') return p.avg_fga > 0 ? p.avg_fgm / p.avg_fga : 0;
-  if (key === 'FT%') return p.avg_fta > 0 ? p.avg_ftm / p.avg_fta : 0;
+  if (key === 'FG%') return shootingPct(p, 'fg') ?? 0;
+  if (key === 'FT%') return shootingPct(p, 'ft') ?? 0;
   return 0;
 }
 
@@ -213,7 +216,16 @@ export function usePlayerFilter(
         (fptsMap.get(b.player_id) ?? 0) - (fptsMap.get(a.player_id) ?? 0),
       );
     } else if (sortBy === 'FG%' || sortBy === 'FT%') {
-      result = [...result].sort((a, b) => getComputedSort(b, sortBy) - getComputedSort(a, sortBy));
+      // Same pre-compute as FPTS above: shootingPct resolves which of the
+      // pct/total/avg column families the row carries, so it's not the single
+      // property read a comparator can afford to repeat N×log(N) times.
+      const pctMap = new Map<string, number>();
+      for (const p of result) {
+        pctMap.set(p.player_id, getComputedSort(p, sortBy));
+      }
+      result = [...result].sort((a, b) =>
+        (pctMap.get(b.player_id) ?? 0) - (pctMap.get(a.player_id) ?? 0),
+      );
     } else if (sortBy !== 'FPTS') {
       const field = SORT_FIELD[sortBy];
       result = [...result].sort((a, b) => (b[field] as number) - (a[field] as number));

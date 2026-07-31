@@ -24,7 +24,14 @@ const STATUS_LABEL: Record<InviteStatus, string> = {
  * (`is_league_commissioner`) grants the read; the two actions go through the
  * edge fn (resend) and `cancel_league_invite` RPC (cancel).
  */
-export function SentInvitesList({ leagueId }: { leagueId: string }) {
+export function SentInvitesList({
+  leagueId,
+  teamNames,
+}: {
+  leagueId: string;
+  /** team id → name, so a reservation says which team it's holding. */
+  teamNames?: Record<string, string>;
+}) {
   const c = useColors();
   const confirm = useConfirm();
   const { showToast } = useToast();
@@ -105,7 +112,11 @@ export function SentInvitesList({ leagueId }: { leagueId: string }) {
               {invite.invited_email}
             </ThemedText>
             <ThemedText style={[styles.status, { color: statusColor(invite.status) }]}>
-              {STATUS_LABEL[invite.status]}
+              {/* A pending team invite HOLDS that team — naming it is what makes
+                  "cancel the other invite first" actionable. */}
+              {invite.team_id && teamNames?.[invite.team_id]
+                ? `${STATUS_LABEL[invite.status]} · ${teamNames[invite.team_id]}`
+                : STATUS_LABEL[invite.status]}
             </ThemedText>
           </View>
           {invite.status === 'pending' && (

@@ -42,6 +42,7 @@ import { checkPositionLimits, type PositionLimits } from "@/utils/roster/positio
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 import { nflAvgRowToGameShape, nflStatFields } from "@/utils/scoring/nflStatLine";
+import { shootingPct } from "@/utils/scoring/shootingPct";
 
 // Coalesces a possibly-null average to a 1-decimal string. A player with no
 // games this season has NULL stat columns, and the category slash line calls
@@ -537,14 +538,8 @@ export function AvailablePlayers({
       } else if (item.avg_pts != null || item.avg_reb != null || item.avg_ast != null) {
         boxSlash = `${fixed1(item.avg_pts)}/${fixed1(item.avg_reb)}/${fixed1(item.avg_ast)}`;
       }
-      const fgPct =
-        (item.avg_fga ?? 0) > 0
-          ? (((item.avg_fgm ?? 0) / (item.avg_fga as number)) * 100).toFixed(1)
-          : "0.0";
-      const ftPct =
-        (item.avg_fta ?? 0) > 0
-          ? (((item.avg_ftm ?? 0) / (item.avg_fta as number)) * 100).toFixed(1)
-          : "0.0";
+      const fgPct = (shootingPct(item, "fg") ?? 0).toFixed(1);
+      const ftPct = (shootingPct(item, "ft") ?? 0).toFixed(1);
       const limitViolation = hasLimits
         ? checkPositionLimits(positionLimits, myRoster ?? [], item.position)
         : null;

@@ -145,6 +145,14 @@ export function mergeBasketballHistoricalRow(
     total_pf: tot(h.avg_pf),
     total_dd: h.total_dd ?? 0,
     total_td: h.total_td ?? 0,
+    // Carry the historical row's exact shooting rates. The total_* above are
+    // reconstructed from avg_* columns the DB stores at 1dp, so they'd divide
+    // out to the same broken percentage the averages do (0.6/0.6 = 100% FT).
+    // shootingPct prefers these, so the rates stay right even though the
+    // reconstructed totals are approximate.
+    fg_pct: h.fg_pct ?? null,
+    fg3_pct: h.fg3_pct ?? null,
+    ft_pct: h.ft_pct ?? null,
   } as PlayerSeasonStats;
 }
 

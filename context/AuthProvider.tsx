@@ -1,5 +1,6 @@
 import { Session } from '@supabase/supabase-js'
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react'
+import { Platform } from 'react-native'
 
 import { PushSoftPrompt } from '@/components/onboarding/PushSoftPrompt'
 import { logger } from '@/utils/logger'
@@ -30,6 +31,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [softPromptUserId, setSoftPromptUserId] = useState<string | null>(null);
 
   const queueSoftPromptIfNeeded = useCallback(async (userId: string) => {
+    // Web has no push transport (registerPushToken bails there), so the
+    // soft-prompt would ask for a permission we can never act on. Never queue
+    // it — and don't markAsAsked, so the prompt still fires on a real install.
+    if (Platform.OS === 'web') return;
     if (await hasBeenAsked()) return;
     setSoftPromptUserId(userId);
     setSoftPromptVisible(true);

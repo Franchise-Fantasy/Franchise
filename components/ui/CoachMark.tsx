@@ -4,12 +4,12 @@ import Animated, { FadeIn, FadeOut } from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/ui/ThemedText';
 import { cardShadow } from '@/constants/Colors';
-import { useCoachMark } from '@/hooks/useCoachMark';
 import { useColors } from '@/hooks/useColors';
+import { useDismissals } from '@/hooks/useDismissals';
 import { ms, s } from '@/utils/scale';
 
 interface CoachMarkProps {
-  /** Stable id — the hint shows once per device until dismissed. */
+  /** Stable id — the hint shows once per ACCOUNT, on every device, until dismissed. */
   id: string;
   /** One-line gesture/info hint. */
   text: string;
@@ -34,13 +34,16 @@ interface CoachMarkProps {
  * A dismissable one-time coach-mark. Renders as a floating, centered callout
  * pinned to the top or bottom of its parent (which must be position:relative,
  * e.g. a screen root). Fades in shortly after mount so it doesn't fight the
- * screen's own entrance, and persists "seen" on dismiss.
+ * screen's own entrance, and persists "seen" to `user_dismissals` on dismiss —
+ * so a hint learned on the phone doesn't get re-taught on the web app.
  */
 export function CoachMark({ id, text, top, bottom, inline = false, active = true }: CoachMarkProps) {
   const c = useColors();
-  const { visible, dismiss } = useCoachMark(id);
+  const { ready, isDismissed, dismiss } = useDismissals();
 
-  if (!visible || !active) return null;
+  // Nothing renders until the seen-set loads — otherwise the hint flashes in
+  // and yanks itself away on every launch.
+  if (!ready || !active || isDismissed('coach_mark', id)) return null;
 
   return (
     <Animated.View
@@ -58,7 +61,7 @@ export function CoachMark({ id, text, top, bottom, inline = false, active = true
         <Ionicons name="bulb" size={ms(15)} color={c.gold} accessible={false} />
         <ThemedText style={[styles.text, { color: c.background }]}>{text}</ThemedText>
         <TouchableOpacity
-          onPress={dismiss}
+          onPress={() => dismiss('coach_mark', id)}
           hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           accessibilityRole="button"
           accessibilityLabel="Dismiss tip"

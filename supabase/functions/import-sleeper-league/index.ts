@@ -576,6 +576,7 @@ async function handleExecute(
       trade_votes_to_veto: number;
       draft_pick_trading_enabled: boolean;
       pick_conditions_enabled: boolean;
+      ir_trading_enabled?: boolean;
       waiver_type: string;
       waiver_period_days: number;
       faab_budget: number;
@@ -705,6 +706,10 @@ async function handleExecute(
       trade_deadline: settings.trade_deadline,
       draft_pick_trading_enabled: settings.draft_pick_trading_enabled,
       pick_conditions_enabled: settings.pick_conditions_enabled,
+      // `!== false` (same un-Zod'd passthrough as combine_cup_week above):
+      // default TRUE — Sleeper allows IR trading — so only an explicit wizard
+      // `false` disables it; a malformed wire value coerces to true.
+      ir_trading_enabled: settings.ir_trading_enabled !== false,
       rookie_draft_rounds: settings.rookie_draft_rounds,
       rookie_draft_order: settings.rookie_draft_order,
       lottery_draws: settings.lottery_draws,

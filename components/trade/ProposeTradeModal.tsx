@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useMemo, useReducer, useState } from 'react';
-import { Alert, Modal, StyleSheet, TouchableOpacity, View } from 'react-native';
+import { useEffect, useReducer, useState } from 'react';
+import { Alert, Modal, TouchableOpacity, View } from 'react-native';
 import {
   SafeAreaProvider,
   SafeAreaView,
@@ -9,6 +9,7 @@ import {
   useSafeAreaInsets,
 } from 'react-native-safe-area-context';
 
+import { styles } from '@/components/trade/proposeTradeModalStyles';
 import {
   CounterofferData,
   EditData,
@@ -25,9 +26,9 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { SubmitOverlay } from '@/components/ui/SubmitOverlay';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
+import { useLeagueTradeConditions } from '@/hooks/trades/useLeagueTradeConditions';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
@@ -38,8 +39,7 @@ import { supabase } from '@/lib/supabase';
 import { Json } from '@/types/database.types';
 import { PlayerSeasonStats } from '@/types/player';
 import { TradeBuilderTeam, estimatePickFpts } from '@/types/trade';
-import { fetchActiveRosterCount } from '@/utils/roster/rosterCounts';
-import { ms, s } from '@/utils/scale';
+import { fetchActiveRosterCount, fetchInactiveSlotPlayerIds } from '@/utils/roster/rosterCounts';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
 
 type PickerType = 'player' | 'pick' | 'swap';
@@ -114,51 +114,20 @@ export function ProposeTradeModal({
     enabled: !!leagueId,
   });
 
-  // Fetch league settings for pick conditions + draft round count
-  const { data: leagueSettings } = useQuery({
-    queryKey: queryKeys.leagueTradeConditions(leagueId),
-    queryFn: async () => {
-      const { data, error } = await supabase
-        .from('leagues')
-        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step, scoring_type')
-        .eq('id', leagueId)
-        .single();
-      if (error) throw error;
-      return data;
-    },
-    enabled: !!leagueId,
-  });
+  // League settings for pick conditions, IR trading, swap seasons, etc.
+  const {
+    isCategories,
+    pickConditionsEnabled,
+    picksTradeable,
+    draftPickTradingEnabled,
+    irTradingEnabled,
+    teamCount,
+    rookieDraftRounds,
+    validSeasons,
+  } = useLeagueTradeConditions(leagueId);
 
   const { data: scoringWeights } = useLeagueScoring(leagueId);
   const sport = useActiveLeagueSport(leagueId);
-  const isCategories = leagueSettings?.scoring_type === 'h2h_categories';
-  const isDynastyLeague = (leagueSettings?.league_type ?? 'dynasty') === 'dynasty';
-  const pickConditionsEnabled = isDynastyLeague && (leagueSettings?.pick_conditions_enabled ?? false);
-  // Picks are tradeable at all in any dynasty league (gates the Pick/Swap chips). The
-  // `draft_pick_trading_enabled` setting only governs STARTUP-draft picks — it's applied when
-  // fetching tradable picks (useTeamTradablePicks), so future/rookie picks stay tradeable when off.
-  const picksTradeable = isDynastyLeague;
-  const draftPickTradingEnabled = isDynastyLeague && (leagueSettings?.draft_pick_trading_enabled ?? false);
-  const teamCount = leagueSettings?.teams ?? 10;
-  const maxFutureSeasons = leagueSettings?.max_future_seasons ?? 3;
-  const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
-
-  // Build valid seasons for swap picker — skip the current season if its draft already happened
-  const validSeasons = useMemo(() => {
-    const leagueSeason = leagueSettings?.season ?? CURRENT_NBA_SEASON;
-    const leagueStartYear = parseInt(leagueSeason.split('-')[0], 10);
-    const step = leagueSettings?.offseason_step as string | null;
-    const draftDone = !step || step === 'rookie_draft_complete';
-    const startYear = draftDone ? leagueStartYear + 1 : leagueStartYear;
-    const seasons: string[] = [];
-    const count = draftDone ? maxFutureSeasons : maxFutureSeasons + 1;
-    for (let i = 0; i < count; i++) {
-      const sy = startYear + i;
-      const ey = (sy + 1) % 100;
-      seasons.push(`${sy}-${String(ey).padStart(2, '0')}`);
-    }
-    return seasons;
-  }, [leagueSettings?.season, leagueSettings?.offseason_step, maxFutureSeasons]);
 
   const myTeam = leagueTeams?.find((t) => t.id === teamId);
 
@@ -274,10 +243,17 @@ export function ProposeTradeModal({
       JSON.stringify(allBuilderTeams.map((t) => t.sending_players.map((p) => `${p.player_id}:${p.to_team_id}`))),
     ),
     queryFn: async () => {
+      // A sender only frees an active-roster seat when the outgoing player
+      // currently occupies one — an IR/TAXI player subtracts nothing. The
+      // receiver always gains one: a traded IR player lands on the bench.
+      const sendingIds = allBuilderTeams.flatMap((t) => t.sending_players.map((p) => p.player_id));
+      const inactiveIds = await fetchInactiveSlotPlayerIds(leagueId, sendingIds);
       const netByTeam = new Map<string, number>();
       for (const bt of allBuilderTeams) {
         for (const p of bt.sending_players) {
-          netByTeam.set(bt.team_id, (netByTeam.get(bt.team_id) ?? 0) - 1);
+          if (!inactiveIds.has(p.player_id)) {
+            netByTeam.set(bt.team_id, (netByTeam.get(bt.team_id) ?? 0) - 1);
+          }
           const dest = p.to_team_id || allTradeTeamIds.find((id) => id !== bt.team_id) || '';
           if (dest) netByTeam.set(dest, (netByTeam.get(dest) ?? 0) + 1);
         }
@@ -671,6 +647,7 @@ export function ProposeTradeModal({
                 selectedPlayerIds={pickerTeamBuilder?.sending_players.map((p) => p.player_id) ?? []}
                 lockedPlayerIds={lockedAssets?.lockedPlayerIds}
                 pendingDropPlayerIds={pendingDropIds}
+                irTradingEnabled={irTradingEnabled}
                 onToggle={(player, avgFpts) => handleTogglePlayer(pickerFor.teamId, player, avgFpts)}
                 isCategories={isCategories}
                 search={playerSearch}
@@ -787,49 +764,3 @@ function computeFairness(
     netFpts: (receivedByTeam[bt.team_id] ?? 0) - (sentByTeam[bt.team_id] ?? 0),
   }));
 }
-
-const styles = StyleSheet.create({
-  page: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: s(12),
-    paddingVertical: s(10),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: s(10),
-  },
-  headerClose: { padding: s(2) },
-  headerCenter: {
-    flex: 1,
-    gap: s(2),
-  },
-  headerEyebrowRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  headerEyebrowRule: { height: 2, width: s(14) },
-  headerEyebrow: {
-    fontSize: ms(9),
-    letterSpacing: 1.4,
-  },
-  headerTitle: {
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.3,
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  footer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: s(12),
-    paddingVertical: s(10),
-    borderTopWidth: StyleSheet.hairlineWidth,
-    gap: s(10),
-  },
-  footerSubmitWrap: { flex: 1 },
-});

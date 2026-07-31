@@ -38,6 +38,7 @@ import { usePlayerHistoricalStats } from "@/hooks/usePlayerHistoricalStats";
 import { usePlayerNews } from "@/hooks/usePlayerNews";
 import { usePlayerProjections } from "@/hooks/usePlayerProjections";
 import { usePlayerRankings } from "@/hooks/usePlayerRankings";
+import { useTeamRosterInfo } from "@/hooks/useTeamRosterInfo";
 import { useWatchlist } from "@/hooks/useWatchlist";
 import { sendNotification } from "@/lib/notifications";
 import { capture } from "@/lib/posthog";
@@ -217,7 +218,7 @@ export function PlayerDetailModal({
     queryFn: async () => {
       const { data, error } = await supabase
         .from("league_players")
-        .select("team_id")
+        .select("team_id, roster_slot")
         .eq("league_id", leagueId)
         .eq("player_id", player!.player_id)
         .limit(1);
@@ -232,7 +233,11 @@ export function PlayerDetailModal({
         .eq("id", ownerTeamId)
         .single();
 
-      return { teamId: ownerTeamId, teamName: (team?.name as string) ?? "Unknown" };
+      return {
+        teamId: ownerTeamId,
+        teamName: (team?.name as string) ?? "Unknown",
+        rosterSlot: data[0].roster_slot as string | null,
+      };
     },
     enabled: !!player && !!leagueId && !isOnMyTeam,
   });
@@ -246,82 +251,8 @@ export function PlayerDetailModal({
       ? !isOnMyTeam && !resolvedOwnerName
       : !isOnMyTeam && !ownershipLoading && !queriedOwnerInfo;
 
-  // Get roster counts, max size, IR capacity, and waiver settings
-  const { data: rosterInfo } = useQuery({
-    queryKey: queryKeys.rosterInfo(leagueId, teamId!),
-    queryFn: async () => {
-      const [
-        allPlayersRes,
-        irPlayersRes,
-        taxiPlayersRes,
-        leagueRes,
-        irConfigRes,
-        taxiConfigRes,
-      ] = await Promise.all([
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId!),
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId!)
-          .eq("roster_slot", "IR"),
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId!)
-          .eq("roster_slot", ROSTER_SLOT.TAXI),
-        supabase
-          .from("leagues")
-          .select(
-            "roster_size, waiver_type, waiver_period_days, taxi_slots, taxi_max_experience, season, offseason_step",
-          )
-          .eq("id", leagueId)
-          .single(),
-        supabase
-          .from("league_roster_config")
-          .select("slot_count")
-          .eq("league_id", leagueId)
-          .eq("position", "IR")
-          .maybeSingle(),
-        supabase
-          .from("league_roster_config")
-          .select("slot_count")
-          .eq("league_id", leagueId)
-          .eq("position", ROSTER_SLOT.TAXI)
-          .maybeSingle(),
-      ]);
-
-      if (allPlayersRes.error) throw allPlayersRes.error;
-      if (irPlayersRes.error) throw irPlayersRes.error;
-      if (leagueRes.error) throw leagueRes.error;
-
-      const irCount = irPlayersRes.count ?? 0;
-      const taxiCount = taxiPlayersRes.count ?? 0;
-      const activeCount = (allPlayersRes.count ?? 0) - irCount - taxiCount;
-      return {
-        activeCount,
-        irCount,
-        irSlotCount: irConfigRes.data?.slot_count ?? 0,
-        taxiCount,
-        taxiSlotCount: taxiConfigRes.data?.slot_count ?? 0,
-        taxiMaxExperience: leagueRes.data?.taxi_max_experience as number | null,
-        season: leagueRes.data?.season as string,
-        maxSize: leagueRes.data?.roster_size ?? 13,
-        waiverType: (leagueRes.data?.waiver_type ?? "none") as
-          | "standard"
-          | "faab"
-          | "none",
-        waiverPeriodDays: leagueRes.data?.waiver_period_days ?? 2,
-        offseasonStep: leagueRes.data?.offseason_step as string | null,
-      };
-    },
-    enabled: !!teamId && !!leagueId,
-  });
+  // Roster counts, max size, IR/taxi capacity, waiver settings, IR trading flag
+  const { data: rosterInfo } = useTeamRosterInfo(leagueId, teamId);
 
   // Fetch roster players for the drop picker (exclude IR - dropping them doesn't free active spots)
   const { data: rosterPlayers } = useQuery<PlayerSeasonStats[]>({
@@ -1565,7 +1496,16 @@ export function PlayerDetailModal({
     playerRosterSlot !== "IR" &&
     (!playerRosterSlot || playerRosterSlot === "BE") &&
     isTaxiEligible(player.draft_year, rosterInfo.season, rosterInfo.taxiMaxExperience);
-  const canTrade = !!teamId && !isFreeAgent && playerRosterSlot !== "IR";
+  // IR gating: with IR trading off (default), an IR player can't be traded or
+  // put on the trade block. The slot that matters is the one on the roster the
+  // player actually sits on — mine when it's my player, the owner's otherwise.
+  const irTradingEnabled = rosterInfo?.irTradingEnabled ?? false;
+  const subjectSlot = isOnMyTeam
+    ? playerRosterSlot
+    : queriedOwnerInfo?.rosterSlot ?? null;
+  const canTrade =
+    !!teamId && !isFreeAgent && (irTradingEnabled || subjectSlot !== "IR");
+  const canTradeBlock = irTradingEnabled || playerRosterSlot !== "IR";
   const showFooter =
     !hideRosterActions &&
     !!teamId &&
@@ -1662,6 +1602,7 @@ export function PlayerDetailModal({
             playerGameStarted={playerGameStarted}
             canMoveToIR={canShowIR}
             canMoveToTaxi={canMoveToTaxi}
+            canTradeBlock={canTradeBlock}
             isOnTradeBlock={isOnTradeBlock}
             onAdd={handleAddPlayer}
             onDraft={() => {

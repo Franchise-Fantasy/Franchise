@@ -75,6 +75,9 @@ export async function markAsAsked(): Promise<void> {
 // Requests OS permission, gets the Expo push token, and saves it to Supabase.
 // Returns true if the token was successfully registered.
 export async function registerPushToken(userId: string): Promise<boolean> {
+  // Web has no Expo push transport, and calling into permissions here is what
+  // triggers the browser's "Allow notifications?" popup. Bail before that.
+  if (Platform.OS === 'web') return false;
   if (!Device.isDevice) return false;
 
   const { status: existing } = await Notifications.getPermissionsAsync();
@@ -244,6 +247,8 @@ export function sendNotification(params: {
 // Silently refreshes the push token if it changed (e.g. Expo rotated it).
 // Safe to call on every app foreground — no-ops if nothing changed.
 export async function refreshPushToken(userId: string): Promise<void> {
+  // Runs on every foreground/auth event — see registerPushToken for why web bails.
+  if (Platform.OS === 'web') return;
   if (!Device.isDevice) return;
   const { status } = await Notifications.getPermissionsAsync();
   if (status !== 'granted') return;

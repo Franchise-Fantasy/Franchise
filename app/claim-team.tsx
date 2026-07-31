@@ -28,7 +28,6 @@ interface UnclaimedTeam {
   id: string;
   name: string;
   tricode: string;
-  sleeper_roster_id: number | null;
 }
 
 export default function ClaimTeamScreen() {
@@ -52,12 +51,15 @@ export default function ClaimTeamScreen() {
   const { data: teams, isLoading } = useQuery({
     queryKey: queryKeys.unclaimedTeams(leagueId!),
     queryFn: async () => {
+      // Every ownerless team in the league is claimable, not just imported ones
+      // — `leave_league` / `remove_member` vacate a team (user_id → NULL) while
+      // leaving `sleeper_roster_id` NULL, and reserving one of those for a new
+      // owner is how a commissioner hands a team over.
       const { data, error } = await supabase
         .from('teams')
-        .select('id, name, tricode, sleeper_roster_id')
+        .select('id, name, tricode')
         .eq('league_id', leagueId!)
         .is('user_id', null)
-        .not('sleeper_roster_id', 'is', null)
         .order('name');
 
       if (error) throw error;

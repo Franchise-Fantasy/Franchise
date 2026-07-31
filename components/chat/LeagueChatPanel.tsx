@@ -21,6 +21,7 @@ import {
   useSendMessage,
   useToggleReaction,
 } from '@/hooks/chat';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
@@ -130,6 +131,7 @@ export function LeagueChatPanel({
   active = true,
 }: LeagueChatPanelProps) {
   const c = useColors();
+  const { isDesktop } = useBreakpoint();
   const queryClient = useQueryClient();
 
   const { data: conversationId } = useQuery({
@@ -324,7 +326,7 @@ export function LeagueChatPanel({
   const keyExtractor = useCallback((item: ChatMessage) => item.id, []);
 
   return (
-    <View style={styles.flex}>
+    <View style={[styles.flex, isDesktop && styles.readingColumn]}>
       {isLoading || !conversationId ? (
         <View style={styles.empty}>
           <LogoSpinner />
@@ -391,6 +393,16 @@ export function LeagueChatPanel({
 const styles = StyleSheet.create({
   flex: {
     flex: 1,
+  },
+  // Full-screen chat on a monitor stretches bubbles, date separators and the
+  // composer across the whole viewport, which is unreadable and leaves the
+  // right two-thirds empty. Cap it to a conversation column. Wraps the list AND
+  // the composer so the two stay on the same edges. No effect in the docked
+  // draft-room rail — that's ~380px, well under the cap.
+  readingColumn: {
+    width: '100%',
+    maxWidth: 760,
+    alignSelf: 'center',
   },
   empty: {
     flex: 1,

@@ -148,6 +148,7 @@ const initialState: LeagueWizardState = {
   playoffTeams: PLAYOFF_DEFAULTS.playoffTeams,
   playoffSeedingFormat: "Standard",
   pickConditionsEnabled: false,
+  irTradingEnabled: true,
   draftPickTradingEnabled: false,
   tradeDeadlineWeek: defaultTradeDeadlineWeek(DEFAULT_REG_SEASON_WEEKS),
   tradeDeadlineDate: deriveTradeDeadlineDate({
@@ -700,6 +701,7 @@ export default function CreateLeague() {
         weekly_acquisition_limit: state.weeklyAcquisitionLimit,
         player_lock_type: PLAYER_LOCK_TO_DB[state.playerLockType],
         pick_conditions_enabled: isDynasty ? state.pickConditionsEnabled : false,
+        ir_trading_enabled: state.irTradingEnabled,
         draft_pick_trading_enabled: isDynasty ? state.draftPickTradingEnabled : false,
         initial_draft_order: INITIAL_DRAFT_ORDER_TO_DB[state.initialDraftOrder],
         auto_rumors_enabled: state.autoRumorsEnabled,

@@ -1,5 +1,4 @@
 import { Ionicons } from "@expo/vector-icons";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   keepPreviousData,
   useQuery,
@@ -95,6 +94,7 @@ import { useToast } from "@/context/ToastProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import { useCutsPlan } from "@/hooks/useCutsPlan";
+import { useDismissals } from "@/hooks/useDismissals";
 import { useIllegalIR } from "@/hooks/useIllegalIR";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
@@ -115,10 +115,10 @@ import { capture } from "@/lib/posthog";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { addDays, defaultLeagueDay, formatDayLabel, formatShortDate, useSportToday } from "@/utils/dates";
+import { rosterTapHintId } from "@/utils/dismissals/types";
 import { formatPosition } from "@/utils/formatting";
 import { getOffseasonMilestone } from "@/utils/league/offseasonState";
 import { getSportToday } from "@/utils/leagueTime";
-import { logger } from "@/utils/logger";
 import { hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import {
@@ -342,30 +342,14 @@ export default function RosterScreen() {
   // Weekly performance-breakdown sheet, opened from the WK chip
   const [showWeekSummary, setShowWeekSummary] = useState(false);
 
-  // First-visit coach mark for tap-to-move interaction
-  const [showMoveHint, setShowMoveHint] = useState(false);
-  useEffect(() => {
-    if (!teamId) return;
-    const key = `rosterTapHint:seen:${teamId}`;
-    let cancelled = false;
-    AsyncStorage.getItem(key)
-      .then((seen) => {
-        if (!cancelled && !seen) setShowMoveHint(true);
-      })
-      .catch((err) => {
-        logger.warn("rosterTapHint read failed", err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [teamId]);
+  // First-visit coach mark for tap-to-move interaction. Per-team (a GM in a new
+  // league gets it again) and per-account, so it doesn't re-teach on each device.
+  const { ready: dismissalsReady, isDismissed, dismiss } = useDismissals();
+  const moveHintId = teamId ? rosterTapHintId(teamId) : null;
+  const showMoveHint =
+    !!moveHintId && dismissalsReady && !isDismissed("coach_mark", moveHintId);
   const dismissMoveHint = () => {
-    setShowMoveHint(false);
-    if (teamId) {
-      AsyncStorage.setItem(`rosterTapHint:seen:${teamId}`, "1").catch((e) =>
-        logger.warn("Persist rosterTapHint failed", e),
-      );
-    }
+    if (moveHintId) dismiss("coach_mark", moveHintId);
   };
 
   // Screenshot / share

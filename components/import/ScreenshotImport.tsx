@@ -63,6 +63,7 @@ import {
   WAIVER_PRIORITY_RESET_TO_DB,
   type LeagueWizardState,
 } from '@/constants/LeagueDefaults';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { SportThemeProvider } from '@/hooks/useColors';
@@ -105,6 +106,7 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
   const c = Colors[scheme];
   const { isDesktop } = useBreakpoint();
   const { showToast } = useToast();
+  const confirm = useConfirm();
 
   const [state, dispatch] = useReducer(reducer, initialState);
   const [step, setStep] = useState(0);
@@ -173,15 +175,13 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
   );
 
   const handleCancel = useCallback(() => {
-    Alert.alert(
-      'Exit Import?',
-      'Your progress is saved — you can come back and pick up where you left off.',
-      [
-        { text: 'Keep Editing', style: 'cancel' },
-        { text: 'Exit', style: 'destructive', onPress: () => router.back() },
-      ],
-    );
-  }, [router]);
+    confirm({
+      title: 'Exit Import?',
+      message: 'Your progress is saved — you can come back and pick up where you left off.',
+      cancelLabel: 'Keep Editing',
+      action: { label: 'Exit', destructive: true, onPress: () => router.back() },
+    });
+  }, [router, confirm]);
 
   // ─── Persistence ─────────────────────────────────────────────
   //
@@ -208,29 +208,28 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
           return;
         }
 
-        Alert.alert(
-          'Resume Import?',
-          `You have a saved screenshot import for "${parsed.wizardState.name || 'Unnamed league'}". Pick up where you left off?`,
-          [
-            {
-              text: 'Start Over',
-              style: 'destructive',
-              onPress: () => {
-                AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
-                hasRestoredRef.current = true;
-              },
-            },
-            {
-              text: 'Resume',
-              onPress: () => {
-                const restored = deserializeState(parsed);
-                dispatch({ type: 'HYDRATE', state: restored });
-                setStep(parsed.step ?? 0);
-                hasRestoredRef.current = true;
-              },
-            },
-          ],
-        );
+        // Every exit path MUST set hasRestoredRef — the auto-save effect below
+        // is gated on it, so leaving it false silently disables persistence for
+        // the rest of the session. Dismissing the dialog resumes rather than
+        // starting over: it's the non-destructive default, and it leaves the
+        // wizard in a coherent state instead of saving over the stored draft.
+        const resume = () => {
+          const restored = deserializeState(parsed);
+          dispatch({ type: 'HYDRATE', state: restored });
+          setStep(parsed.step ?? 0);
+          hasRestoredRef.current = true;
+        };
+        confirm({
+          title: 'Resume Import?',
+          message: `You have a saved screenshot import for "${parsed.wizardState.name || 'Unnamed league'}". Pick up where you left off?`,
+          cancelLabel: 'Start Over',
+          onCancel: () => {
+            AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+            hasRestoredRef.current = true;
+          },
+          action: { label: 'Resume', onPress: resume },
+          onDismiss: resume,
+        });
       } catch {
         hasRestoredRef.current = true;
       }
@@ -238,7 +237,9 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
     return () => {
       cancelled = true;
     };
-  }, []);
+    // `confirm` is a stable useCallback([]) from ConfirmProvider, so this stays
+    // a mount-only effect.
+  }, [confirm]);
 
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
@@ -490,6 +491,8 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
         trade_votes_to_veto: ws.tradeVotesToVeto,
         draft_pick_trading_enabled: ws.draftPickTradingEnabled,
         pick_conditions_enabled: ws.pickConditionsEnabled,
+        // ?? true: a persisted (pre-flag) saved import lacks the key.
+        ir_trading_enabled: ws.irTradingEnabled ?? true,
         waiver_type:
           ws.waiverType === 'Standard'
             ? 'standard'
@@ -527,13 +530,17 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
       const finishHistoryAndClaim = () => {
         if (sentHistory && inserted === 0) {
           const names = unmatched.slice(0, 6).join(', ');
-          Alert.alert(
-            "League created — but past seasons weren't saved",
-            `None of the imported standings matched your team names${
+          // Acknowledgement, not a choice — the league already exists, so every
+          // exit continues to team claim rather than stranding the user here.
+          confirm({
+            title: "League created — but past seasons weren't saved",
+            message: `None of the imported standings matched your team names${
               names ? ` (unmatched: ${names}${unmatched.length > 6 ? '…' : ''})` : ''
             }. Rename your teams to match the standings, then add history from League Info → "Add Season History."`,
-            [{ text: 'OK', onPress: goToClaim }],
-          );
+            hideCancel: true,
+            action: { label: 'OK', onPress: goToClaim },
+            onDismiss: goToClaim,
+          });
           return;
         }
         if (sentHistory && unmatched.length > 0) {
@@ -548,20 +555,22 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
       // players so the commissioner can add them to the correct team's roster.
       if (duplicates.length > 0) {
         const names = duplicates.slice(0, 8).map((p) => p.name).join(', ');
-        Alert.alert(
-          'League created — duplicate players skipped',
-          `${duplicates.length} player${duplicates.length === 1 ? ' was' : 's were'} listed on more than one team and kept on only one: ${names}${
+        confirm({
+          title: 'League created — duplicate players skipped',
+          message: `${duplicates.length} player${duplicates.length === 1 ? ' was' : 's were'} listed on more than one team and kept on only one: ${names}${
             duplicates.length > 8 ? '…' : ''
           }. Add ${duplicates.length === 1 ? 'it' : 'them'} to the correct team from that team's roster.`,
-          [{ text: 'OK', onPress: finishHistoryAndClaim }],
-        );
+          hideCancel: true,
+          action: { label: 'OK', onPress: finishHistoryAndClaim },
+          onDismiss: finishHistoryAndClaim,
+        });
         return;
       }
       finishHistoryAndClaim();
     } catch (err: any) {
       Alert.alert('Import failed', err.message ?? 'Unknown error');
     }
-  }, [state, importMutation, router, showToast]);
+  }, [state, importMutation, router, showToast, confirm]);
 
   // Number of teams with a usable roster so far — drives the "finish later"
   // copy and the confirm prompt.

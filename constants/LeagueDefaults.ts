@@ -776,6 +776,8 @@ export interface LeagueWizardState {
   playoffTeams: number;
   playoffSeedingFormat: PlayoffSeedingOption;
   pickConditionsEnabled: boolean;
+  /** Allow IR players in trades — a traded IR player lands on the receiving team's bench. */
+  irTradingEnabled: boolean;
   draftPickTradingEnabled: boolean;
   /** 0 = no deadline, 1+ = quick-set "Deadline Week" shortcut (drives the
    *  NumberStepper); the actual persisted value is `tradeDeadlineDate`. */

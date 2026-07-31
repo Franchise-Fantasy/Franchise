@@ -6,6 +6,7 @@
 
 import { PlayerSeasonStats } from '@/types/player';
 import { calculateAge, ageBucket, shortDisplayName } from '@/utils/roster/rosterAge';
+import { shootingPct, type ShootingStat } from '@/utils/scoring/shootingPct';
 
 // Canonical 9-CAT order
 export const CAT_ORDER = ['PTS', 'REB', 'AST', 'STL', 'BLK', 'TO', '3PM', 'FG%', 'FT%'] as const;
@@ -289,10 +290,17 @@ const CAT_STAT_TO_PER_GAME: Record<string, keyof PlayerSeasonStats> = {
   PF: 'avg_pf',
 };
 
-// % cats read per-game makes/attempts — the ratio equals the totals ratio.
-const CAT_PCT_PER_GAME: Record<string, { makes: keyof PlayerSeasonStats; att: keyof PlayerSeasonStats }> = {
-  'FG%': { makes: 'avg_fgm', att: 'avg_fga' },
-  'FT%': { makes: 'avg_ftm', att: 'avg_fta' },
+// % cats need two different things: the player's RATE (exact, via shootingPct
+// off the season totals) and their per-game ATTEMPT volume, which weights the
+// rate's impact. `att` is the per-game column for that weighting only — the
+// avg_* pair must never be divided for the rate itself, since both sides are
+// stored 1dp and a 0.6/0.6 free-throw line reads as a perfect 100%.
+const CAT_PCT_PER_GAME: Record<
+  string,
+  { makes: keyof PlayerSeasonStats; att: keyof PlayerSeasonStats; stat: ShootingStat }
+> = {
+  'FG%': { makes: 'avg_fgm', att: 'avg_fga', stat: 'fg' },
+  'FT%': { makes: 'avg_ftm', att: 'avg_fta', stat: 'ft' },
 };
 
 // Fallback when the league's category list is missing/empty: canonical 9-cat.
@@ -347,7 +355,9 @@ export function buildCategoryRankMap(
   );
   if (cats.length === 0) return rank;
 
-  // Pool-wide % baselines for the volume-weighted impact transform
+  // Pool-wide % baselines for the volume-weighted impact transform. Summed
+  // across hundreds of players, the per-game columns' 1dp rounding cancels out,
+  // so the baseline stays accurate even though a single row's wouldn't.
   const poolPct = new Map<string, number>();
   for (const [stat, f] of Object.entries(CAT_PCT_PER_GAME)) {
     let makes = 0;
@@ -362,10 +372,10 @@ export function buildCategoryRankMap(
   const rawFor = (p: PlayerSeasonStats, stat: string): number => {
     const pctDef = CAT_PCT_PER_GAME[stat];
     if (pctDef) {
-      const makes = (p[pctDef.makes] as number) ?? 0;
       const att = (p[pctDef.att] as number) ?? 0;
-      if (att <= 0) return 0;
-      return (makes / att - (poolPct.get(stat) ?? 0)) * att;
+      const rate = shootingPct(p, pctDef.stat);
+      if (att <= 0 || rate == null) return 0;
+      return (rate / 100 - (poolPct.get(stat) ?? 0)) * att;
     }
     return perGameCatValue(p, stat);
   };

@@ -105,6 +105,28 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (existing) throw new HttpError('That person is already in this league.', 409);
 
+    // One pending reservation per team. Two invitees pointed at the same roster
+    // both get a card and then race to claim it, and the loser just sees "Team
+    // is already claimed". Re-inviting the SAME person is still fine — that
+    // upserts their existing row rather than adding a second reservation.
+    if (team_id) {
+      const { data: reserved } = await supabaseAdmin
+        .from('invitations')
+        .select('invited_email')
+        .eq('league_id', league_id)
+        .eq('team_id', team_id)
+        .eq('status', 'pending')
+        .neq('invited_user_id', invitedUserId)
+        .limit(1)
+        .maybeSingle();
+      if (reserved) {
+        throw new HttpError(
+          `${teamName} is already reserved for ${reserved.invited_email}. Cancel that invite first.`,
+          409,
+        );
+      }
+    }
+
     // Persist the invite BEFORE the push — the row is state the invitee's card
     // reads next, so it must not be deferred, and it's the durable record that
     // survives a missed/undelivered push. supabase-js can't drive the partial
@@ -120,7 +142,14 @@ Deno.serve(async (req) => {
         // `string | undefined`, not nullable.
         p_team_id: team_id,
       });
-    if (inviteError) throw inviteError;
+    if (inviteError) {
+      // invitations_pending_team_unique is the race backstop for the reservation
+      // check above — two commissioners sending at the same instant.
+      if (inviteError.code === '23505') {
+        throw new HttpError('That team was just reserved for someone else.', 409);
+      }
+      throw inviteError;
+    }
 
     // Best-effort push on top of the persisted record. Deferred so the response
     // returns before the Expo round-trip. A team-specific invite deep-links into

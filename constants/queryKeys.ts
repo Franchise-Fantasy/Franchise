@@ -310,6 +310,10 @@ export const queryKeys = {
     ["announcements", leagueId] as const,
   latestAnnouncement: (leagueId: string) =>
     ["latestAnnouncement", leagueId] as const,
+  // Every one-time surface the user has dismissed, across all kinds and
+  // leagues, in ONE key — the set is small and each surface only needs a
+  // membership test, so a single boot fetch beats a query per surface.
+  dismissals: (userId: string) => ["dismissals", userId] as const,
 
   // ── Subscription / Payments ──────────────────────────────
   userSubscription: (userId: string) =>

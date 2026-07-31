@@ -211,38 +211,41 @@ export default function ScheduleScreen() {
     weekState: WeekState,
   ): { text: string; color: string; status: 'win' | 'loss' | 'tie' | 'live' } | null {
     if (weekState === 'future') return null;
+    if (!matchup.is_finalized && weekState !== 'live') return null;
 
     const isHome = matchup.home_team_id === activeTeamId;
 
-    if (isCategories && matchup.is_finalized && matchup.home_category_wins != null) {
-      const myW = isHome ? matchup.home_category_wins ?? 0 : matchup.away_category_wins ?? 0;
-      const oppW = isHome ? matchup.away_category_wins ?? 0 : matchup.home_category_wins ?? 0;
+    // A category league is scored by categories won — never by fantasy points.
+    // `home_score`/`away_score` stay 0 in those leagues even after finalize,
+    // while the cat-win columns are kept current mid-week by get-week-scores,
+    // so they're the right read for a live week too.
+    let myScore: number;
+    let oppScore: number;
+    let scoreStr: string;
+
+    if (isCategories) {
+      if (matchup.home_category_wins == null) {
+        // Not scored yet this week — don't imply a 0-0 tie.
+        return matchup.is_finalized
+          ? null
+          : { text: '—', color: c.gold, status: 'live' };
+      }
+      myScore = (isHome ? matchup.home_category_wins : matchup.away_category_wins) ?? 0;
+      oppScore = (isHome ? matchup.away_category_wins : matchup.home_category_wins) ?? 0;
       const ties = matchup.category_ties ?? 0;
-      const score = ties > 0 ? `${myW}-${oppW}-${ties}` : `${myW}-${oppW}`;
-      if (myW > oppW) return { text: `W · ${score}`, color: c.success, status: 'win' };
-      if (myW < oppW) return { text: `L · ${score}`, color: c.danger, status: 'loss' };
-      return { text: `T · ${score}`, color: c.secondaryText, status: 'tie' };
+      scoreStr = ties > 0 ? `${myScore}-${oppScore}-${ties}` : `${myScore}-${oppScore}`;
+    } else {
+      myScore = isHome ? matchup.home_score : matchup.away_score;
+      oppScore = isHome ? matchup.away_score : matchup.home_score;
+      scoreStr = `${formatScore(myScore)}-${formatScore(oppScore)}`;
     }
 
-    const myScore = isHome ? matchup.home_score : matchup.away_score;
-    const oppScore = isHome ? matchup.away_score : matchup.home_score;
-
-    if (matchup.is_finalized) {
-      const scoreStr = `${formatScore(myScore)}-${formatScore(oppScore)}`;
-      if (myScore > oppScore) return { text: `W · ${scoreStr}`, color: c.success, status: 'win' };
-      if (myScore < oppScore) return { text: `L · ${scoreStr}`, color: c.danger, status: 'loss' };
-      return { text: `T · ${scoreStr}`, color: c.secondaryText, status: 'tie' };
+    if (!matchup.is_finalized) {
+      return { text: scoreStr, color: c.gold, status: 'live' };
     }
-
-    if (weekState === 'live') {
-      return {
-        text: `${formatScore(myScore)}-${formatScore(oppScore)}`,
-        color: c.gold,
-        status: 'live',
-      };
-    }
-
-    return null;
+    if (myScore > oppScore) return { text: `W · ${scoreStr}`, color: c.success, status: 'win' };
+    if (myScore < oppScore) return { text: `L · ${scoreStr}`, color: c.danger, status: 'loss' };
+    return { text: `T · ${scoreStr}`, color: c.secondaryText, status: 'tie' };
   }
 
   function renderWeekRow({ item: week, index }: { item: Week; index: number }) {

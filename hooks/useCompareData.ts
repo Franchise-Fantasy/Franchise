@@ -21,6 +21,7 @@ import {
 } from '@/utils/scoring/fantasyPoints';
 import { NFL_GAME_COLUMNS } from '@/utils/scoring/nflStatLine';
 import { computeRankings } from '@/utils/scoring/playerRankings';
+import { shootingPct } from '@/utils/scoring/shootingPct';
 import { averageGames, lastNPlayedGames } from '@/utils/scoring/windowAverages';
 
 interface UseCompareDataResult {
@@ -31,8 +32,9 @@ interface UseCompareDataResult {
   isLoading: boolean;
 }
 
-const pctOrNull = (makes: number, attempts: number): number | null =>
-  attempts > 0 ? Math.round((makes / attempts) * 1000) / 10 : null;
+/** Shooting rate to one decimal, matching the compare table's `fmtPercent`. */
+const pct1 = (value: number | null): number | null =>
+  value == null ? null : Math.round(value * 10) / 10;
 
 /**
  * Composes the comparison matrix for a set of selected players. All data hooks
@@ -108,9 +110,9 @@ export function useCompareData(
         avgStl: stats?.avg_stl ?? null,
         avgBlk: stats?.avg_blk ?? null,
         avgTov: stats?.avg_tov ?? null,
-        fgPct: stats ? pctOrNull(stats.avg_fgm, stats.avg_fga) : null,
-        ftPct: stats ? pctOrNull(stats.avg_ftm, stats.avg_fta) : null,
-        tpPct: stats ? pctOrNull(stats.avg_3pm, stats.avg_3pa) : null,
+        fgPct: pct1(shootingPct(stats, "fg")),
+        ftPct: pct1(shootingPct(stats, "ft")),
+        tpPct: pct1(shootingPct(stats, "fg3")),
         tpm: stats?.avg_3pm ?? null,
         l5Fpts: weights.length ? windowFantasyPoints(log, weights, 5, sport) : null,
         l10Fpts: weights.length ? windowFantasyPoints(log, weights, 10, sport) : null,

@@ -1893,6 +1893,7 @@ export type Database = {
           imported_from: string | null
           initial_draft_order: string
           invite_code: string
+          ir_trading_enabled: boolean
           keeper_count: number | null
           league_type: string
           lottery_date: string | null
@@ -1960,6 +1961,7 @@ export type Database = {
           imported_from?: string | null
           initial_draft_order?: string
           invite_code?: string
+          ir_trading_enabled?: boolean
           keeper_count?: number | null
           league_type?: string
           lottery_date?: string | null
@@ -2027,6 +2029,7 @@ export type Database = {
           imported_from?: string | null
           initial_draft_order?: string
           invite_code?: string
+          ir_trading_enabled?: boolean
           keeper_count?: number | null
           league_type?: string
           lottery_date?: string | null
@@ -3868,6 +3871,9 @@ export type Database = {
           avg_reb: number | null
           avg_stl: number | null
           avg_tov: number | null
+          fg3_pct: number | null
+          fg_pct: number | null
+          ft_pct: number | null
           games_played: number
           id: string
           player_id: string
@@ -3924,6 +3930,9 @@ export type Database = {
           avg_reb?: number | null
           avg_stl?: number | null
           avg_tov?: number | null
+          fg3_pct?: number | null
+          fg_pct?: number | null
+          ft_pct?: number | null
           games_played?: number
           id?: string
           player_id: string
@@ -3980,6 +3989,9 @@ export type Database = {
           avg_reb?: number | null
           avg_stl?: number | null
           avg_tov?: number | null
+          fg3_pct?: number | null
+          fg_pct?: number | null
+          ft_pct?: number | null
           games_played?: number
           id?: string
           player_id?: string
@@ -6126,6 +6138,27 @@ export type Database = {
         }
         Relationships: []
       }
+      user_dismissals: {
+        Row: {
+          dismissed_at: string
+          item_id: string
+          kind: string
+          user_id: string
+        }
+        Insert: {
+          dismissed_at?: string
+          item_id: string
+          kind: string
+          user_id: string
+        }
+        Update: {
+          dismissed_at?: string
+          item_id?: string
+          kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       user_subscriptions: {
         Row: {
           auto_renew: boolean | null
@@ -7731,14 +7764,6 @@ export type Database = {
       toggle_trade_block_interest: {
         Args: { p_league_id: string; p_player_id: string; p_team_id: string }
         Returns: boolean
-      }
-      transfer_team_ownership: {
-        Args: {
-          p_league_id: string
-          p_new_owner_email: string
-          p_team_id: string
-        }
-        Returns: Json
       }
       try_cast_uuid: { Args: { val: string }; Returns: string }
       vacate_team_internal: {

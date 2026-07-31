@@ -21,6 +21,9 @@ interface TradePlayerPickerBodyProps {
   selectedPlayerIds: string[];
   lockedPlayerIds?: Set<string>;
   pendingDropPlayerIds?: Set<string>;
+  /** League setting: when true, IR players are selectable (they land on the
+   *  receiver's bench). Defaults to false — IR rows stay blocked. */
+  irTradingEnabled?: boolean;
   onToggle: (player: TradeRosterPlayer, avgFpts: number) => void;
   isCategories?: boolean;
   /** Controlled search query — lifted to caller so collapse/reopen retains it. */
@@ -47,6 +50,7 @@ export function TradePlayerPickerBody({
   selectedPlayerIds,
   lockedPlayerIds,
   pendingDropPlayerIds,
+  irTradingEnabled = false,
   onToggle,
   isCategories,
   search,
@@ -68,7 +72,8 @@ export function TradePlayerPickerBody({
     const isLocked = lockedPlayerIds?.has(item.player_id) ?? false;
     const isPendingDrop = pendingDropPlayerIds?.has(item.player_id) ?? false;
     const isOnIR = item.roster_slot === 'IR';
-    const isDisabled = isLocked || isOnIR || isPendingDrop;
+    const irBlocked = isOnIR && !irTradingEnabled;
+    const isDisabled = isLocked || irBlocked || isPendingDrop;
     // sport matters: without it an NFL row scores 0 (the NBA stat map finds
     // none of PASS_YD/RUSH_TD/...), and that 0 is what onToggle hands to the
     // trade's fairness bar — every NFL proposal would read as perfectly even.

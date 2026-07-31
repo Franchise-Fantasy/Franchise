@@ -11,6 +11,7 @@ import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalI
 import { createLogger } from '../_shared/log.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { nextSlateRollover } from '../../../utils/leagueTime.ts';
+import { isActiveSlot } from '../../../utils/roster/rosterCutsShared.ts';
 import type { Database } from '../../../types/database.types.ts';
 
 const log = createLogger('execute-trade');
@@ -115,7 +116,7 @@ Deno.serve(async (req) => {
 
     const { data: league } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, sport, teams, current_teams, rookie_draft_rounds, max_future_seasons')
+      .select('created_by, name, trade_deadline, taxi_slots, taxi_max_experience, season, roster_size, position_limits, sport, teams, current_teams, rookie_draft_rounds, max_future_seasons, ir_trading_enabled')
       .eq('id', proposal.league_id)
       .single();
     const sport = (league as any)?.sport ?? null;
@@ -354,6 +355,86 @@ Deno.serve(async (req) => {
       }
     }
 
+    // Pre-compute taxi counts per receiving team for taxi-to-taxi trades —
+    // one grouped query instead of a head-count per team.
+    const taxiCountByTeam = new Map<string, number>();
+    if (league?.taxi_slots && league.taxi_slots > 0) {
+      const receivingTeamIds = [...new Set(playerItems.map((i: any) => i.to_team_id))];
+      if (receivingTeamIds.length > 0) {
+        const { data: taxiRows } = await supabaseAdmin
+          .from('league_players')
+          .select('team_id')
+          .eq('league_id', proposal.league_id)
+          .in('team_id', receivingTeamIds)
+          .eq('roster_slot', 'TAXI');
+        for (const r of taxiRows ?? []) {
+          taxiCountByTeam.set(r.team_id, (taxiCountByTeam.get(r.team_id) ?? 0) + 1);
+        }
+      }
+    }
+
+    // Get current roster slot + owning team + draft years for traded players.
+    // team_id rides along so the ownership re-validation below reuses this
+    // fetch (the same rows used to be fetched a second time for it).
+    const [slotRes, draftYearRes] = await Promise.all([
+      supabaseAdmin.from('league_players').select('player_id, team_id, roster_slot')
+        .eq('league_id', proposal.league_id).in('player_id', tradedPlayerIds),
+      supabaseAdmin.from('players').select('id, draft_year')
+        .in('id', tradedPlayerIds),
+    ]);
+    const currentSlotMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.roster_slot]));
+    const ownershipMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.team_id]));
+    const draftYearMap = new Map((draftYearRes.data ?? []).map((p) => [p.id, p.draft_year]));
+
+    // Block trading players currently on IR unless the league allows it.
+    // Checked before the capacity/pending_drops branch so a doomed trade can't
+    // nag GMs for drops first, and re-checked on cron re-executions too (the
+    // flag is read at execute time, matching the old unconditional block).
+    if (!league?.ir_trading_enabled) {
+      const irPlayers = tradedPlayerIds.filter((pid: string) => currentSlotMap.get(pid) === 'IR');
+      if (irPlayers.length > 0) {
+        throw new HttpError('Players on IR cannot be traded. Activate them from IR first.');
+      }
+    }
+
+    // Re-validate ownership: ensure every traded player is still on the
+    // expected team (ownershipMap comes from the traded-players fetch above).
+    for (const item of playerItems) {
+      // playerItems was filtered for non-null player_id above; the supabase row type still surfaces it as nullable.
+      if (item.player_id == null) continue;
+      if (ownershipMap.get(item.player_id) !== item.from_team_id) {
+        throw new HttpError('A traded player is no longer on the expected roster. The trade cannot be completed.');
+      }
+    }
+
+    // Compute target slots for each player move (taxi logic). An IR player
+    // traded in an ir_trading_enabled league lands on the bench — implicit
+    // activation, so the capacity check below counts him against the
+    // receiver's active roster.
+    const playerMoves = playerItems.map((item: any) => {
+      let targetSlot = 'BE';
+      if (currentSlotMap.get(item.player_id) === 'TAXI' && league?.taxi_slots && league.taxi_slots > 0) {
+        const currentTaxiCount = taxiCountByTeam.get(item.to_team_id) ?? 0;
+        if (currentTaxiCount < league.taxi_slots) {
+          const draftYear = draftYearMap.get(item.player_id);
+          const maxExp = league.taxi_max_experience;
+          const eligible = maxExp === null || (draftYear != null && (parseInt(league.season.split('-')[0]) + 1 - draftYear) <= maxExp);
+          if (eligible) {
+            targetSlot = 'TAXI';
+            taxiCountByTeam.set(item.to_team_id, currentTaxiCount + 1);
+          }
+        }
+      }
+      return {
+        player_id: item.player_id,
+        from_team_id: item.from_team_id,
+        to_team_id: item.to_team_id,
+        target_slot: targetSlot,
+        pre_trade_slot: currentSlotMap.get(item.player_id) ?? 'BE',
+      };
+    });
+    const targetSlotByPlayer = new Map(playerMoves.map((m) => [m.player_id, m.target_slot]));
+
     // Roster capacity check — ensure no team exceeds roster_size after the trade
     const rosterSize = league?.roster_size ?? 13;
     const dropsPayload: Array<{ team_id: string; player_id: string; waiver_until: string | null }> = [];
@@ -365,10 +446,18 @@ Deno.serve(async (req) => {
     const skippedDropsByTeam = new Map<string, string[]>();
 
     if (playerItems.length > 0) {
-      const netPlayersByTeam = new Map<string, number>();
-      for (const item of playerItems) {
-        netPlayersByTeam.set(item.from_team_id, (netPlayersByTeam.get(item.from_team_id) ?? 0) - 1);
-        netPlayersByTeam.set(item.to_team_id, (netPlayersByTeam.get(item.to_team_id) ?? 0) + 1);
+      // Net change to each team's ACTIVE roster, slot-aware on both sides: an
+      // incoming player counts only when he lands in an active slot (a
+      // taxi-to-taxi move doesn't), and an outgoing player frees a seat only
+      // when he currently occupies one (a traded-away IR/TAXI player doesn't).
+      const netActiveByTeam = new Map<string, number>();
+      for (const m of playerMoves) {
+        if (isActiveSlot(m.target_slot)) {
+          netActiveByTeam.set(m.to_team_id, (netActiveByTeam.get(m.to_team_id) ?? 0) + 1);
+        }
+        if (isActiveSlot(m.pre_trade_slot)) {
+          netActiveByTeam.set(m.from_team_id, (netActiveByTeam.get(m.from_team_id) ?? 0) - 1);
+        }
       }
 
       // Fetch drop selections and filter out stale ones. A drop is stale when
@@ -394,16 +483,25 @@ Deno.serve(async (req) => {
         const pids = rawDrops.map((d) => d.player_id);
         const { data: dropOwnership } = await supabaseAdmin
           .from('league_players')
-          .select('player_id, team_id')
+          .select('player_id, team_id, roster_slot')
           .eq('league_id', proposal.league_id)
           .in('player_id', pids);
         const ownerByPid = new Map((dropOwnership ?? []).map((r) => [r.player_id, r.team_id]));
+        const dropSlotByPid = new Map((dropOwnership ?? []).map((r) => [r.player_id, r.roster_slot]));
         for (const d of rawDrops) {
-          if (ownerByPid.get(d.player_id) === d.team_id) {
-            const arr = dropsByTeam.get(d.team_id) ?? [];
-            arr.push(d.player_id);
-            dropsByTeam.set(d.team_id, arr);
+          if (ownerByPid.get(d.player_id) !== d.team_id) continue;
+          if (!isActiveSlot(dropSlotByPid.get(d.player_id) ?? null)) {
+            // An IR/TAXI drop can't make active-roster room — skip it (the
+            // team is notified via the skipped-drops machinery) and let the
+            // capacity check decide whether a real drop is still owed.
+            const skipped = skippedDropsByTeam.get(d.team_id) ?? [];
+            skipped.push(d.player_id);
+            skippedDropsByTeam.set(d.team_id, skipped);
+            continue;
           }
+          const arr = dropsByTeam.get(d.team_id) ?? [];
+          arr.push(d.player_id);
+          dropsByTeam.set(d.team_id, arr);
         }
 
         // Clean up any stale drop ids on trade_proposal_teams so the UI and
@@ -432,7 +530,7 @@ Deno.serve(async (req) => {
       // queued PlayerX, then dropped a different player independently, so
       // the queued drop is no longer needed.
       const teamsToCheck = new Set<string>([
-        ...netPlayersByTeam.keys(),
+        ...netActiveByTeam.keys(),
         ...dropsByTeam.keys(),
       ]);
       // One grouped fetch for every team's roster slots — replaces two
@@ -453,12 +551,12 @@ Deno.serve(async (req) => {
       }
 
       for (const tid of teamsToCheck) {
-        const netGain = netPlayersByTeam.get(tid) ?? 0;
+        const netGain = netActiveByTeam.get(tid) ?? 0;
         const queued = dropsByTeam.get(tid) ?? [];
         if (netGain <= 0 && queued.length === 0) continue;
 
         const slots = slotRowsByTeam.get(tid) ?? [];
-        const activeCount = slots.length - slots.filter((s) => s === 'IR').length;
+        const activeCount = slots.filter((s) => isActiveSlot(s)).length;
 
         // How many drops the team actually needs to fit the trade.
         const requiredDrops = Math.max(0, activeCount + netGain - rosterSize);
@@ -468,7 +566,7 @@ Deno.serve(async (req) => {
           // record the rest as skipped so we can notify the team.
           const toKeep = queued.slice(0, requiredDrops);
           const toSkip = queued.slice(requiredDrops);
-          skippedDropsByTeam.set(tid, toSkip);
+          skippedDropsByTeam.set(tid, [...(skippedDropsByTeam.get(tid) ?? []), ...toSkip]);
           if (toKeep.length === 0) {
             dropsByTeam.delete(tid);
           } else {
@@ -576,7 +674,10 @@ Deno.serve(async (req) => {
               .map((p) => ({ position: p.position, roster_slot: p.roster_slot ?? undefined })),
             ...incomingIds.map((pid: string) => ({
               position: incomingPosMap.get(pid) ?? 'UTIL',
-              roster_slot: 'BE',
+              // Real landing slot: a bench (or IR-activated) arrival counts
+              // toward position limits; a taxi-preserved arrival doesn't
+              // (checkPositionLimitsForRoster filters non-active slots).
+              roster_slot: targetSlotByPlayer.get(pid) ?? 'BE',
             })),
           ];
 
@@ -635,59 +736,29 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Pre-compute taxi counts per receiving team for taxi-to-taxi trades —
-    // one grouped query instead of a head-count per team.
-    const taxiCountByTeam = new Map<string, number>();
-    if (league?.taxi_slots && league.taxi_slots > 0) {
-      const receivingTeamIds = [...new Set(playerItems.map((i: any) => i.to_team_id))];
-      if (receivingTeamIds.length > 0) {
-        const { data: taxiRows } = await supabaseAdmin
-          .from('league_players')
-          .select('team_id')
-          .eq('league_id', proposal.league_id)
-          .in('team_id', receivingTeamIds)
-          .eq('roster_slot', 'TAXI');
-        for (const r of taxiRows ?? []) {
-          taxiCountByTeam.set(r.team_id, (taxiCountByTeam.get(r.team_id) ?? 0) + 1);
-        }
-      }
-    }
-
-    // Get current roster slot + owning team + draft years for traded players.
-    // team_id rides along so the ownership re-validation below reuses this
-    // fetch (the same rows used to be fetched a second time for it).
-    const [slotRes, draftYearRes] = await Promise.all([
-      supabaseAdmin.from('league_players').select('player_id, team_id, roster_slot')
-        .eq('league_id', proposal.league_id).in('player_id', tradedPlayerIds),
-      supabaseAdmin.from('players').select('id, draft_year')
-        .in('id', tradedPlayerIds),
-    ]);
-    const currentSlotMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.roster_slot]));
-    const ownershipMap = new Map((slotRes.data ?? []).map((r) => [r.player_id, r.team_id]));
-    const draftYearMap = new Map((draftYearRes.data ?? []).map((p) => [p.id, p.draft_year]));
-
-    // Block trading players currently on IR
-    const irPlayers = tradedPlayerIds.filter((pid: string) => currentSlotMap.get(pid) === 'IR');
-    if (irPlayers.length > 0) {
-      throw new HttpError('Players on IR cannot be traded. Activate them from IR first.');
-    }
-
     // Block trade if either team has a player in an IR slot who is no longer
     // injured. Delayed cron re-executions bypass (already validated at submission).
-    // If the team is dropping an illegal-IR player as part of this trade, treat
-    // that player as exempt — the trade itself resolves the lockout.
+    // If the team is dropping an illegal-IR player as part of this trade — or,
+    // with ir_trading_enabled, trading him away — treat that player as exempt:
+    // the trade itself resolves the lockout.
     if (!isServerCall) {
       const teamsInTrade = [...new Set(playerItems.flatMap((i: any) => [i.from_team_id, i.to_team_id]))];
       // Per-team checks are independent — run them together (they were serial).
       // Results are inspected in the original team order so which team's
       // lockout error surfaces first is unchanged.
       const illegalResults = await Promise.all(
-        teamsInTrade.map(async (tid) => ({
-          tid,
-          illegal: await fetchIllegalIRPlayers(
-            supabaseAdmin, proposal.league_id, tid as string, dropsByTeam.get(tid as string) ?? [],
-          ),
-        })),
+        teamsInTrade.map(async (tid) => {
+          const outgoing = playerItems
+            .filter((i: any) => i.from_team_id === tid)
+            .map((i: any) => i.player_id);
+          return {
+            tid,
+            illegal: await fetchIllegalIRPlayers(
+              supabaseAdmin, proposal.league_id, tid as string,
+              [...(dropsByTeam.get(tid as string) ?? []), ...outgoing],
+            ),
+          };
+        }),
       );
       for (const { tid, illegal } of illegalResults) {
         if (illegal.length > 0) {
@@ -706,40 +777,6 @@ Deno.serve(async (req) => {
       .lte('start_date', todayDate)
       .gte('end_date', todayDate)
       .maybeSingle();
-
-    // Re-validate ownership: ensure every traded player is still on the
-    // expected team (ownershipMap comes from the traded-players fetch above).
-    for (const item of playerItems) {
-      // playerItems was filtered for non-null player_id above; the supabase row type still surfaces it as nullable.
-      if (item.player_id == null) continue;
-      if (ownershipMap.get(item.player_id) !== item.from_team_id) {
-        throw new HttpError('A traded player is no longer on the expected roster. The trade cannot be completed.');
-      }
-    }
-
-    // Compute target slots for each player move (taxi logic)
-    const playerMoves = playerItems.map((item: any) => {
-      let targetSlot = 'BE';
-      if (currentSlotMap.get(item.player_id) === 'TAXI' && league?.taxi_slots && league.taxi_slots > 0) {
-        const currentTaxiCount = taxiCountByTeam.get(item.to_team_id) ?? 0;
-        if (currentTaxiCount < league.taxi_slots) {
-          const draftYear = draftYearMap.get(item.player_id);
-          const maxExp = league.taxi_max_experience;
-          const eligible = maxExp === null || (draftYear != null && (parseInt(league.season.split('-')[0]) + 1 - draftYear) <= maxExp);
-          if (eligible) {
-            targetSlot = 'TAXI';
-            taxiCountByTeam.set(item.to_team_id, currentTaxiCount + 1);
-          }
-        }
-      }
-      return {
-        player_id: item.player_id,
-        from_team_id: item.from_team_id,
-        to_team_id: item.to_team_id,
-        target_slot: targetSlot,
-        pre_trade_slot: currentSlotMap.get(item.player_id) ?? 'BE',
-      };
-    });
 
     const pickMoves = pickItems.map((item: any) => ({
       draft_pick_id: item.draft_pick_id,

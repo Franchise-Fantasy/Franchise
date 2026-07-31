@@ -1,4 +1,4 @@
-import { useCallback, useRef } from "react";
+import { useCallback, useMemo, useRef } from "react";
 import { LayoutChangeEvent, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 import { TeamLogo } from "@/components/team/TeamLogo";
@@ -11,7 +11,7 @@ interface TeamRailProps {
   /** Teams in standings order — `fetchStandingsTeams` already sorts them. */
   teams: TeamStanding[];
   selectedTeamId: string;
-  /** The signed-in user's team — marked with a gold ring wherever it sits. */
+  /** The signed-in user's team — pinned leftmost and marked with a gold ring. */
   myTeamId: string;
   onSelect: (teamId: string) => void;
 }
@@ -21,12 +21,13 @@ function recordLabel(t: TeamStanding): string {
 }
 
 /**
- * League switcher for the analytics page — a rail of team logos in standings
- * order. The selected team expands into a pill carrying its name and record, so
- * the rail labels the chart below it without spending a second row on a title;
- * every other team stays a bare puck. Uses the BrandSegmented chyron language (a
- * turf underline over a hairline baseline) so it reads as the same family of
- * control as the app's other tab strips.
+ * League switcher for the analytics page — a rail of team logos, the user's own
+ * team first and everyone else in standings order. The selected team expands
+ * into a pill carrying its name and record, so the rail labels the chart below
+ * it without spending a second row on a title; every other team stays a bare
+ * puck. Uses the BrandSegmented chyron language (a turf underline over a
+ * hairline baseline) so it reads as the same family of control as the app's
+ * other tab strips.
  *
  * Switching is free — `useLeagueRosterStats` already holds every team's players,
  * so `onSelect` only re-filters data that's in memory.
@@ -36,8 +37,15 @@ export function TeamRail({ teams, selectedTeamId, myTeamId, onSelect }: TeamRail
   const scrollRef = useRef<ScrollView>(null);
   const offsets = useRef(new Map<string, number>());
 
-  // Keep the selected pill in view — it can sit anywhere in the standings, and
-  // on first render it's the user's own team, which is often mid-table.
+  // The user's team leads the rail so the view they open on is already the
+  // leftmost puck — nothing to scroll back for. The rest keep standings order.
+  const ordered = useMemo(() => {
+    const mine = teams.filter((t) => t.id === myTeamId);
+    return mine.length ? [...mine, ...teams.filter((t) => t.id !== myTeamId)] : teams;
+  }, [teams, myTeamId]);
+
+  // Keep the selected pill in view — once the user picks someone else it can
+  // sit anywhere down the rail.
   const revealSelected = useCallback(() => {
     const x = offsets.current.get(selectedTeamId);
     if (x == null) return;
@@ -62,7 +70,7 @@ export function TeamRail({ teams, selectedTeamId, myTeamId, onSelect }: TeamRail
         accessibilityRole="tablist"
         accessibilityLabel="League teams"
       >
-        {teams.map((team) => {
+        {ordered.map((team) => {
           const isSelected = team.id === selectedTeamId;
           const isMine = team.id === myTeamId;
           const record = recordLabel(team);

@@ -43,7 +43,19 @@ export interface ConfirmConfig {
   cancelLabel?: string;
   /** Optional cleanup when the user taps Cancel (real side effect, not dismiss-only). */
   onCancel?: () => void;
+  /**
+   * Fired when the dialog is dismissed by tapping the scrim — the one exit that
+   * runs neither `action.onPress` nor `onCancel`. Set this whenever the caller
+   * has state that MUST settle on every exit path (e.g. a "restore saved
+   * progress?" prompt that gates later writes), or a scrim tap wedges it.
+   */
+  onDismiss?: () => void;
   action: ConfirmAction;
+  /**
+   * Renders the action button alone. For acknowledgements where there is no
+   * second choice — pair with `onDismiss` so a scrim tap still continues.
+   */
+  hideCancel?: boolean;
   /**
    * Adds a TextInput inside the card and disables the action button
    * until the typed value matches this token (case-insensitive,
@@ -66,7 +78,9 @@ export function InlineConfirm({ config, onClose }: Props) {
     message,
     cancelLabel = 'Cancel',
     onCancel,
+    onDismiss,
     action,
+    hideCancel,
     requireTypedConfirmation,
   } = config;
 
@@ -85,6 +99,11 @@ export function InlineConfirm({ config, onClose }: Props) {
   const handleCancel = () => {
     onClose();
     if (onCancel) setTimeout(onCancel, CLOSE_DELAY_MS);
+  };
+
+  const handleDismiss = () => {
+    onClose();
+    if (onDismiss) setTimeout(onDismiss, CLOSE_DELAY_MS);
   };
 
   const actionBg = action.destructive ? c.danger : c.gold;
@@ -123,6 +142,7 @@ export function InlineConfirm({ config, onClose }: Props) {
       ) : null}
 
       <View style={styles.buttonRow}>
+        {hideCancel ? null : (
         <TouchableOpacity
           onPress={handleCancel}
           style={[
@@ -138,6 +158,7 @@ export function InlineConfirm({ config, onClose }: Props) {
             {cancelLabel.toUpperCase()}
           </ThemedText>
         </TouchableOpacity>
+        )}
         <TouchableOpacity
           onPress={handleConfirm}
           disabled={buttonDisabled}
@@ -168,7 +189,7 @@ export function InlineConfirm({ config, onClose }: Props) {
       <TouchableOpacity
         style={StyleSheet.absoluteFill}
         activeOpacity={1}
-        onPress={onClose}
+        onPress={handleDismiss}
         accessibilityRole="button"
         accessibilityLabel="Close"
       />

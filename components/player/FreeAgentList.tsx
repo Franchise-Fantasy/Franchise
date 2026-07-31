@@ -1,10 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  View,
-} from "react-native";
+import { Alert, FlatList, View } from "react-native";
 
 import { CompareBar } from "@/components/player/CompareBar";
 import { FaabBidModal } from "@/components/player/FaabBidModal";
@@ -36,6 +32,7 @@ import { useCompareSelection } from "@/context/CompareSelectionProvider";
 import { useActionPicker, useConfirm } from "@/context/ConfirmProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
+import { useFreeAgentRosterInfo } from "@/hooks/useFreeAgentRosterInfo";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
@@ -186,57 +183,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     };
   }, [leagueId, queryClient]);
 
-  // Fetch roster info + league waiver settings
-  const { data: rosterInfo } = useQuery({
-    queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId),
-    queryFn: async () => {
-      const [allPlayersRes, irPlayersRes, leagueRes] = await Promise.all([
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId),
-        supabase
-          .from("league_players")
-          .select("id", { count: "exact", head: true })
-          .eq("league_id", leagueId)
-          .eq("team_id", teamId)
-          .eq("roster_slot", "IR"),
-        supabase
-          .from("leagues")
-          .select(
-            "roster_size, waiver_type, offseason_step, weekly_acquisition_limit, player_lock_type, position_limits",
-          )
-          .eq("id", leagueId)
-          .single(),
-      ]);
-      if (allPlayersRes.error) throw allPlayersRes.error;
-      if (irPlayersRes.error) throw irPlayersRes.error;
-      if (leagueRes.error) throw leagueRes.error;
-      const activeCount =
-        (allPlayersRes.count ?? 0) - (irPlayersRes.count ?? 0);
-      return {
-        activeCount,
-        maxSize: leagueRes.data?.roster_size ?? 13,
-        waiverType: (leagueRes.data?.waiver_type ?? "none") as
-          | "standard"
-          | "faab"
-          | "none",
-        offseasonStep: leagueRes.data?.offseason_step as string | null,
-        weeklyAcquisitionLimit: leagueRes.data?.weekly_acquisition_limit as
-          | number
-          | null,
-        playerLockType: (leagueRes.data?.player_lock_type ?? "daily") as
-          | "daily"
-          | "individual",
-        positionLimits: leagueRes.data?.position_limits as
-          | Record<string, number>
-          | null,
-      };
-    },
-    enabled: !!leagueId && !!teamId,
-    placeholderData: (prev: any) => prev,
-  });
+  // Roster head-count + league waiver/trade settings
+  const { data: rosterInfo } = useFreeAgentRosterInfo(leagueId, teamId);
 
   const rosterIsFull = rosterInfo
     ? rosterInfo.activeCount >= rosterInfo.maxSize
@@ -245,6 +193,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const isOffseason = rosterInfo?.offseasonStep != null;
   const weeklyLimit = rosterInfo?.weeklyAcquisitionLimit ?? null;
   const playerLockType = rosterInfo?.playerLockType ?? "daily";
+  // Read path: default FALSE (blocking) until the league row loads.
+  const irTradingEnabled = rosterInfo?.irTradingEnabled ?? false;
   // The ribbon only carries pills when the league has a weekly add limit
   // and/or a waiver system; otherwise it's empty, so we skip it entirely.
   const hasRibbonContent = weeklyLimit != null || waiverType !== "none";
@@ -421,9 +371,16 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   const ownershipMap = useMemo(() => {
     if (!ownershipRows) return undefined;
-    const map = new Map<string, { teamId: string; teamName: string }>();
+    const map = new Map<
+      string,
+      { teamId: string; teamName: string; rosterSlot: string | null }
+    >();
     for (const row of ownershipRows) {
-      map.set(row.playerId, { teamId: row.teamId, teamName: row.teamName });
+      map.set(row.playerId, {
+        teamId: row.teamId,
+        teamName: row.teamName,
+        rosterSlot: row.rosterSlot,
+      });
     }
     return map;
   }, [ownershipRows]);
@@ -1109,8 +1066,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           : null;
       const owner = ownershipMap?.get(item.player_id) ?? null;
       // Only offer a trade when another team owns the player — never for the
-      // user's own roster or unrostered free agents.
-      const canTradeFor = owner != null && owner.teamId !== teamId;
+      // user's own roster or unrostered free agents. IR players are only
+      // tradeable when the league has IR trading enabled.
+      const canTradeFor =
+        owner != null &&
+        owner.teamId !== teamId &&
+        (irTradingEnabled || owner.rosterSlot !== "IR");
 
       return (
         <FreeAgentRow
@@ -1140,7 +1101,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     [
       scoringWeights, isCategories, sport, waiverType, waiverPlayerMap,
       todaySchedule, projectionsActive, projections, ownershipMap,
-      rosteredPlayerIds, teamId, addingPlayerId, rowsDisabled, listLength,
+      rosteredPlayerIds, teamId, irTradingEnabled, addingPlayerId, rowsDisabled, listLength,
       isCompareMode, compareSelectedIds, onRowPress, onRowAddOrClaim, onRowTrade,
     ],
   );

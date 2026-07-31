@@ -24,8 +24,20 @@ afterAll(() => {
   jest.useRealTimers();
 });
 
+// Shooting makes/attempts are the one place a matview row says the same thing
+// twice — total_* and avg_* are two views of the same box scores. The
+// percentage cats read the TOTALS (they're exact; avg_* is stored 1dp), so a
+// fixture overriding only avg_ftm/avg_fta would otherwise describe an
+// impossible player and test nothing real. Derive the totals from whatever
+// averages the caller ends up with; an explicit total_* override still wins.
+const SHOOTING_PAIRS = [
+  ['avg_fgm', 'total_fgm'], ['avg_fga', 'total_fga'],
+  ['avg_3pm', 'total_3pm'], ['avg_3pa', 'total_3pa'],
+  ['avg_ftm', 'total_ftm'], ['avg_fta', 'total_fta'],
+] as const;
+
 function makePlayer(overrides: Partial<PlayerSeasonStats & { team_id: string }> = {}): PlayerSeasonStats & { team_id: string } {
-  return {
+  const player = {
     player_id: 'p1', name: 'Test Player', position: 'PG', pro_team: 'LAL',
     status: 'active', external_id_nba: null, rookie: false,
     season_added: null, draft_year: null, birthdate: '2000-01-01', games_played: 10,
@@ -38,6 +50,12 @@ function makePlayer(overrides: Partial<PlayerSeasonStats & { team_id: string }> 
     team_id: 'team-a',
     ...overrides,
   };
+  for (const [avgKey, totalKey] of SHOOTING_PAIRS) {
+    if (!(totalKey in overrides)) {
+      player[totalKey] = Math.round(player[avgKey] * player.games_played);
+    }
+  }
+  return player;
 }
 
 describe('computeTeamCategoryAvgs', () => {

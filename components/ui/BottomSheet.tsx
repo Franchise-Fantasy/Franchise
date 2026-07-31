@@ -22,6 +22,15 @@
  *
  * Keyboard handling: pass `keyboardAvoiding` for sheets containing text
  * inputs. Defaults off because most sheets don't need it.
+ *
+ * Desktop web: a bottom-anchored, full-bleed sheet is a phone idiom — on a
+ * monitor it stretches to the viewport and reads as a blown-up mobile screen.
+ * At >=1024 the same component renders as a centred dialog instead: width
+ * capped by `desktopWidth`, all four corners rounded, and the drag handle
+ * swapped for a full-bleed gold band (there's no thumb to swipe with, and the
+ * band matches the brand's media-guide header rules). Entry becomes a short
+ * rise + fade rather than a full-height slide. Every consumer gets this
+ * without changing a line.
  */
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -46,6 +55,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Fonts } from '@/constants/Colors';
 import { DialogHost } from '@/context/ConfirmProvider';
+import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColors } from '@/hooks/useColors';
 import { ms, s } from '@/utils/scale';
 
@@ -75,6 +85,12 @@ interface BottomSheetProps {
   bodyStyle?: StyleProp<ViewStyle>;
   /** Set to false to disable the body's built-in ScrollView (when body has its own scroll). */
   scrollableBody?: boolean;
+  /**
+   * Max width of the centred desktop dialog (web >=1024). Default suits a
+   * single-column form or picker; raise it for sheets with a real desktop
+   * layout to fill (e.g. the player dossier's two columns).
+   */
+  desktopWidth?: number;
   children: React.ReactNode;
 }
 
@@ -89,10 +105,12 @@ export function BottomSheet({
   height,
   bodyStyle,
   scrollableBody = true,
+  desktopWidth = 560,
   children,
 }: BottomSheetProps) {
   const c = useColors();
   const insets = useSafeAreaInsets();
+  const { isDesktop } = useBreakpoint();
 
   // On iOS the `keyboardAvoiding` KeyboardAvoidingView uses `behavior="padding"`,
   // which lifts the whole bottom-anchored sheet up by the keyboard height. Without
@@ -123,11 +141,18 @@ export function BottomSheet({
     windowHeight - insets.top - keyboardHeight - s(8),
   );
 
-  const slideAnim = useRef(new Animated.Value(Dimensions.get('window').height)).current;
+  // A centred dialog shouldn't travel the full viewport to open — it rises a
+  // few pixels into place. The bottom sheet still slides the whole way up.
+  const enterOffset = isDesktop ? 24 : windowHeight;
+
+  const slideAnim = useRef(new Animated.Value(windowHeight)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
+      // Seed from the current variant rather than the ref's init value, so the
+      // desktop dialog can't inherit a full-height slide from first mount.
+      slideAnim.setValue(enterOffset);
       Animated.parallel([
         Animated.timing(fadeAnim, {
           toValue: 1,
@@ -142,7 +167,7 @@ export function BottomSheet({
         }),
       ]).start();
     }
-  }, [visible, fadeAnim, slideAnim]);
+  }, [visible, fadeAnim, slideAnim, enterOffset]);
 
   const handleClose = useCallback(() => {
     Animated.parallel([
@@ -152,12 +177,12 @@ export function BottomSheet({
         useNativeDriver: true,
       }),
       Animated.timing(slideAnim, {
-        toValue: Dimensions.get('window').height,
+        toValue: enterOffset,
         duration: 160,
         useNativeDriver: true,
       }),
     ]).start(() => onClose());
-  }, [fadeAnim, slideAnim, onClose]);
+  }, [fadeAnim, slideAnim, onClose, enterOffset]);
 
   // Swipe-to-dismiss. The PanResponder lives on the sheet's top region
   // (handle + gold rule + header) — always non-scrolling, so it never
@@ -167,11 +192,16 @@ export function BottomSheet({
   // responder (created once) always calls the latest closure.
   const handleCloseRef = useRef(handleClose);
   handleCloseRef.current = handleClose;
+  // Read through a ref: the responder is created once, but the variant can flip
+  // on a browser resize. Drag-to-dismiss is a touch idiom — on the desktop
+  // dialog it would just hijack cursor drags over the header.
+  const isDesktopRef = useRef(isDesktop);
+  isDesktopRef.current = isDesktop;
   const dragResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_, g) =>
-        g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
+        !isDesktopRef.current && g.dy > 4 && Math.abs(g.dy) > Math.abs(g.dx),
       onPanResponderMove: (_, g) => {
         if (g.dy > 0) slideAnim.setValue(g.dy);
       },
@@ -207,6 +237,12 @@ export function BottomSheet({
     },
     height != null && { height },
     height == null && { maxHeight: maxSheetHeight },
+    // The base paddingBottom clears the home indicator. With the keyboard up the
+    // sheet is lifted off the screen bottom, so that clearance has nothing to
+    // clear and reads as a dead band of background under the last row.
+    keyboardHeight > 0 && { paddingBottom: s(8) },
+    isDesktop && styles.sheetDesktop,
+    isDesktop && { maxWidth: desktopWidth, maxHeight: windowHeight * 0.88 },
   ];
 
   const body = scrollableBody ? (
@@ -226,17 +262,26 @@ export function BottomSheet({
     <Animated.View style={sheetStyle} accessibilityViewIsModal>
       {/* Draggable top region — swipe down anywhere on the handle/header to dismiss */}
       <View {...dragResponder.panHandlers}>
-        {/* Drag handle pill */}
-        <View
-          style={styles.handleWrap}
-          accessibilityRole="adjustable"
-          accessibilityLabel="Swipe down to close"
-        >
-          <View style={[styles.handle, { backgroundColor: c.border }]} />
-        </View>
+        {/* Drag handle pill — touch affordance only. */}
+        {!isDesktop && (
+          <View
+            style={styles.handleWrap}
+            accessibilityRole="adjustable"
+            accessibilityLabel="Swipe down to close"
+          >
+            <View style={[styles.handle, { backgroundColor: c.border }]} />
+          </View>
+        )}
 
-        {/* Top gold rule */}
-        <View style={[styles.topRule, { backgroundColor: c.gold }]} />
+        {/* Gold rule. Inset on the sheet; on the desktop dialog it runs the
+            full width as a header band, standing in for the dropped handle. */}
+        <View
+          style={[
+            styles.topRule,
+            isDesktop && styles.topRuleDesktop,
+            { backgroundColor: c.gold },
+          ]}
+        />
 
         {/* Header */}
         {title != null && (
@@ -296,7 +341,7 @@ export function BottomSheet({
       animationType="none"
       onRequestClose={handleClose}
     >
-      <View style={styles.root}>
+      <View style={[styles.root, isDesktop && styles.rootDesktop]}>
         {/* Backdrop scrim — fades independently of the sheet's slide */}
         <Animated.View style={[styles.scrim, { opacity: fadeAnim }]}>
           <Pressable
@@ -310,7 +355,7 @@ export function BottomSheet({
         {keyboardAvoiding ? (
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.keyboardWrap}
+            style={[styles.keyboardWrap, isDesktop && styles.rootDesktop]}
           >
             {sheet}
           </KeyboardAvoidingView>
@@ -329,6 +374,11 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
+  rootDesktop: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
   scrim: {
     ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(20, 16, 16, 0.55)', // Brand.ink @ 55%
@@ -345,6 +395,13 @@ const styles = StyleSheet.create({
     paddingBottom: s(32), // home-indicator clearance, brand bg flows into this zone
     overflow: 'hidden',
   },
+  sheetDesktop: {
+    width: '100%',
+    borderRadius: 16,
+    borderWidth: 1,
+    paddingTop: 0, // the gold band sits flush to the top edge
+    paddingBottom: s(16), // no home indicator to clear
+  },
   handleWrap: {
     alignItems: 'center',
     paddingTop: s(2),
@@ -359,6 +416,11 @@ const styles = StyleSheet.create({
     height: 2,
     marginHorizontal: s(20),
     marginBottom: s(14),
+  },
+  topRuleDesktop: {
+    height: 3,
+    marginHorizontal: 0,
+    marginBottom: s(18),
   },
   header: {
     flexDirection: 'row',

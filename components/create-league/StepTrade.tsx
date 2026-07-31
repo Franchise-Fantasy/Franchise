@@ -107,7 +107,6 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
             )
           }
           c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
-          last={!deadlineEnabled && !isDynasty}
         />
 
         <AnimatedSection visible={deadlineEnabled}>
@@ -125,9 +124,18 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
             onChange={(iso) => onChange('tradeDeadlineDate', iso)}
             minimumDate={seasonStartDate}
             maximumDate={lastWeekEndDate ? parseLocalDate(lastWeekEndDate) : undefined}
-            last={!isDynasty}
           />
         </AnimatedSection>
+
+        <ToggleRow
+          icon="bandage-outline"
+          label="IR Player Trading"
+          description="Allow IR players to be included in trades. Traded IR players land on the receiving team's bench."
+          value={state.irTradingEnabled}
+          onToggle={(v) => onChange('irTradingEnabled', v)}
+          c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+          last={!isDynasty}
+        />
 
         {isDynasty && (
           <>

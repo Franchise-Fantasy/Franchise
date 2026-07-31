@@ -12,15 +12,15 @@ import {
   View,
 } from 'react-native';
 
-import { AppTextInput } from '@/components/ui/AppTextInput';
+import { InviteEmailField } from '@/components/commissioner/InviteEmailField';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useToast } from '@/context/ToastProvider';
+import { useLeagueInvites } from '@/hooks/invites/useLeagueInvites';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
-import { sendLeagueInvite } from '@/utils/league/sendLeagueInvite';
 import { ms, s } from '@/utils/scale';
 
 interface TeamAssignerProps {
@@ -41,8 +41,6 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
   const { showToast } = useToast();
   const [assigning, setAssigning] = useState(false);
   const [selectedTeam, setSelectedTeam] = useState<ImportedTeam | null>(null);
-  const [inviteEmail, setInviteEmail] = useState('');
-  const [sendingInvite, setSendingInvite] = useState(false);
 
   // Fetch teams with user_id and sleeper_roster_id
   const { data, isLoading } = useQuery({
@@ -59,6 +57,13 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
     },
     enabled: !!leagueId,
   });
+
+  // A pending invite holds its team — send-league-invite rejects a second one,
+  // so flag it on the row rather than letting the commissioner find out on send.
+  const { invites } = useLeagueInvites(leagueId);
+  const reservedTeamIds = new Set(
+    invites.filter(i => i.status === 'pending' && i.team_id).map(i => i.team_id as string),
+  );
 
   const allTeams = data ?? [];
   const unclaimedTeams = allTeams.filter(t => t.sleeper_roster_id !== null && t.user_id === null);
@@ -97,37 +102,7 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
     }
   };
 
-  const closeModal = () => {
-    setSelectedTeam(null);
-    setInviteEmail('');
-  };
-
-  // Invite the owner by email. Phase 1: if they already have an account they get
-  // a push that deep-links into the claim flow; if not, we tell the commissioner
-  // to share the invite code (emailed download invites are Phase 2).
-  const handleSendInvite = async () => {
-    const email = inviteEmail.trim();
-    if (!email || !selectedTeam) return;
-    setSendingInvite(true);
-    try {
-      const result = await sendLeagueInvite({ leagueId, email, teamId: selectedTeam.id });
-      if (result.status === 'error') {
-        Alert.alert('Invite failed', result.message);
-        return;
-      }
-      if (result.status === 'no_account') {
-        Alert.alert(
-          'No account found',
-          `No Franchise account is registered to ${email}. Share your league invite code so they can sign up, then assign their team here. (Emailed invites are coming soon.)`,
-        );
-        return;
-      }
-      showToast('success', `Invite sent to ${email}`);
-      closeModal();
-    } finally {
-      setSendingInvite(false);
-    }
-  };
+  const closeModal = () => setSelectedTeam(null);
 
   return (
     <View style={[styles.section, { backgroundColor: c.card, borderColor: c.border, borderLeftWidth: 3, borderLeftColor: c.link }]}>
@@ -154,8 +129,10 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
             <ThemedText style={styles.teamName}>{team.name}</ThemedText>
           </View>
           <View style={styles.assignBadge}>
-            <Text style={[styles.assignText, { color: c.accent }]}>
-              {availableMembers.length > 0 ? 'Assign' : 'No members'}
+            <Text style={[styles.assignText, { color: reservedTeamIds.has(team.id) ? c.secondaryText : c.accent }]}>
+              {reservedTeamIds.has(team.id)
+                ? 'Invited'
+                : availableMembers.length > 0 ? 'Assign' : 'No members'}
             </Text>
             {availableMembers.length > 0 && (
               <Ionicons name="chevron-forward" size={16} color={c.accent} accessible={false} />
@@ -190,39 +167,14 @@ export function TeamAssigner({ leagueId }: TeamAssignerProps) {
             <ThemedText style={[styles.inviteLabel, { color: c.secondaryText }]}>
               INVITE BY EMAIL
             </ThemedText>
-            <View style={styles.inviteRow}>
-              <AppTextInput
-                style={[styles.emailInput, { color: c.text, borderColor: c.border, backgroundColor: c.cardAlt }]}
-                value={inviteEmail}
-                onChangeText={setInviteEmail}
-                placeholder="name@email.com"
-                placeholderTextColor={c.secondaryText}
-                autoCapitalize="none"
-                autoCorrect={false}
-                keyboardType="email-address"
-                editable={!sendingInvite}
-                returnKeyType="send"
-                onSubmitEditing={handleSendInvite}
-                accessibilityLabel="Invitee email address"
+            {selectedTeam && (
+              <InviteEmailField
+                leagueId={leagueId}
+                teamId={selectedTeam.id}
+                targetLabel={selectedTeam.name}
+                onSent={closeModal}
               />
-              <TouchableOpacity
-                style={[
-                  styles.sendBtn,
-                  { backgroundColor: c.accent },
-                  (!inviteEmail.trim() || sendingInvite) && { opacity: 0.5 },
-                ]}
-                onPress={handleSendInvite}
-                disabled={!inviteEmail.trim() || sendingInvite}
-                accessibilityRole="button"
-                accessibilityLabel={`Send invite to ${selectedTeam?.name}`}
-              >
-                {sendingInvite ? (
-                  <LogoSpinner size={16} />
-                ) : (
-                  <Text style={[styles.sendBtnText, { color: c.statusText }]}>Send</Text>
-                )}
-              </TouchableOpacity>
-            </View>
+            )}
 
             {availableMembers.length > 0 && (
               <>
@@ -328,31 +280,6 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     fontWeight: '600',
     marginBottom: s(8),
-  },
-  inviteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  emailInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-    paddingVertical: s(10),
-    fontSize: ms(14),
-  },
-  sendBtn: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(11),
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: s(60),
-  },
-  sendBtnText: {
-    fontSize: ms(14),
-    fontWeight: '600',
   },
   orDivider: {
     fontSize: ms(12),

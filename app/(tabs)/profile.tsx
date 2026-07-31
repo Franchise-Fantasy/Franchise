@@ -544,6 +544,9 @@ export default function ProfileScreen() {
         )}
 
         {/* ─── Notifications ───────────────────────────────────────────────── */}
+        {/* Native-only: there's no push transport on web, so the toggle would be
+            a control that silently does nothing. Hide the section entirely. */}
+        {Platform.OS !== 'web' && (
         <Section title="Notifications">
           <ListRow index={0} total={notificationsEnabled ? 2 : 1}>
             <View style={styles.rowContent}>
@@ -601,6 +604,7 @@ export default function ProfileScreen() {
             </ListRow>
           )}
         </Section>
+        )}
 
         {/* ─── Preferences ─────────────────────────────────────────────────── */}
         <Section title="Preferences">

@@ -52,6 +52,7 @@ export function useLeague() {
           player_lock_type, position_limits, sport, combine_cup_week, archived_at,
           archived_by, rookie_pick_time_limit, waiver_priority_reset,
           faab_tiebreak, roster_cuts_deadline, roster_cuts_grace_days,
+          ir_trading_enabled,
           league_teams:teams!teams_league_id_fkey (
             id,
             name,

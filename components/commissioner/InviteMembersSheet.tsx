@@ -1,39 +1,87 @@
-import { useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Share, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
+import { InviteEmailField } from '@/components/commissioner/InviteEmailField';
 import { SentInvitesList } from '@/components/commissioner/SentInvitesList';
-import { AppTextInput } from '@/components/ui/AppTextInput';
 import { BottomSheet } from '@/components/ui/BottomSheet';
-import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { queryKeys } from '@/constants/queryKeys';
-import { useToast } from '@/context/ToastProvider';
+import { Fonts } from '@/constants/Colors';
+import { useLeagueInvites } from '@/hooks/invites/useLeagueInvites';
 import { useColors } from '@/hooks/useColors';
-import { sendLeagueInvite } from '@/utils/league/sendLeagueInvite';
 import { ms, s } from '@/utils/scale';
+
+export interface SheetTeam {
+  id: string;
+  name: string;
+  user_id: string | null;
+}
 
 interface Props {
   leagueId: string;
   /** Shown as the fallback for invitees who don't have an account yet. */
   inviteCode: string | null;
+  /** Every team in the league. Ownerless ones become the reservation targets. */
+  teams: SheetTeam[];
+  /** `current_teams >= teams`. An open invite has nowhere to land when full. */
+  leagueFull: boolean;
   visible: boolean;
   onClose: () => void;
 }
 
 /**
- * Commissioner surface to invite members by email to any league. Invokes the
- * generalized send-league-invite edge fn (no team_id → open-league invite),
- * which persists an `invitations` record the invitee's home card reads and fires
- * a best-effort push. The persisted record is what makes the invite survive a
- * missed push. Also embeds the sent-invites list (resend / cancel).
+ * Commissioner surface to invite members by email. Invokes the generalized
+ * send-league-invite edge fn, which persists an `invitations` record the
+ * invitee's home card reads and fires a best-effort push. The persisted record
+ * is what makes the invite survive a missed push. Also embeds the sent-invites
+ * list (resend / cancel).
+ *
+ * Handing an existing team to a new owner runs through here too — pick the team
+ * and the invite reserves it, replacing the old TransferOwnershipModal. That
+ * modal wrote `teams.user_id` straight from an RPC: no acceptance, no
+ * notification, and no guard against overwriting a team someone already owned.
+ * To reassign a team that still has an owner, remove the member first (which
+ * vacates the team) and then invite into it.
  */
-export function InviteMembersSheet({ leagueId, inviteCode, visible, onClose }: Props) {
+export function InviteMembersSheet({
+  leagueId,
+  inviteCode,
+  teams,
+  leagueFull,
+  visible,
+  onClose,
+}: Props) {
   const c = useColors();
-  const { showToast } = useToast();
-  const queryClient = useQueryClient();
-  const [email, setEmail] = useState('');
-  const [sending, setSending] = useState(false);
+  // Same query key as the embedded SentInvitesList, so React Query serves both
+  // from one fetch.
+  const { invites } = useLeagueInvites(leagueId, visible);
+
+  // `undefined` means the picker is untouched and takes the default below;
+  // `null` means the commissioner explicitly chose an open invite.
+  const [picked, setPicked] = useState<string | null | undefined>(undefined);
+
+  // A pending invite already holds its team. Offering it again would send two
+  // people to the same roster to race for it, and the loser would just get
+  // "Team is already claimed" with no explanation.
+  const reservedTeamIds = new Set(
+    invites.filter((i) => i.status === 'pending' && i.team_id).map((i) => i.team_id as string),
+  );
+  const unclaimed = teams.filter((t) => !t.user_id);
+  const teamNames = Object.fromEntries(teams.map((t) => [t.id, t.name]));
+
+  // A full league can only absorb someone through an unclaimed team, so default
+  // there rather than to an open invite the edge fn would reject as "League is full".
+  const teamId = picked === undefined
+    ? (leagueFull ? unclaimed.find((t) => !reservedTeamIds.has(t.id))?.id ?? null : null)
+    : picked;
+
+  // A team claimed or reserved since the sheet opened drops out here, which
+  // falls the selection back to an open invite rather than sending a stale id.
+  const selectedTeam = unclaimed.find((t) => t.id === teamId && !reservedTeamIds.has(t.id)) ?? null;
+
+  const handleClose = () => {
+    setPicked(undefined);
+    onClose();
+  };
 
   const handleShareCode = async () => {
     if (!inviteCode) return;
@@ -42,70 +90,51 @@ export function InviteMembersSheet({ leagueId, inviteCode, visible, onClose }: P
     });
   };
 
-  const handleSend = async () => {
-    const trimmed = email.trim();
-    if (!trimmed || sending) return;
-    setSending(true);
-    try {
-      const result = await sendLeagueInvite({ leagueId, email: trimmed });
-      if (result.status === 'error') {
-        showToast('error', result.message);
-        return;
-      }
-      if (result.status === 'no_account') {
-        showToast('error', `No Franchise account for ${trimmed} yet — share your invite code so they can sign up.`);
-        return;
-      }
-      showToast('success', `Invite sent to ${trimmed}`);
-      setEmail('');
-      queryClient.invalidateQueries({ queryKey: queryKeys.leagueInvites(leagueId) });
-    } finally {
-      setSending(false);
-    }
-  };
-
   return (
     <BottomSheet
       visible={visible}
-      onClose={onClose}
+      onClose={handleClose}
       title="Invite Members"
       subtitle="INVITE BY EMAIL"
       keyboardAvoiding
     >
+      {unclaimed.length > 0 && (
+        <>
+          <ThemedText style={[styles.listHeader, styles.firstHeader, { color: c.secondaryText }]} accessibilityRole="header">
+            INVITE TO
+          </ThemedText>
+          <View style={styles.chipRow} accessibilityRole="radiogroup">
+            {!leagueFull && (
+              <TeamChip
+                label="New team"
+                selected={teamId === null}
+                onPress={() => setPicked(null)}
+              />
+            )}
+            {unclaimed.map((t) => (
+              <TeamChip
+                key={t.id}
+                label={t.name}
+                selected={teamId === t.id}
+                reserved={reservedTeamIds.has(t.id)}
+                onPress={() => setPicked(t.id)}
+              />
+            ))}
+          </View>
+        </>
+      )}
+
       <ThemedText style={[styles.desc, { color: c.secondaryText }]}>
-        Invite someone who already has a Franchise account. They'll get a
-        notification and an invite card on their home screen.
+        {selectedTeam
+          ? `They'll get a notification and an invite card, and take over ${selectedTeam.name} once they accept.`
+          : `Anyone with a Franchise account gets a notification and an invite card on their home screen.`}
       </ThemedText>
 
-      <View style={styles.inviteRow}>
-        <AppTextInput
-          style={[styles.emailInput, { color: c.text, borderColor: c.border, backgroundColor: c.cardAlt }]}
-          value={email}
-          onChangeText={setEmail}
-          placeholder="name@email.com"
-          placeholderTextColor={c.secondaryText}
-          autoCapitalize="none"
-          autoCorrect={false}
-          keyboardType="email-address"
-          editable={!sending}
-          returnKeyType="send"
-          onSubmitEditing={handleSend}
-          accessibilityLabel="Invitee email address"
-        />
-        <TouchableOpacity
-          style={[styles.sendBtn, { backgroundColor: c.accent }, (!email.trim() || sending) && styles.sendBtnDisabled]}
-          onPress={handleSend}
-          disabled={!email.trim() || sending}
-          accessibilityRole="button"
-          accessibilityLabel="Send invite"
-        >
-          {sending ? (
-            <LogoSpinner size={16} />
-          ) : (
-            <Text style={[styles.sendBtnText, { color: c.statusText }]}>Send</Text>
-          )}
-        </TouchableOpacity>
-      </View>
+      <InviteEmailField
+        leagueId={leagueId}
+        teamId={selectedTeam?.id}
+        targetLabel={selectedTeam?.name}
+      />
 
       {/* The no-account path tells the commissioner to share their code, so it
           has to be reachable from this sheet rather than another screen. */}
@@ -115,7 +144,7 @@ export function InviteMembersSheet({ leagueId, inviteCode, visible, onClose }: P
             NO ACCOUNT YET?
           </ThemedText>
           <ThemedText style={[styles.desc, { color: c.secondaryText }]}>
-            Anyone without a Franchise account can join with your league code.
+            Share your league code — they can join once they sign up.
           </ThemedText>
           <TouchableOpacity
             style={[styles.codeRow, { borderColor: c.border, backgroundColor: c.cardAlt }]}
@@ -132,8 +161,43 @@ export function InviteMembersSheet({ leagueId, inviteCode, visible, onClose }: P
       <ThemedText style={[styles.listHeader, { color: c.secondaryText }]} accessibilityRole="header">
         SENT INVITES
       </ThemedText>
-      <SentInvitesList leagueId={leagueId} />
+      <SentInvitesList leagueId={leagueId} teamNames={teamNames} />
     </BottomSheet>
+  );
+}
+
+function TeamChip({
+  label,
+  selected,
+  reserved,
+  onPress,
+}: {
+  label: string;
+  selected: boolean;
+  reserved?: boolean;
+  onPress: () => void;
+}) {
+  const c = useColors();
+  return (
+    <TouchableOpacity
+      style={[
+        styles.chip,
+        {
+          borderColor: selected ? c.accent : c.border,
+          backgroundColor: selected ? c.activeCard : c.cardAlt,
+        },
+        reserved && styles.chipReserved,
+      ]}
+      onPress={onPress}
+      disabled={reserved}
+      accessibilityRole="radio"
+      accessibilityState={{ checked: selected, disabled: !!reserved }}
+      accessibilityLabel={reserved ? `${label} — already reserved for a pending invite` : `Invite to ${label}`}
+    >
+      <Text style={[styles.chipText, { color: selected ? c.accent : c.text }]} numberOfLines={1}>
+        {reserved ? `${label} · invited` : label}
+      </Text>
+    </TouchableOpacity>
   );
 }
 
@@ -141,42 +205,39 @@ const styles = StyleSheet.create({
   desc: {
     fontSize: ms(13),
     lineHeight: ms(18),
-    marginBottom: s(14),
-  },
-  inviteRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  emailInput: {
-    flex: 1,
-    borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: s(12),
-    paddingVertical: s(10),
-    fontSize: ms(14),
-  },
-  sendBtn: {
-    paddingHorizontal: s(16),
-    paddingVertical: s(11),
-    borderRadius: 8,
-    alignItems: 'center',
-    justifyContent: 'center',
-    minWidth: s(60),
-  },
-  sendBtnDisabled: {
-    opacity: 0.5,
-  },
-  sendBtnText: {
-    fontSize: ms(14),
-    fontWeight: '600',
+    marginBottom: s(10),
   },
   listHeader: {
     fontSize: ms(11),
     letterSpacing: 1,
     fontWeight: '600',
-    marginTop: s(22),
+    marginTop: s(16),
     marginBottom: s(4),
+  },
+  firstHeader: {
+    marginTop: 0,
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: s(6),
+    marginBottom: s(10),
+  },
+  chip: {
+    borderWidth: 1,
+    borderRadius: 999,
+    paddingHorizontal: s(12),
+    paddingVertical: s(7),
+    maxWidth: '100%',
+    minHeight: s(32),
+    justifyContent: 'center',
+  },
+  chipReserved: {
+    opacity: 0.45,
+  },
+  chipText: {
+    fontSize: ms(13),
+    fontWeight: '600',
   },
   codeRow: {
     flexDirection: 'row',
@@ -190,9 +251,10 @@ const styles = StyleSheet.create({
   },
   codeText: {
     fontSize: ms(17),
-    fontWeight: '700',
+    // 'monospace' is an Android-only family name — on iOS it silently falls back
+    // to the system face and the code loses its even, glyph-per-cell rhythm.
+    fontFamily: Fonts.mono,
     letterSpacing: 3,
-    fontFamily: 'monospace',
   },
   shareText: {
     fontSize: ms(14),

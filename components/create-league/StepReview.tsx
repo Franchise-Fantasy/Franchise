@@ -154,6 +154,7 @@ export function StepReview({
         {isDynasty && (
           <Row label="Pick Protections & Swaps" value={state.pickConditionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
         )}
+        <Row label="IR Player Trading" value={state.irTradingEnabled ? 'Allowed' : 'Not allowed'} c={c} />
         <Row
           label="Trade Deadline"
           value={state.tradeDeadlineDate ? `After ${formatIsoDate(state.tradeDeadlineDate)}` : 'None'}

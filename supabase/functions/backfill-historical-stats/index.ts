@@ -16,14 +16,15 @@
  * parallel batches of 10 to fit 291 players inside the 150s edge timeout.
  *
  * Body params (JSON):
- *   { sport: 'nba' | 'wnba'    required
- *     season: string            required ('2025' for WNBA, '2024-25' for NBA)
- *     offset?: number           optional, default 0 (WNBA only — slice players)
- *     limit?:  number           optional, default 60 (WNBA only — slice size) }
+ *   { sport: 'nba' | 'wnba' | 'nfl'  required
+ *     season: string                  required ('2025' WNBA/NFL, '2024-25' NBA)
+ *     offset?: number                 optional, default 0 (slice players)
+ *     limit?:  number                 optional, per-sport default }
  *
- * For WNBA, 291 sequential stats.wnba.com calls won't fit in one invocation
- * (worker resource limit). Caller must page: invoke with offset=0, then 60,
- * 120, etc., until response.processed < limit.
+ * ALL sports page — no single invocation covers a whole player set inside the
+ * 150s timeout, and an unranged read would hit PostgREST's 1000-row max_rows
+ * silently. Caller invokes with offset=0 and follows `next_offset` until
+ * `done` is true. Re-running is idempotent (UPSERT on player_id,season).
  *
  * Auth: CRON_SECRET (Bearer).
  */
@@ -48,10 +49,30 @@ const supabase = createClient<Database>(
   Deno.env.get("SB_SECRET_KEY")!,
 );
 
-const ID_CHUNK = 25; // BDL season_averages player_ids[] chunk size
+const ID_CHUNK = 25; // BDL /nfl/v1/season_stats player_ids[] chunk size
+// BDL retired the `player_ids[]` array on /v1/season_averages — it now answers
+// `player_id must be a single integer` (400), and the batch replacement
+// (/season_averages/general) is gated above our tier (401). So NBA is one
+// request per player.
+// Measured 2026-07-31: the NBA key returns `x-ratelimit-limit: 60`, i.e. 60
+// req/min — NOT the 600/min GOAT tier previously assumed. A 10-wide pool burned
+// the whole minute's budget in seconds and 140 of 200 players came back 429
+// (fetchWithRetry gives up after 3 tries / 3s backoff, nowhere near a 60s
+// window). So NBA paces sequentially like the NFL path below.
+// Paced by request START interval, not by sleeping a flat gap after each call:
+// the rate limit counts requests per minute, so the ~300ms the request itself
+// takes is part of the budget, not extra. 1050ms keeps us just under 60/min.
+const NBA_REQUEST_INTERVAL_MS = 1050;
+// Hard stop well inside the 150s worker timeout. The loop returns what it
+// finished and reports how far it got, so the caller's next_offset resumes
+// exactly there — page size stops being a number that has to be tuned against
+// upstream latency (a flat 1.1s gap ignoring latency ran ~140s and got killed
+// mid-run, losing the whole page's work since the upsert is at the end).
+const NBA_DEADLINE_MS = 110_000;
+const NBA_DEFAULT_LIMIT = 200;
 const WNBA_CONCURRENCY = 8;
 const WNBA_DEFAULT_LIMIT = 20;
-// NFL ALL-STAR tier is 60 req/min (NBA's key is GOAT at 600/min), so NFL
+// NFL is 60 req/min, same as NBA (measured — see NBA_REQUEST_SPACING_MS), so NFL
 // chunks are spaced ~1.1s apart and the player set is paged per invocation
 // (offset/limit, same mechanism as WNBA). 200 players = 8 BDL calls ≈ 10s.
 const NFL_DEFAULT_LIMIT = 200;
@@ -59,6 +80,36 @@ const NFL_CHUNK_SPACING_MS = 1100;
 
 type Row = Database["public"]["Tables"]["player_historical_stats"]["Insert"];
 type PlayerMeta = { uuid: string; pro_team: string | null; nba_id: string | null };
+
+/**
+ * Season shooting rate as a 0-1 fraction, for the fg_pct/fg3_pct/ft_pct
+ * columns. These exist because avg_* is stored as numeric(5,1): a 0.55-on-0.64
+ * FT line rounds to 0.6/0.6 and divides out to 100% (see the migration).
+ *
+ * Prefers the source's own rate field, falling back to the UNROUNDED per-game
+ * makes/attempts we were handed (the damage happens on write, not here).
+ * Null when the player never attempted, so the client renders "—", not 0.0% —
+ * which also matters because both sources report a 0 rate for 0 attempts.
+ * The 0-1 bound guards the numeric(4,3) column against a source that ever
+ * switches to 0-100; we'd fall back rather than overflow the upsert.
+ */
+function rate(sourcePct: unknown, avgMade: number, avgAtt: number): number | null {
+  if (!(avgAtt > 0)) return null;
+  const p = Number(sourcePct);
+  if (Number.isFinite(p) && p >= 0 && p <= 1) return p;
+  return avgMade / avgAtt;
+}
+
+/** BDL reports minutes as "32:12" on season_averages, plain minutes elsewhere. */
+function parseMin(m: unknown): number {
+  if (typeof m === "number") return m;
+  if (typeof m !== "string" || !m) return 0;
+  if (m.includes(":")) {
+    const [mm, ss] = m.split(":");
+    return parseInt(mm, 10) + (parseInt(ss, 10) || 0) / 60;
+  }
+  return parseFloat(m) || 0;
+}
 
 const WNBA_HEADERS: Record<string, string> = {
   "Accept": "application/json, text/plain, */*",
@@ -119,6 +170,9 @@ function rowFromWnbaCareer(
   const avgStl = get("STL");
   const avgBlk = get("BLK");
   const avgTov = get("TOV");
+  const avgFgm = get("FGM"), avgFga = get("FGA");
+  const avg3pm = get("FG3M"), avg3pa = get("FG3A");
+  const avgFtm = get("FTM"), avgFta = get("FTA");
 
   return {
     player_id: meta.uuid,
@@ -132,13 +186,16 @@ function rowFromWnbaCareer(
     avg_stl: avgStl,
     avg_blk: avgBlk,
     avg_tov: avgTov,
-    avg_fgm: get("FGM"),
-    avg_fga: get("FGA"),
-    avg_3pm: get("FG3M"),
-    avg_3pa: get("FG3A"),
-    avg_ftm: get("FTM"),
-    avg_fta: get("FTA"),
+    avg_fgm: avgFgm,
+    avg_fga: avgFga,
+    avg_3pm: avg3pm,
+    avg_3pa: avg3pa,
+    avg_ftm: avgFtm,
+    avg_fta: avgFta,
     avg_pf:  get("PF"),
+    fg_pct:  rate(row[idx("FG_PCT")],  avgFgm, avgFga),
+    fg3_pct: rate(row[idx("FG3_PCT")], avg3pm, avg3pa),
+    ft_pct:  rate(row[idx("FT_PCT")],  avgFtm, avgFta),
     total_pts: Math.round(avgPts * gp),
     total_reb: Math.round(avgReb * gp),
     total_ast: Math.round(avgAst * gp),
@@ -191,7 +248,10 @@ async function backfillNba(
   players: { id: string; external_id_bdl: number | null; pro_team: string | null }[],
   season: string,
   seasonYear: number,
-): Promise<{ rows: Row[]; matched: number; missing: number; errors: number }> {
+): Promise<{
+  rows: Row[]; matched: number; missing: number; errors: number;
+  errorSamples: string[]; consumed: number;
+}> {
   const idToMeta = new Map<number, PlayerMeta>();
   for (const p of players) {
     if (p.external_id_bdl != null) {
@@ -204,65 +264,83 @@ async function backfillNba(
 
   const rows: Row[] = [];
   let matched = 0;
-  for (let i = 0; i < ids.length; i += ID_CHUNK) {
-    const chunk = ids.slice(i, i + ID_CHUNK);
-    const qs = new URLSearchParams();
-    qs.set("season", String(seasonYear));
-    for (const id of chunk) qs.append("player_ids[]", String(id));
-    const data = await bdlFetch("nba", `/season_averages?${qs.toString()}`) as { data?: any[] };
-    for (const s of data?.data ?? []) {
-      const meta = idToMeta.get(Number(s.player_id));
-      if (!meta) continue;
-      const gp = Number(s.games_played ?? 0);
-      if (!gp) continue;
+  let errors = 0;
+  let consumed = 0;
+  const errorSamples: string[] = [];
 
-      const parseMin = (m: unknown): number => {
-        if (typeof m === "number") return m;
-        if (typeof m !== "string" || !m) return 0;
-        if (m.includes(":")) {
-          const [mm, ss] = m.split(":");
-          return parseInt(mm, 10) + (parseInt(ss, 10) || 0) / 60;
-        }
-        return parseFloat(m) || 0;
-      };
-      const avgPts = Number(s.pts ?? 0);
-      const avgReb = Number(s.reb ?? 0);
-      const avgAst = Number(s.ast ?? 0);
-      const avgStl = Number(s.stl ?? 0);
-      const avgBlk = Number(s.blk ?? 0);
-      const avgTov = Number(s.turnover ?? 0);
+  const startedAt = Date.now();
+  let nextSlot = startedAt;
 
-      rows.push({
-        player_id: meta.uuid,
-        season,
-        sport: "nba",
-        games_played: gp,
-        avg_min: parseMin(s.min),
-        avg_pts: avgPts,
-        avg_reb: avgReb,
-        avg_ast: avgAst,
-        avg_stl: avgStl,
-        avg_blk: avgBlk,
-        avg_tov: avgTov,
-        avg_fgm: Number(s.fgm  ?? 0),
-        avg_fga: Number(s.fga  ?? 0),
-        avg_3pm: Number(s.fg3m ?? 0),
-        avg_3pa: Number(s.fg3a ?? 0),
-        avg_ftm: Number(s.ftm  ?? 0),
-        avg_fta: Number(s.fta  ?? 0),
-        avg_pf:  Number(s.pf   ?? 0),
-        total_pts: Math.round(avgPts * gp),
-        total_reb: Math.round(avgReb * gp),
-        total_ast: Math.round(avgAst * gp),
-        total_stl: Math.round(avgStl * gp),
-        total_blk: Math.round(avgBlk * gp),
-        total_tov: Math.round(avgTov * gp),
-        pro_team: meta.pro_team,
-      });
-      matched++;
+  for (let i = 0; i < ids.length; i++) {
+    if (Date.now() - startedAt > NBA_DEADLINE_MS) break;
+
+    const waitMs = nextSlot - Date.now();
+    if (waitMs > 0) await new Promise((r) => setTimeout(r, waitMs));
+    nextSlot = Date.now() + NBA_REQUEST_INTERVAL_MS;
+    consumed++;
+
+    let s: any;
+    try {
+      const data = await bdlFetch(
+        "nba",
+        `/season_averages?season=${seasonYear}&player_id=${ids[i]}`,
+      ) as { data?: any[] };
+      s = data?.data?.[0] ?? null;
+    } catch (err) {
+      errors++;
+      if (errorSamples.length < 3) errorSamples.push(String((err as Error)?.message ?? err));
+      continue;
     }
+
+    if (!s) continue;
+    const meta = idToMeta.get(Number(s.player_id));
+    if (!meta) continue;
+    const gp = Number(s.games_played ?? 0);
+    if (!gp) continue;
+
+    const avgPts = Number(s.pts ?? 0);
+    const avgReb = Number(s.reb ?? 0);
+    const avgAst = Number(s.ast ?? 0);
+    const avgStl = Number(s.stl ?? 0);
+    const avgBlk = Number(s.blk ?? 0);
+    const avgTov = Number(s.turnover ?? 0);
+    const avgFgm = Number(s.fgm ?? 0), avgFga = Number(s.fga ?? 0);
+    const avg3pm = Number(s.fg3m ?? 0), avg3pa = Number(s.fg3a ?? 0);
+    const avgFtm = Number(s.ftm ?? 0), avgFta = Number(s.fta ?? 0);
+
+    rows.push({
+      player_id: meta.uuid,
+      season,
+      sport: "nba",
+      games_played: gp,
+      avg_min: parseMin(s.min),
+      avg_pts: avgPts,
+      avg_reb: avgReb,
+      avg_ast: avgAst,
+      avg_stl: avgStl,
+      avg_blk: avgBlk,
+      avg_tov: avgTov,
+      avg_fgm: avgFgm,
+      avg_fga: avgFga,
+      avg_3pm: avg3pm,
+      avg_3pa: avg3pa,
+      avg_ftm: avgFtm,
+      avg_fta: avgFta,
+      avg_pf:  Number(s.pf   ?? 0),
+      fg_pct:  rate(s.fg_pct,  avgFgm, avgFga),
+      fg3_pct: rate(s.fg3_pct, avg3pm, avg3pa),
+      ft_pct:  rate(s.ft_pct,  avgFtm, avgFta),
+      total_pts: Math.round(avgPts * gp),
+      total_reb: Math.round(avgReb * gp),
+      total_ast: Math.round(avgAst * gp),
+      total_stl: Math.round(avgStl * gp),
+      total_blk: Math.round(avgBlk * gp),
+      total_tov: Math.round(avgTov * gp),
+      pro_team: meta.pro_team,
+    });
+    matched++;
   }
-  return { rows, matched, missing: ids.length - matched, errors: 0 };
+  return { rows, matched, missing: consumed - matched - errors, errors, errorSamples, consumed };
 }
 
 async function backfillNfl(
@@ -349,7 +427,8 @@ Deno.serve(async (req: Request) => {
     const sport: Sport = parsed.sport;
     const season: string = parsed.season;
     const offset = parsed.offset ?? 0;
-    const limit = parsed.limit ?? (sport === "nfl" ? NFL_DEFAULT_LIMIT : WNBA_DEFAULT_LIMIT);
+    const limit = parsed.limit ??
+      (sport === "nfl" ? NFL_DEFAULT_LIMIT : sport === "nba" ? NBA_DEFAULT_LIMIT : WNBA_DEFAULT_LIMIT);
 
     const seasonYear = parseInt(season.split("-")[0], 10);
     if (!seasonYear) {
@@ -358,19 +437,16 @@ Deno.serve(async (req: Request) => {
 
     const idColumn = sport === "wnba" ? "external_id_nba" : "external_id_bdl";
 
-    // Stable ordering across paginated WNBA invocations.
-    let query = supabase
+    // Stable ordering across paginated invocations. Every sport pages now —
+    // NBA joined when BDL forced it to one request per player, and an unranged
+    // read would silently stop at PostgREST's 1000-row max_rows anyway.
+    const { data: players, error: playersErr } = await supabase
       .from("players")
       .select(`id, external_id_nba, external_id_bdl, pro_team`)
       .eq("sport", sport)
       .not(idColumn, "is", null)
-      .order("id", { ascending: true });
-
-    if (sport === "wnba" || sport === "nfl") {
-      query = query.range(offset, offset + limit - 1);
-    }
-
-    const { data: players, error: playersErr } = await query;
+      .order("id", { ascending: true })
+      .range(offset, offset + limit - 1);
 
     if (playersErr) {
       throw playersErr;
@@ -383,7 +459,11 @@ Deno.serve(async (req: Request) => {
       ? await backfillWnba(players, season)
       : sport === "nfl"
         ? { ...await backfillNfl(players, season, seasonYear), errorSamples: [] as string[] }
-        : { ...await backfillNba(players, season, seasonYear), errorSamples: [] as string[] };
+        : await backfillNba(players, season, seasonYear);
+
+    // Non-NBA paths always walk their whole page; only NBA can stop early.
+    const consumed = "consumed" in result ? (result as { consumed: number }).consumed : players.length;
+    const more = consumed < players.length || players.length === limit;
 
     let upserted = 0;
     const BATCH = 500;
@@ -404,16 +484,20 @@ Deno.serve(async (req: Request) => {
       sport,
       season,
       offset,
-      limit: sport === "wnba" ? limit : null,
+      limit,
       processed: players.length,
       matched: result.matched,
       missing_season: result.missing,
       errors: result.errors,
       error_samples: result.errorSamples,
       upserted,
-      // For WNBA: caller should keep paging while processed === limit.
-      next_offset: sport === "wnba" && players.length === limit ? offset + limit : null,
-      done: sport !== "wnba" || players.length < limit,
+      // Every sport pages: keep re-invoking with next_offset until done.
+      // `consumed` < the page when NBA's deadline guard cut the run short, so
+      // resume from there rather than from offset+limit — otherwise the
+      // untouched tail of the page is skipped silently.
+      consumed,
+      next_offset: more ? offset + consumed : null,
+      done: !more,
     });
   } catch (error) {
     return handleError(error, 'backfill-historical-stats');
