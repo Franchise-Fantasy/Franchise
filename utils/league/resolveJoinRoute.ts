@@ -9,9 +9,9 @@ import { supabase } from '@/lib/supabase';
  * "No unclaimed teams available", or create a team in a league that was already
  * full. Every avenue now resolves through here so they agree.
  *
- * It also carries the RESERVED team through: `send-league-invite` can pin a
- * specific unclaimed imported team to an invite, and that reservation was being
- * dropped by every consumer, letting an invitee claim somebody else's roster.
+ * It also carries the RESERVED team through: `send-league-invite` can pin any
+ * unclaimed team to an invite, and that reservation was being dropped by every
+ * consumer, letting an invitee claim somebody else's roster.
  */
 export type JoinRoute =
   | {
@@ -52,28 +52,34 @@ export async function resolveJoinRoute(params: {
     return { ok: false, message: 'You already have a team in this league.' };
   }
 
+  // A reserved team is an EXISTING seat that already counts toward
+  // `current_teams`, so claiming it neither needs spare capacity nor cares how
+  // the league was created. This has to run before both the `imported_from`
+  // split and the fullness check below: commissioners hand over vacated teams
+  // in ordinary leagues too, and those leagues read as full because
+  // `leave_league` / `remove_member` deliberately don't decrement the count.
+  if (reservedTeamId) {
+    const { data: reserved } = await supabase
+      .from('teams')
+      .select('id, user_id, league_id')
+      .eq('id', reservedTeamId)
+      .maybeSingle();
+
+    // Still held for them — send them straight to it. If it was claimed in the
+    // meantime we fall through rather than dead-ending.
+    if (reserved && reserved.league_id === leagueId && !reserved.user_id) {
+      return {
+        ok: true,
+        pathname: '/claim-team',
+        params: { leagueId, isCommissioner: 'false', teamId: reservedTeamId },
+      };
+    }
+  }
+
   if (league.imported_from) {
     // Imported leagues pre-create every team at import time, so `current_teams`
     // is inflated on day one and the generic fullness check would block every
     // invitee. "Full" here means every pre-created team has been claimed.
-    if (reservedTeamId) {
-      const { data: reserved } = await supabase
-        .from('teams')
-        .select('id, user_id, league_id')
-        .eq('id', reservedTeamId)
-        .maybeSingle();
-
-      // Still held for them — send them straight to it. If it was claimed in
-      // the meantime we fall through to the open list rather than dead-ending.
-      if (reserved && reserved.league_id === leagueId && !reserved.user_id) {
-        return {
-          ok: true,
-          pathname: '/claim-team',
-          params: { leagueId, isCommissioner: 'false', teamId: reservedTeamId },
-        };
-      }
-    }
-
     const { data: unclaimed } = await supabase
       .from('teams')
       .select('id')

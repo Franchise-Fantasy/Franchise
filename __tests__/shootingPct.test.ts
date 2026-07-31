@@ -6,9 +6,9 @@ import {
 
 describe('shootingPct', () => {
   // The bug this module exists for: player_historical_stats persists per-game
-  // averages as numeric(5,1), so Al Horford's real 2024-25 line (33-for-40 from
-  // the line = 82.5%) round-trips as avg_ftm 0.6 / avg_fta 0.6 and divides out
-  // to a perfect 100.0%.
+  // averages as numeric(5,1), so Al Horford's 2024-25 free-throw line — really
+  // 89.5% — round-trips as avg_ftm 0.6 / avg_fta 0.6 and divides out to a
+  // perfect 100.0%. The 33-for-40 totals below are illustrative fixtures.
   const horfordAvgsOnly = {
     games_played: 60,
     avg_ftm: 0.6,
