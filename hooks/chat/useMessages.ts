@@ -7,7 +7,6 @@ import {
 
 import { queryKeys } from '@/constants/queryKeys';
 import { globalToastRef } from '@/context/ToastProvider';
-import { sendNotification } from '@/lib/notifications';
 import { capture, posthog } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ChatMessageType } from '@/types/chat';
@@ -199,42 +198,11 @@ export function useSendMessage(
         .single();
       if (error) throw error;
 
-      // Fire-and-forget push notification to other members
-      supabase
-        .from('chat_members')
-        .select('team_id')
-        .eq('conversation_id', conversationId)
-        .neq('team_id', teamId)
-        .then(({ data: members, error: fanoutError }) => {
-          if (fanoutError) throw fanoutError;
-          if (!members || members.length === 0) return;
-          const otherTeamIds = members.map((m) => m.team_id);
-          const preview =
-            type === 'image'
-              ? '\ud83d\udcf7 Photo'
-              : type === 'gif'
-                ? 'GIF'
-                : content.length > 100
-                  ? content.slice(0, 100) + '\u2026'
-                  : content;
-          sendNotification({
-            league_id: leagueId,
-            team_ids: otherTeamIds,
-            category: 'chat',
-            title: teamName,
-            body: preview,
-            data: { screen: `chat/${conversationId}` },
-          });
-        }, (err: unknown) => {
-          const message = err instanceof Error ? err.message : String(err);
-          logger.warn('Chat push notification failed', { message });
-          posthog.capture('$exception', {
-            $exception_message: message,
-            $exception_type: 'ChatPushNotifyError',
-            source: 'useSendMessage.fanout',
-          });
-        });
-
+      // No client-side push fan-out here. The chat_messages INSERT trigger
+      // (notify_chat_message \u2192 webhook-notify) is the single sender: it skips
+      // members who are actively reading, splits DMs from league chat, and
+      // still fires if the app backgrounds mid-send. This hook used to notify
+      // every other member too, which double-pushed anyone offline.
       return data;
     },
     onMutate: async ({ content, type = 'text' }) => {

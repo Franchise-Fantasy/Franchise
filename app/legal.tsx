@@ -80,7 +80,7 @@ We may update these Terms at any time. Continued use of the App after changes co
 
 For questions about these Terms, contact us at admin@franchisefantasy.co.`;
 
-const PRIVACY_POLICY = `Last updated: July 2026
+const PRIVACY_POLICY = `Last updated: August 2026
 
 1. Information We Collect
 
@@ -92,7 +92,7 @@ League Payment Handles: if you are a commissioner and choose to use the optional
 
 Usage Data: We collect information about how you use the App, including league participation, roster changes, and trade activity. This data is used to provide the App's core functionality.
 
-Device Information: We may collect device identifiers and push notification tokens to deliver notifications you've opted into.
+Device Information: We may collect device identifiers and push notification tokens to deliver notifications you've opted into. If you enable notifications, we also store your device's time zone so that times inside a notification (a draft start, a deadline) are shown in your own local time. We do not collect your precise location.
 
 2. How We Use Your Information
 
@@ -122,7 +122,17 @@ To keep leagues safe, we automatically screen chat messages and team names again
 
 5. Push Notifications
 
-The App uses push notifications with 11 configurable categories. You can enable or disable each category in Notification Preferences, or disable all notifications from your Profile page.
+Push notifications are optional. We ask for your permission before requesting it from your device, and the App works without them.
+
+If you allow them, notifications are organized into sixteen categories — such as draft, trades, waivers, injuries, playoffs, direct messages, and league chat. Only some are on to begin with: we default to alerts about your own team and league that are low-volume enough to be worth an interruption, and leave the high-frequency ones (league chat, other teams' roster moves, trade rumors, and per-player news) off until you turn them on.
+
+You control notifications in four independent ways:
+• Enable or disable any individual category in Profile > Notifications
+• Override any category for a single league, without changing your settings in your other leagues
+• Silence everything at once with the "Mute All Notifications" switch
+• Revoke permission entirely in your device's system settings, which stops all delivery regardless of the settings above
+
+Turning off push notifications in your Profile also deletes the push token stored for your device.
 
 6. Data Retention
 

@@ -16,9 +16,6 @@ import {
   FAAB_TIEBREAK_OPTIONS,
   FAAB_TIEBREAK_TO_DB,
   FaabTiebreakOption,
-  PLAYER_LOCK_DISPLAY,
-  PLAYER_LOCK_OPTIONS,
-  PLAYER_LOCK_TO_DB,
   WAIVER_PRIORITY_RESET_DISPLAY,
   WAIVER_PRIORITY_RESET_OPTIONS,
   WAIVER_PRIORITY_RESET_TO_DB,
@@ -53,7 +50,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
   const [faabTiebreak, setFaabTiebreak] = useState<FaabTiebreakOption>('Earliest Bid');
   const [priorityReset, setPriorityReset] = useState<WaiverPriorityResetOption>('Reverse Standings');
   const [weeklyLimit, setWeeklyLimit] = useState(0);
-  const [playerLock, setPlayerLock] = useState('Daily');
   const [saving, setSaving] = useState(false);
 
   // Initialize from league when modal opens
@@ -65,7 +61,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       setFaabTiebreak(FAAB_TIEBREAK_DISPLAY[league.faab_tiebreak] ?? 'Earliest Bid');
       setPriorityReset(WAIVER_PRIORITY_RESET_DISPLAY[league.waiver_priority_reset] ?? 'Reverse Standings');
       setWeeklyLimit(league.weekly_acquisition_limit ?? 0);
-      setPlayerLock(PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily');
     }
   }, [visible, league]);
 
@@ -84,7 +79,6 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
       faab_tiebreak: FAAB_TIEBREAK_TO_DB[faabTiebreak],
       waiver_priority_reset: WAIVER_PRIORITY_RESET_TO_DB[priorityReset],
       weekly_acquisition_limit: weeklyLimit === 0 ? null : weeklyLimit,
-      player_lock_type: PLAYER_LOCK_TO_DB[playerLock as keyof typeof PLAYER_LOCK_TO_DB] ?? 'daily',
     }).eq('id', leagueId);
     setSaving(false);
     if (error) { Alert.alert('Error', error.message); return; }
@@ -219,31 +213,18 @@ export function EditWaiverSettingsModal({ visible, onClose, league, leagueId }: 
         accessibilityLabel="Weekly acquisition limit, 0 means unlimited"
       />
 
-      {/* Player Lock — NFL has one model (kickoff, for the week), so there's
-          nothing to pick; state the rule instead of offering a false choice. */}
+      {/* Player Lock — one model everywhere (each player locks individually at
+          their own game's start), so state the rule instead of offering a choice. */}
       <View style={[styles.editRow, { borderBottomColor: c.border }]}>
         <ThemedText style={styles.rowLabel}>Player Lock</ThemedText>
-        {isNfl && (
-          <ThemedText style={[styles.rowValue, { color: c.secondaryText }]}>
-            At kickoff (weekly)
-          </ThemedText>
-        )}
+        <ThemedText style={[styles.rowValue, { color: c.secondaryText }]}>
+          {isNfl ? 'At kickoff (weekly)' : 'At game start'}
+        </ThemedText>
       </View>
-      {!isNfl && (
-        <View style={{ paddingVertical: s(8) }}>
-          <SegmentedControl
-            options={PLAYER_LOCK_OPTIONS}
-            selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(playerLock as any)}
-            onSelect={(i) => setPlayerLock(PLAYER_LOCK_OPTIONS[i])}
-          />
-        </View>
-      )}
       <ThemedText style={{ fontSize: ms(13), color: c.secondaryText, marginBottom: s(12) }}>
         {isNfl
           ? "Each player locks at their game's kickoff and stays locked for that week. Players who haven't played yet can be moved all week."
-          : playerLock === 'Daily'
-            ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
-            : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'}
+          : "Each player locks at their game's start. Everyone else on the roster stays movable, and players whose games haven't started can still be added or dropped."}
       </ThemedText>
     </BottomSheet>
   );

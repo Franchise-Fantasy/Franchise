@@ -79,14 +79,33 @@ Deno.serve(async (req) => {
       throw insertError;
     }
 
-    // Notify the league commissioner (best-effort — not fatal).
+    // Notify the league commissioner (best-effort — not fatal). Skipped when
+    // the reported message's author IS the commissioner — pushing the report
+    // to the person being reported is circular; the message_reports row is
+    // the record in that case.
+    let notifiedCommissioner = false;
     try {
       const { data: league } = await supabaseAdmin
         .from("leagues")
         .select("created_by, name")
         .eq("id", conv.league_id)
         .single();
-      if (league?.created_by && league.created_by !== user.id) {
+
+      let authorUserId: string | null = null;
+      if (msg.team_id) {
+        const { data: authorTeam } = await supabaseAdmin
+          .from("teams")
+          .select("user_id")
+          .eq("id", msg.team_id)
+          .single();
+        authorUserId = authorTeam?.user_id ?? null;
+      }
+
+      if (
+        league?.created_by &&
+        league.created_by !== user.id &&
+        league.created_by !== authorUserId
+      ) {
         const preview = msg.type === "text" && typeof msg.content === "string"
           ? (msg.content.length > 80 ? msg.content.slice(0, 80) + "…" : msg.content)
           : `[${msg.type}]`;
@@ -97,12 +116,13 @@ Deno.serve(async (req) => {
           body: `Reason: ${reason}. "${preview}"`,
           data: { screen: `chat/${conv.id}`, message_id: messageId },
         }]);
+        notifiedCommissioner = true;
       }
     } catch (notifyErr) {
       log.warn("Commissioner notify failed (non-fatal)", { err: String(notifyErr) });
     }
 
-    return jsonResponse({ ok: true });
+    return jsonResponse({ ok: true, notified_commissioner: notifiedCommissioner });
   } catch (error) {
     return handleError(error, 'report-message');
   }

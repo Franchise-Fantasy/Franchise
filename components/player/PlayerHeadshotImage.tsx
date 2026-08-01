@@ -16,6 +16,10 @@ type Props = {
   /** Delivery size: 'sm' (default) serves a right-sized transform for list/row/
    *  cell surfaces; 'full' serves the untransformed master for large heroes. */
   res?: 'sm' | 'full';
+  /** Shown in place of the silhouette when there's no storage headshot (or it
+   *  failed to load) — rookie-draft prospects pass their Contentful scouting
+   *  photo here, since they have no external_id_nba until they turn pro. */
+  fallbackUri?: string;
 };
 
 // Single retry after a transient image-fetch failure. Mobile networks
@@ -39,18 +43,21 @@ export function PlayerHeadshotImage({
   contentFit = 'cover',
   accessible,
   res = 'sm',
+  fallbackUri,
 }: Props) {
   const url = getPlayerHeadshotUrl(externalIdNba, sport, res);
   const [failed, setFailed] = useState(false);
+  const [fallbackFailed, setFallbackFailed] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const attemptsRef = useRef(0);
   const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Reset retry state whenever the URL changes — handles recycled list rows
+  // Reset retry state whenever the URLs change — handles recycled list rows
   // landing on a different player as well as prop changes on the same row.
   useEffect(() => {
     attemptsRef.current = 0;
     setFailed(false);
+    setFallbackFailed(false);
     setRetryNonce(0);
     return () => {
       if (retryTimerRef.current) {
@@ -58,34 +65,44 @@ export function PlayerHeadshotImage({
         retryTimerRef.current = null;
       }
     };
-  }, [url]);
+  }, [url, fallbackUri]);
 
   const showHeadshot = !!url && !failed;
+  // No storage headshot → the caller's fallback photo (prospect scouting shot)
+  // before the silhouette. One shot, no retry — the silhouette placeholder is
+  // already showing underneath, so a failed fallback just stays there.
+  const showFallback = !showHeadshot && !!fallbackUri && !fallbackFailed;
+  const activeUri = showHeadshot ? url : showFallback ? fallbackUri : null;
 
   const handleError = useCallback(() => {
-    if (!url) return;
-    if (attemptsRef.current === 0) {
-      attemptsRef.current = 1;
-      retryTimerRef.current = setTimeout(() => {
-        retryTimerRef.current = null;
-        setRetryNonce((n) => n + 1);
-      }, RETRY_DELAY_MS);
+    if (showHeadshot) {
+      if (attemptsRef.current === 0) {
+        attemptsRef.current = 1;
+        retryTimerRef.current = setTimeout(() => {
+          retryTimerRef.current = null;
+          setRetryNonce((n) => n + 1);
+        }, RETRY_DELAY_MS);
+      } else {
+        setFailed(true);
+      }
     } else {
-      setFailed(true);
+      setFallbackFailed(true);
     }
-  }, [url]);
+  }, [showHeadshot]);
 
   return (
     <Image
-      key={`${url ?? 'silhouette'}-${retryNonce}`}
-      source={showHeadshot ? { uri: url } : PLAYER_SILHOUETTE}
+      key={`${activeUri ?? 'silhouette'}-${retryNonce}`}
+      source={activeUri ? { uri: activeUri } : PLAYER_SILHOUETTE}
+      // The sport-specific crop offset compensates for the storage source's
+      // framing — a Contentful fallback photo is framed on its own terms.
       style={[style, showHeadshot && HEADSHOT_OFFSETS[sport]]}
-      contentFit={showHeadshot ? contentFit : 'contain'}
+      contentFit={activeUri ? contentFit : 'contain'}
       cachePolicy="memory-disk"
-      recyclingKey={url ?? 'silhouette'}
+      recyclingKey={activeUri ?? 'silhouette'}
       placeholder={PLAYER_SILHOUETTE}
       placeholderContentFit="contain"
-      onError={showHeadshot ? handleError : undefined}
+      onError={activeUri ? handleError : undefined}
       transition={250}
       accessible={accessible}
     />

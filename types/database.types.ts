@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -1905,6 +1905,8 @@ export type Database = {
           offseason_step: string | null
           paypal_username: string | null
           pick_conditions_enabled: boolean
+          pick_protections_enabled: boolean
+          pick_swaps_enabled: boolean
           player_lock_type: string
           playoff_seeding_format: string
           playoff_teams: number | null
@@ -1973,6 +1975,8 @@ export type Database = {
           offseason_step?: string | null
           paypal_username?: string | null
           pick_conditions_enabled?: boolean
+          pick_protections_enabled?: boolean
+          pick_swaps_enabled?: boolean
           player_lock_type?: string
           playoff_seeding_format?: string
           playoff_teams?: number | null
@@ -2041,6 +2045,8 @@ export type Database = {
           offseason_step?: string | null
           paypal_username?: string | null
           pick_conditions_enabled?: boolean
+          pick_protections_enabled?: boolean
+          pick_swaps_enabled?: boolean
           player_lock_type?: string
           playoff_seeding_format?: string
           playoff_teams?: number | null
@@ -3871,8 +3877,8 @@ export type Database = {
           avg_reb: number | null
           avg_stl: number | null
           avg_tov: number | null
-          fg3_pct: number | null
           fg_pct: number | null
+          fg3_pct: number | null
           ft_pct: number | null
           games_played: number
           id: string
@@ -3930,8 +3936,8 @@ export type Database = {
           avg_reb?: number | null
           avg_stl?: number | null
           avg_tov?: number | null
-          fg3_pct?: number | null
           fg_pct?: number | null
+          fg3_pct?: number | null
           ft_pct?: number | null
           games_played?: number
           id?: string
@@ -3989,8 +3995,8 @@ export type Database = {
           avg_reb?: number | null
           avg_stl?: number | null
           avg_tov?: number | null
-          fg3_pct?: number | null
           fg_pct?: number | null
+          fg3_pct?: number | null
           ft_pct?: number | null
           games_played?: number
           id?: string
@@ -6859,6 +6865,19 @@ export type Database = {
         }
         Returns: Json
       }
+      create_season_draft_atomic: {
+        Args: {
+          p_draft_type: string
+          p_league_id: string
+          p_picks: Json
+          p_picks_per_round: number
+          p_rounds: number
+          p_season: string
+          p_slot_team_ids: string[]
+          p_time_limit: number
+        }
+        Returns: Json
+      }
       create_trade_proposal: {
         Args: {
           p_cancel_proposal_id?: string
@@ -6933,7 +6952,7 @@ export type Database = {
         Returns: string
       }
       finalize_keepers_atomic: {
-        Args: { p_league_id: string; p_season: string }
+        Args: { p_league_id: string; p_next_step?: string; p_season: string }
         Returns: Json
       }
       finalize_matchup_atomic: {
@@ -7662,6 +7681,7 @@ export type Database = {
         Args: { p_keep?: number; p_window_hours?: number }
         Returns: number
       }
+      prune_user_dismissals: { Args: never; Returns: number }
       reassign_commissioner: {
         Args: { p_league_id: string; p_new_user_id: string }
         Returns: Json

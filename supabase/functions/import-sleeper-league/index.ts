@@ -575,7 +575,11 @@ async function handleExecute(
       trade_review_period_hours: number;
       trade_votes_to_veto: number;
       draft_pick_trading_enabled: boolean;
-      pick_conditions_enabled: boolean;
+      // Optional: app builds from before the protections/swaps split send only
+      // `pick_conditions_enabled`.
+      pick_conditions_enabled?: boolean;
+      pick_protections_enabled?: boolean;
+      pick_swaps_enabled?: boolean;
       ir_trading_enabled?: boolean;
       waiver_type: string;
       waiver_period_days: number;
@@ -705,7 +709,8 @@ async function handleExecute(
       trade_votes_to_veto: settings.trade_votes_to_veto,
       trade_deadline: settings.trade_deadline,
       draft_pick_trading_enabled: settings.draft_pick_trading_enabled,
-      pick_conditions_enabled: settings.pick_conditions_enabled,
+      pick_protections_enabled: settings.pick_protections_enabled ?? settings.pick_conditions_enabled ?? false,
+      pick_swaps_enabled: settings.pick_swaps_enabled ?? settings.pick_conditions_enabled ?? false,
       // `!== false` (same un-Zod'd passthrough as combine_cup_week above):
       // default TRUE — Sleeper allows IR trading — so only an explicit wizard
       // `false` disables it; a malformed wire value coerces to true.

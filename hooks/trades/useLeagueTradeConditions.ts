@@ -7,8 +7,8 @@ import { supabase } from '@/lib/supabase';
 
 /**
  * League-level trade rules for the trade builder: the `leagues` columns that
- * gate what can be offered (pick conditions, startup-pick trading, IR
- * trading, scoring type) plus derived flags and the valid swap seasons.
+ * gate what can be offered (pick protections, pick swaps, startup-pick trading,
+ * IR trading, scoring type) plus derived flags and the valid swap seasons.
  * Extracted from ProposeTradeModal.
  */
 export function useLeagueTradeConditions(leagueId: string) {
@@ -17,7 +17,7 @@ export function useLeagueTradeConditions(leagueId: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('pick_conditions_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step, scoring_type, ir_trading_enabled')
+        .select('pick_protections_enabled, pick_swaps_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step, scoring_type, ir_trading_enabled')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -28,7 +28,8 @@ export function useLeagueTradeConditions(leagueId: string) {
 
   const isCategories = leagueSettings?.scoring_type === 'h2h_categories';
   const isDynastyLeague = (leagueSettings?.league_type ?? 'dynasty') === 'dynasty';
-  const pickConditionsEnabled = isDynastyLeague && (leagueSettings?.pick_conditions_enabled ?? false);
+  const pickProtectionsEnabled = isDynastyLeague && (leagueSettings?.pick_protections_enabled ?? false);
+  const pickSwapsEnabled = isDynastyLeague && (leagueSettings?.pick_swaps_enabled ?? false);
   // Picks are tradeable at all in any dynasty league (gates the Pick/Swap chips). The
   // `draft_pick_trading_enabled` setting only governs STARTUP-draft picks — it's applied when
   // fetching tradable picks (useTeamTradablePicks), so future/rookie picks stay tradeable when off.
@@ -60,7 +61,8 @@ export function useLeagueTradeConditions(leagueId: string) {
 
   return {
     isCategories,
-    pickConditionsEnabled,
+    pickProtectionsEnabled,
+    pickSwapsEnabled,
     picksTradeable,
     draftPickTradingEnabled,
     irTradingEnabled,

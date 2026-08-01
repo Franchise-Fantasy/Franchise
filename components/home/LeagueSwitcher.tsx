@@ -681,7 +681,7 @@ const styles = StyleSheet.create({
   rowIcons: {
     flexDirection: "row",
     alignItems: "center",
-    gap: s(8),
+    gap: s(0),
   },
   // Both pills get a fixed column (and a shared height) so they line up down
   // the list instead of each row placing them wherever its own labels end —

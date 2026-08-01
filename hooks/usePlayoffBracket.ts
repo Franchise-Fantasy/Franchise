@@ -13,7 +13,7 @@ export function usePlayoffBracket(season: string) {
   const queryClient = useQueryClient();
 
   const bracketQuery = useQuery({
-    queryKey: queryKeys.playoffBracket(leagueId!, Number(season)),
+    queryKey: queryKeys.playoffBracket(leagueId!, season),
     queryFn: async (): Promise<{ slots: PlayoffBracketSlot[]; scheduleIds: string[] }> => {
       const { data, error } = await supabase
         .from('playoff_bracket')
@@ -51,7 +51,7 @@ export function usePlayoffBracket(season: string) {
 
   // Fetch live scores from week_scores for active (non-finalized) playoff matchups
   const liveScoresQuery = useQuery({
-    queryKey: queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+    queryKey: queryKeys.playoffLiveScores(leagueId!, season, scheduleIds),
     queryFn: async (): Promise<Record<string, number>> => {
       if (scheduleIds.length === 0) return {};
       const { data, error } = await supabase
@@ -77,7 +77,7 @@ export function usePlayoffBracket(season: string) {
     const unsubscribers = scheduleIds.map((sid) =>
       subscribeScoreTopic(sid, (row) => {
         queryClient.setQueryData(
-          queryKeys.playoffLiveScores(leagueId!, Number(season), scheduleIds),
+          queryKeys.playoffLiveScores(leagueId!, season, scheduleIds),
           (old: Record<string, number> | undefined) => ({
             ...old,
             [row.team_id!]: Number(row.score),
@@ -129,7 +129,7 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null);
 
   const query = useQuery({
-    queryKey: queryKeys.seedPicks(leagueId!, Number(season), round ?? undefined),
+    queryKey: queryKeys.seedPicks(leagueId!, season, round ?? undefined),
     queryFn: async (): Promise<PlayoffSeedPick[]> => {
       const { data, error } = await supabase
         .from('playoff_seed_picks')
@@ -166,7 +166,7 @@ export function useSeedPicks(season: string, round: number | null, poll = false)
           filter: `league_id=eq.${leagueId}`,
         },
         () => {
-          queryClient.invalidateQueries({ queryKey: queryKeys.seedPicks(leagueId!, Number(season), round ?? undefined) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.seedPicks(leagueId!, season, round ?? undefined) });
           // Also refresh pending seed pick since a pick was made
           queryClient.invalidateQueries({ queryKey: ['pendingSeedPick', leagueId] });
         },
@@ -193,7 +193,7 @@ export function usePendingSeedPick(season: string, poll = false) {
   // Real-time invalidation is handled by useSeedPicks above,
   // so this hook only needs a standard query — no polling needed.
   return useQuery({
-    queryKey: queryKeys.pendingSeedPick(leagueId!, teamId!, Number(season)),
+    queryKey: queryKeys.pendingSeedPick(leagueId!, teamId!, season),
     queryFn: async (): Promise<PlayoffSeedPick | null> => {
       const { data, error } = await supabase
         .from('playoff_seed_picks')

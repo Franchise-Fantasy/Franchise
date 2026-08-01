@@ -17,7 +17,8 @@ interface ByTeamTabProps {
   swaps: DraftHubSwap[];
   teams: DraftHubTeam[];
   validSeasons: string[];
-  pickConditionsEnabled: boolean;
+  pickProtectionsEnabled: boolean;
+  pickSwapsEnabled: boolean;
 }
 
 interface TeamPickGroup {
@@ -31,7 +32,8 @@ export function ByTeamTab({
   swaps,
   teams,
   validSeasons,
-  pickConditionsEnabled,
+  pickProtectionsEnabled,
+  pickSwapsEnabled,
 }: ByTeamTabProps) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -154,10 +156,10 @@ export function ByTeamTab({
 
                       {seasonPicks.map((pick, idx) => {
                         const isUpcoming = season === validSeasons[0];
-                        const showProtection = pick.protection_threshold && pickConditionsEnabled;
+                        const showProtection = pick.protection_threshold && pickProtectionsEnabled;
                         const isLast =
                           idx === seasonPicks.length - 1 &&
-                          (!pickConditionsEnabled || seasonSwaps.length === 0);
+                          (!pickSwapsEnabled || seasonSwaps.length === 0);
                         const protectionOwnerTricode = pick.protection_owner_name
                           ? (teams.find((t) => t.name === pick.protection_owner_name)?.tricode
                               ?? pick.protection_owner_name.slice(0, 3).toUpperCase())
@@ -232,7 +234,7 @@ export function ByTeamTab({
                           </View>
                         );
                       })}
-                      {pickConditionsEnabled &&
+                      {pickSwapsEnabled &&
                         seasonSwaps.map((sw, idx) => {
                           const isBeneficiary = sw.beneficiary_team_id === item.team.id;
                           const partnerId = isBeneficiary

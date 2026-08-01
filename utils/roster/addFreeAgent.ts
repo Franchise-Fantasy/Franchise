@@ -1,6 +1,6 @@
 import { sendNotification } from "@/lib/notifications";
 import { supabase } from "@/lib/supabase";
-import { GameTimeMap, hasAnyGameStarted, isGameStarted } from "@/utils/nba/gameStarted";
+import { GameTimeMap, isGameStarted } from "@/utils/nba/gameStarted";
 import { assertNoIllegalIR } from "@/utils/roster/illegalIR";
 import { assertNoOverCap } from "@/utils/roster/overCap";
 import { rosterAddDrop } from "@/utils/roster/rosterTransaction";
@@ -30,13 +30,12 @@ export async function addFreeAgent(params: {
   leagueId: string;
   teamId: string;
   player: { player_id: string; name: string; position: string; pro_team: string };
-  playerLockType: "daily" | "individual" | null;
   gameTimeMap: GameTimeMap;
   forceDefer?: boolean;
   groupId?: string;
   skipNotify?: boolean;
 }): Promise<{ deferred: boolean }> {
-  const { leagueId, teamId, player, playerLockType, gameTimeMap, forceDefer, groupId, skipNotify } =
+  const { leagueId, teamId, player, gameTimeMap, forceDefer, groupId, skipNotify } =
     params;
 
   // Block the add if this team has any healthy player parked on IR, or if its
@@ -46,14 +45,9 @@ export async function addFreeAgent(params: {
   await assertNoIllegalIR(leagueId, teamId);
   await assertNoOverCap(leagueId, teamId);
 
-  let locked = false;
-  if (forceDefer) {
-    locked = true;
-  } else if (playerLockType === "daily") {
-    locked = hasAnyGameStarted(gameTimeMap);
-  } else if (playerLockType === "individual") {
-    locked = isGameStarted(player.pro_team, gameTimeMap);
-  }
+  // Player lock is individual: an add only defers if the incoming player's
+  // own game has already started (they still score tomorrow, not today).
+  const locked = forceDefer || isGameStarted(player.pro_team, gameTimeMap);
 
   const { deferred } = await rosterAddDrop({
     leagueId,

@@ -80,7 +80,7 @@ export default function FeatureShowcase() {
                       {showcase.title}
                     </h3>
                     <p
-                      className="mb-8 max-w-xl text-[15px] leading-relaxed sm:text-base"
+                      className="max-w-xl text-[15px] leading-relaxed sm:text-base"
                       style={{ color: p.textMuted }}
                     >
                       {showcase.lead}

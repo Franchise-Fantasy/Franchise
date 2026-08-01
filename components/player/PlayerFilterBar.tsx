@@ -14,7 +14,12 @@ import {
 
 import { AppTextInput } from '@/components/ui/AppTextInput';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
+import {
+  formatSeasonShort,
+  getCurrentSeason,
+  parseSeasonStartYear,
+  type Sport,
+} from '@/constants/LeagueDefaults';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
@@ -39,6 +44,13 @@ function lastSeasonLabel(sport: Sport): string {
   if (getSportModule(sport).seasonFormat === 'single-year') return `'${prevStart}`;
   const prevEnd = String(startYear).slice(-2);
   return `'${prevStart}-'${prevEnd}`;
+}
+
+// The projection range names the season it forecasts ("Proj '26-'27") rather
+// than a bare "Proj" — pre-tipoff it sits next to a last-season chip showing
+// real averages, and an unlabelled projection reads as this season's stat line.
+function projectionLabel(sport: Sport): string {
+  return `Proj ${formatSeasonShort(getCurrentSeason(sport), sport)}`;
 }
 
 /** Labeled horizontal chip row that surfaces a right-aligned chevron hint only when its content overflows. */
@@ -121,6 +133,14 @@ interface PlayerFilterBarProps {
   hasScheduleData?: boolean;
   timeRange?: TimeRange;
   onTimeRangeChange?: (range: TimeRange) => void;
+  /** Season-horizon projections exist for this sport — adds the
+   *  "Proj ‹season›" time range. The draft board omits it: its Season view
+   *  already blends projections in for thin-sample players. */
+  hasProjections?: boolean;
+  /** The range the caller opens on. The free-agent list defaults to the
+   *  projection pre-tipoff (the matview is empty for everyone then), so the
+   *  active-filter pip and Reset have to measure against that, not "season". */
+  defaultTimeRange?: TimeRange;
   showWatchlistOnly?: boolean;
   onWatchlistOnlyChange?: (show: boolean) => void;
   hasWatchlistData?: boolean;
@@ -158,6 +178,7 @@ export function countActiveFilters(args: {
   showMinutesUp?: boolean;
   playingOnDate?: string | null;
   timeRange?: TimeRange;
+  defaultTimeRange?: TimeRange;
   showWatchlistOnly?: boolean;
   showRookiesOnly?: boolean;
   injuryFilter?: InjuryFilter;
@@ -169,7 +190,7 @@ export function countActiveFilters(args: {
     (args.sortBy !== defaultSortKey(args.isCategories) ? 1 : 0) +
     (args.showMinutesUp ? 1 : 0) +
     (args.playingOnDate ? 1 : 0) +
-    (args.timeRange && args.timeRange !== 'season' ? 1 : 0) +
+    (args.timeRange && args.timeRange !== (args.defaultTimeRange ?? 'season') ? 1 : 0) +
     (args.showWatchlistOnly ? 1 : 0) +
     (args.showRookiesOnly ? 1 : 0) +
     (args.injuryFilter && args.injuryFilter !== 'all' ? 1 : 0)
@@ -206,6 +227,8 @@ export function PlayerFilterBar({
   hasScheduleData,
   timeRange,
   onTimeRangeChange,
+  hasProjections,
+  defaultTimeRange = 'season',
   showWatchlistOnly,
   onWatchlistOnlyChange,
   hasWatchlistData,
@@ -239,6 +262,14 @@ export function PlayerFilterBar({
   // (and weekly games make short windows redundant with Season anyway).
   const TIME_RANGE_OPTIONS: { key: TimeRange; label: string }[] = [
     { key: 'season', label: 'Season' },
+    // Forward-looking range sits beside Season; only offered when the caller
+    // actually has projection rows (NFL has no projections engine in v1).
+    ...(hasProjections
+      ? ([{ key: 'projected', label: projectionLabel(sport) }] as {
+          key: TimeRange;
+          label: string;
+        }[])
+      : []),
     ...(sport === 'nfl'
       ? []
       : ([
@@ -265,6 +296,7 @@ export function PlayerFilterBar({
     showMinutesUp,
     playingOnDate,
     timeRange,
+    defaultTimeRange,
     showWatchlistOnly,
     showRookiesOnly,
     injuryFilter,
@@ -277,7 +309,7 @@ export function PlayerFilterBar({
     onSortChange(defaultSortKey(isCategories));
     onMinutesUpChange?.(false);
     onPlayingOnDateChange?.(null);
-    onTimeRangeChange?.('season');
+    onTimeRangeChange?.(defaultTimeRange);
     onWatchlistOnlyChange?.(false);
     onRookiesOnlyChange?.(false);
     onFreeAgentsOnlyChange?.(true);

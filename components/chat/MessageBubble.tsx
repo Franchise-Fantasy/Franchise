@@ -13,6 +13,7 @@ import Animated, {
   type SharedValue,
 } from "react-native-reanimated";
 
+import { AnnouncementBubble } from "@/components/chat/AnnouncementBubble";
 import { PollBubble } from "@/components/chat/PollBubble";
 import { RumorBubble } from "@/components/chat/RumorBubble";
 import { SurveyBubble } from "@/components/chat/SurveyBubble";
@@ -433,6 +434,45 @@ export function MessageBubble({
             </TouchableOpacity>
           </Animated.View>
 
+          {showSwipeTime && (
+            <Animated.View style={[styles.swipeTime, timeRevealStyle]}>
+              <ThemedText
+                style={[styles.swipeTimeText, { color: c.secondaryText }]}
+              >
+                {timeStr}
+              </ThemedText>
+            </Animated.View>
+          )}
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // League announcements (champion crowned, season over) — no sender, no avatar
+  if (message.type === "announcement") {
+    return (
+      <Animated.View
+        entering={enterAnim}
+        style={[
+          styles.pollWrapper,
+          isFirstInGroup ? styles.wrapperGroupEnd : styles.wrapperGrouped,
+        ]}
+      >
+        <View style={styles.swipeRow}>
+          <Animated.View style={[{ flex: 1 }, slideStyle]}>
+            <TouchableOpacity
+              onLongPress={handleLongPress}
+              delayLongPress={300}
+              activeOpacity={0.8}
+            >
+              <ReactionBadges
+                reactions={reactions}
+                isOwnMessage={false}
+                onReactionPress={onReactionPress}
+              />
+              <AnnouncementBubble text={message.content} />
+            </TouchableOpacity>
+          </Animated.View>
           {showSwipeTime && (
             <Animated.View style={[styles.swipeTime, timeRevealStyle]}>
               <ThemedText

@@ -35,7 +35,7 @@ export default function FeatureGrid() {
         <AnimatedSection className="mb-12 max-w-3xl">
           <h2
             id="features-heading"
-            className="display text-5xl text-[var(--heading)] sm:text-6xl lg:text-7xl"
+            className="display text-[clamp(2.25rem,11vw,3rem)] text-[var(--heading)] sm:text-6xl lg:text-7xl"
           >
             Built for the
             <br />

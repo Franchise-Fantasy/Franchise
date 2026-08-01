@@ -7,11 +7,14 @@ import { Colors } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ms, s } from '@/utils/scale';
 
+// These mirror what DEFAULT_PREFERENCES actually turns on — don't promise a
+// category here that a fresh install has switched off (league chat and other
+// teams' roster moves both default OFF, so they're deliberately absent).
 const CATEGORIES: { icon: keyof typeof Ionicons.glyphMap; label: string; description: string }[] = [
-  { icon: 'flash-outline',     label: 'Live game updates',      description: 'Score swings and matchup deltas in real time' },
-  { icon: 'swap-horizontal',   label: 'Trades & waivers',       description: 'Proposals, accepts, and weekly waiver results' },
-  { icon: 'megaphone-outline', label: 'Commissioner actions',   description: 'Polls, schedule changes, payouts' },
-  { icon: 'people-outline',    label: 'Draft & league chat',    description: "When it's your pick or a teammate posts" },
+  { icon: 'basketball-outline', label: "When you're on the clock", description: 'Draft picks, and a nudge before your time runs out' },
+  { icon: 'swap-horizontal',    label: 'Trades & waivers',         description: 'Offers aimed at you, and how your claims landed' },
+  { icon: 'medkit-outline',     label: 'Injuries to your players', description: 'Status changes for players on your roster' },
+  { icon: 'flash-outline',      label: 'Close matchups',           description: 'When your week is going down to the wire' },
 ];
 
 interface Props {
@@ -78,7 +81,8 @@ export function PushSoftPrompt({ visible, onEnable, onDismiss }: Props) {
           </View>
 
           <ThemedText style={[styles.footnote, { color: c.secondaryText }]}>
-            You can change which notifications you receive any time in your profile settings.
+            Noisier stuff — league chat and every roster move — stays off unless you
+            turn it on. Change any of it later in Profile → Notifications.
           </ThemedText>
 
           <BrandButton

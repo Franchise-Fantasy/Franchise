@@ -41,7 +41,6 @@ interface DropPickerModalProps {
   scoringWeights: Parameters<typeof calculateAvgFantasyPoints>[1] | undefined;
   /** Categories leagues have no fantasy points — hides the FPTS readout */
   isCategories: boolean;
-  playerLockType: "daily" | "individual" | undefined;
   gameTimeMap: GameTimeMap;
   translateY: Animated.Value;
   panHandlers: object;
@@ -72,7 +71,6 @@ export function DropPickerModal({
   needsWaiverClaim,
   scoringWeights,
   isCategories,
-  playerLockType,
   gameTimeMap,
   translateY,
   panHandlers,
@@ -88,8 +86,10 @@ export function DropPickerModal({
   const confirm = useConfirm();
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
+  // A player whose game has started can't be dropped today — their line is
+  // already counting, so the drop would have to queue to tomorrow anyway.
   const dropCandidates = (rosterPlayers ?? []).filter(
-    (p) => playerLockType === "daily" || !isGameStarted(p.pro_team, gameTimeMap),
+    (p) => !isGameStarted(p.pro_team, gameTimeMap),
   );
 
   const eyebrow = activateFromIR

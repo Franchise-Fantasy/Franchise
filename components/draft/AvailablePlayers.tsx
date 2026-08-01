@@ -31,11 +31,12 @@ import { TimeRange, usePlayerFilter } from "@/hooks/usePlayerFilter";
 import { usePlayerProjections } from "@/hooks/usePlayerProjections";
 import { useProspectBoard } from "@/hooks/useProspectBoard";
 import { useProspectConsensus } from "@/hooks/useProspectConsensus";
+import { useProspectPhotos } from "@/hooks/useProspectPhotos";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { preferProjection, sortRookiePool } from "@/utils/draft/draftRanking";
 import { formatPosition } from "@/utils/formatting";
-import { blendBasketballSeasonView, blendNflSeasonView, buildAdjustedPlayers } from "@/utils/freeAgent/freeAgentStats";
+import { blendBasketballSeasonView, blendNflSeasonView, buildAdjustedPlayers, mergeProjectionRow } from "@/utils/freeAgent/freeAgentStats";
 import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { checkPositionLimits, type PositionLimits } from "@/utils/roster/positionLimits";
@@ -314,37 +315,10 @@ export function AvailablePlayers({
       if (!seasonProjections || seasonProjections.size === 0) {
         return blendBasketballSeasonView(players, historicalStats) ?? players;
       }
-      const num = (v: unknown) => Number(v) || 0;
       return players.map((p) => {
         if (!preferProjection(p.games_played)) return p;
         const pr = seasonProjections.get(p.player_id);
-        if (!pr) return p;
-        const g = num(pr.projected_games) || 1;
-        const avg = {
-          pts: num(pr.proj_pts), reb: num(pr.proj_reb), ast: num(pr.proj_ast),
-          stl: num(pr.proj_stl), blk: num(pr.proj_blk), tov: num(pr.proj_tov),
-          fgm: num(pr.proj_fgm), fga: num(pr.proj_fga),
-          ftm: num(pr.proj_ftm), fta: num(pr.proj_fta),
-          tpm: num(pr.proj_3pm), tpa: num(pr.proj_3pa),
-          min: num(pr.proj_min),
-        };
-        return {
-          ...p,
-          games_played: g,
-          avg_min: avg.min,
-          avg_pts: avg.pts, total_pts: avg.pts * g,
-          avg_reb: avg.reb, total_reb: avg.reb * g,
-          avg_ast: avg.ast, total_ast: avg.ast * g,
-          avg_stl: avg.stl, total_stl: avg.stl * g,
-          avg_blk: avg.blk, total_blk: avg.blk * g,
-          avg_tov: avg.tov, total_tov: avg.tov * g,
-          avg_fgm: avg.fgm, total_fgm: avg.fgm * g,
-          avg_fga: avg.fga, total_fga: avg.fga * g,
-          avg_ftm: avg.ftm, total_ftm: avg.ftm * g,
-          avg_fta: avg.fta, total_fta: avg.fta * g,
-          avg_3pm: avg.tpm, total_3pm: avg.tpm * g,
-          avg_3pa: avg.tpa, total_3pa: avg.tpa * g,
-        } as PlayerSeasonStats;
+        return pr ? mergeProjectionRow(p, pr) : p;
       });
     }
 
@@ -401,6 +375,14 @@ export function AvailablePlayers({
   // The staff consensus board for this class — the default rookie ordering, and
   // the only one that exists for a user who never built a personal board.
   const { data: consensusRankMap } = useProspectConsensus(
+    sport,
+    rookieClassYear,
+    !!isRookieDraft,
+  );
+  // Prospects have no external_id_nba yet, so the whole pool would silhouette —
+  // fall back to the class's Contentful scouting photos (same ones the
+  // Prospects hub shows), keyed by players.id.
+  const { data: prospectPhotos } = useProspectPhotos(
     sport,
     rookieClassYear,
     !!isRookieDraft,
@@ -507,6 +489,10 @@ export function AvailablePlayers({
     },
     [hasLimits, positionLimits, myRoster],
   );
+  const photoFor = useCallback(
+    (playerId: string) => prospectPhotos?.get(playerId),
+    [prospectPhotos],
+  );
 
   const renderPlayer = useCallback(
     ({ item }: { item: PlayerSeasonStats }) => {
@@ -595,6 +581,7 @@ export function AvailablePlayers({
                 sport={sport}
                 style={styles.headshotImg}
                 accessible={false}
+                fallbackUri={prospectPhotos?.get(item.player_id)}
               />
             </View>
             <View style={styles.teamPill}>
@@ -754,7 +741,7 @@ export function AvailablePlayers({
         </TouchableOpacity>
       );
     },
-    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, rankFor],
+    [c, scoringWeights, isCategories, isMyTurn, isDrafting, addToQueue, queuedPlayerIds, sport, players, hasLimits, positionLimits, myRoster, projectedIds, isRookieDraft, rankFor, prospectPhotos],
   );
 
   if (isLoading) {
@@ -848,6 +835,7 @@ export function AvailablePlayers({
           fptsFor={fptsFor}
           isProjected={isProjectedId}
           rankFor={rankFor}
+          photoFor={photoFor}
           hideStats={isRookieDraft}
           draftBlockFor={draftBlockFor}
           canDraft={isMyTurn && !isDrafting}

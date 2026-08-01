@@ -3,14 +3,17 @@ import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import {
   assignDependencyLevels,
   computeDependencyRisk,
+  dependencyTopN,
   type DependencyResult,
 } from '@/utils/scoring/dependencyRisk';
 
-function makeResult(teamId: string, topThreePct: number): DependencyResult {
-  return { teamId, topThreePct, topThreePlayers: [], totalContributors: 0 };
+function makeResult(teamId: string, topPct: number): DependencyResult {
+  return { teamId, topPct, topPlayers: [], totalContributors: 0 };
 }
 
-function makePlayer(overrides: Partial<PlayerSeasonStats & { team_id: string; name: string }> = {}): LeaguePlayerWithTeam {
+function makePlayer(
+  overrides: Partial<PlayerSeasonStats & { team_id: string; name: string; roster_slot: string }> = {},
+): LeaguePlayerWithTeam {
   return {
     player_id: 'p1', name: 'Test Player', position: 'PG', pro_team: 'LAL',
     status: 'active', external_id_nba: null, rookie: false,
@@ -33,7 +36,7 @@ describe('computeDependencyRisk — points leagues', () => {
     expect(computeDependencyRisk([makePlayer({ team_id: '' })], POINTS_WEIGHTS)).toEqual([]);
   });
 
-  it('reports topThreePct ≈ 1 when all production comes from 3 players', () => {
+  it('reports topPct ≈ 1 when all production comes from 3 players', () => {
     const roster = [
       makePlayer({ player_id: 'a', name: 'A', games_played: 10, total_pts: 300 }),
       makePlayer({ player_id: 'b', name: 'B', games_played: 10, total_pts: 200 }),
@@ -41,8 +44,8 @@ describe('computeDependencyRisk — points leagues', () => {
     ];
     const result = computeDependencyRisk(roster, POINTS_WEIGHTS);
     expect(result).toHaveLength(1);
-    expect(result[0].topThreePct).toBe(1);
-    expect(result[0].topThreePlayers).toEqual(['A', 'B', 'C']);
+    expect(result[0].topPct).toBe(1);
+    expect(result[0].topPlayers).toEqual(['A', 'B', 'C']);
     expect(result[0].totalContributors).toBe(3);
   });
 
@@ -55,7 +58,7 @@ describe('computeDependencyRisk — points leagues', () => {
       makePlayer({ player_id: 'e', games_played: 10, total_pts: 100 }),
     ];
     const result = computeDependencyRisk(roster, POINTS_WEIGHTS);
-    expect(result[0].topThreePct).toBeCloseTo(3 / 5, 5);
+    expect(result[0].topPct).toBeCloseTo(3 / 5, 5);
   });
 
   it('weights by games_played (ironman beats few-games elite in top-3 ranking)', () => {
@@ -68,9 +71,58 @@ describe('computeDependencyRisk — points leagues', () => {
       makePlayer({ team_id: 'a', name: 'Ironman B', player_id: 'a3', games_played: 60, total_pts: 1200 }),
     ];
     const result = computeDependencyRisk(teamA, POINTS_WEIGHTS);
-    expect(result[0].topThreePct).toBe(1); // only 3 contributors → whole team
-    expect(result[0].topThreePlayers[0]).not.toBe('Elite Few Games');
-    expect(['Ironman A', 'Ironman B']).toContain(result[0].topThreePlayers[0]);
+    expect(result[0].topPct).toBe(1); // only 3 contributors → whole team
+    expect(result[0].topPlayers[0]).not.toBe('Elite Few Games');
+    expect(['Ironman A', 'Ironman B']).toContain(result[0].topPlayers[0]);
+  });
+
+  it('ranks on prev-season per-game production before the season tips off', () => {
+    // NBA 2026-27 pre-tipoff: every games_played is 0, so games-weighting would
+    // multiply the whole league out to 0% (the live bug this covers).
+    const roster = [
+      makePlayer({ team_id: 'a', player_id: 'a1', name: 'Star' }),
+      makePlayer({ team_id: 'a', player_id: 'a2', name: 'Role' }),
+      makePlayer({ team_id: 'a', player_id: 'a3', name: 'Bench' }),
+      makePlayer({ team_id: 'a', player_id: 'a4', name: 'Deep' }),
+    ];
+    const prev = new Map([['a1', 60], ['a2', 20], ['a3', 10], ['a4', 10]]);
+    const result = computeDependencyRisk(roster, POINTS_WEIGHTS, { sport: 'nba', prevSeasonMap: prev });
+    expect(result[0].topPct).toBeCloseTo(90 / 100, 5);
+    expect(result[0].topPlayers).toEqual(['Star', 'Role', 'Bench']);
+  });
+
+  it('still contributes nothing for a mid-season player who has not played', () => {
+    // Once the league has games on the board, a prev-season fallback must not
+    // resurrect a player who has produced nothing this season.
+    const roster = [
+      makePlayer({ team_id: 'a', player_id: 'a1', name: 'Playing', games_played: 20, total_pts: 400 }),
+      makePlayer({ team_id: 'a', player_id: 'a2', name: 'Injured' }),
+    ];
+    const prev = new Map([['a2', 50]]);
+    const result = computeDependencyRisk(roster, POINTS_WEIGHTS, { sport: 'nba', prevSeasonMap: prev });
+    expect(result[0].totalContributors).toBe(1);
+    expect(result[0].topPlayers).toEqual(['Playing']);
+  });
+
+  it('honours a wider topN and leaves the rest of the roster in the denominator', () => {
+    // 6 equal producers, top 4 → 4/6.
+    const roster = Array.from({ length: 6 }, (_, i) =>
+      makePlayer({ player_id: `p${i}`, name: `P${i}`, games_played: 10, total_pts: 100 }),
+    );
+    const result = computeDependencyRisk(roster, POINTS_WEIGHTS, { topN: 4 });
+    expect(result[0].topPct).toBeCloseTo(4 / 6, 5);
+    expect(result[0].topPlayers).toHaveLength(4);
+  });
+
+  it('excludes IR and taxi stashes from both the top N and the denominator', () => {
+    const roster = [
+      makePlayer({ player_id: 'a', name: 'Active', games_played: 10, total_pts: 100 }),
+      makePlayer({ player_id: 'b', name: 'Stashed', games_played: 10, total_pts: 900, roster_slot: 'IR' }),
+      makePlayer({ player_id: 'c', name: 'Taxi', games_played: 10, total_pts: 900, roster_slot: 'TAXI' }),
+    ];
+    const result = computeDependencyRisk(roster, POINTS_WEIGHTS);
+    expect(result[0].totalContributors).toBe(1);
+    expect(result[0].topPlayers).toEqual(['Active']);
   });
 
   it('returns zero stats for an all-zero roster', () => {
@@ -79,8 +131,8 @@ describe('computeDependencyRisk — points leagues', () => {
       makePlayer({ player_id: 'b', games_played: 0, total_pts: 0 }),
     ];
     const result = computeDependencyRisk(roster, POINTS_WEIGHTS);
-    expect(result[0].topThreePct).toBe(0);
-    expect(result[0].topThreePlayers).toEqual([]);
+    expect(result[0].topPct).toBe(0);
+    expect(result[0].topPlayers).toEqual([]);
     expect(result[0].totalContributors).toBe(0);
   });
 });
@@ -93,11 +145,46 @@ describe('computeDependencyRisk — categories leagues', () => {
       makePlayer({ team_id: 'a', player_id: 'a3', games_played: 10, avg_pts: 10, avg_reb: 5, avg_ast: 5 }),
       makePlayer({ team_id: 'a', player_id: 'a4', games_played: 10, avg_pts: 10, avg_reb: 5, avg_ast: 5 }),
     ];
-    const result = computeDependencyRisk(roster, [], 'h2h_categories');
+    const result = computeDependencyRisk(roster, [], { scoringType: 'h2h_categories' });
     expect(result).toHaveLength(1);
-    expect(result[0].topThreePct).toBeGreaterThan(0);
-    expect(result[0].topThreePct).toBeLessThanOrEqual(1);
+    expect(result[0].topPct).toBeGreaterThan(0);
+    expect(result[0].topPct).toBeLessThanOrEqual(1);
     expect(result[0].totalContributors).toBe(4);
+  });
+
+  it('falls back to last season\'s cat contribution before tip-off', () => {
+    // Categories leagues have no fpts to fall back on, so they carry their own
+    // prev-season composite map. Without it the whole card reads 0%.
+    const roster = [
+      makePlayer({ team_id: 'a', player_id: 'a1', name: 'Star' }),
+      makePlayer({ team_id: 'a', player_id: 'a2', name: 'Role' }),
+      makePlayer({ team_id: 'a', player_id: 'a3', name: 'Bench' }),
+      makePlayer({ team_id: 'a', player_id: 'a4', name: 'Deep' }),
+    ];
+    const prev = new Map([['a1', 45], ['a2', 25], ['a3', 20], ['a4', 10]]);
+    const result = computeDependencyRisk(roster, [], {
+      scoringType: 'h2h_categories',
+      prevSeasonMap: prev,
+    });
+    expect(result[0].topPct).toBeCloseTo(90 / 100, 5);
+    expect(result[0].topPlayers).toEqual(['Star', 'Role', 'Bench']);
+  });
+});
+
+describe('dependencyTopN', () => {
+  it('falls back to 3 when the roster config has not loaded', () => {
+    expect(dependencyTopN(undefined)).toBe(3);
+    expect(dependencyTopN(0)).toBe(3);
+  });
+
+  it('covers a quarter of the active roster', () => {
+    expect(dependencyTopN(22)).toBe(6); // NBA dynasty: 10 starters + 12 bench
+    expect(dependencyTopN(16)).toBe(4);
+  });
+
+  it('clamps to 3–8 so tiny and huge rosters stay readable', () => {
+    expect(dependencyTopN(8)).toBe(3);
+    expect(dependencyTopN(40)).toBe(8);
   });
 });
 

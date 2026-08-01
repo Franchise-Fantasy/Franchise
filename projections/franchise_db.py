@@ -70,12 +70,24 @@ PG_DSN = os.environ["PG_DSN"].strip()
 #                    experience curve keys on true career length (draft_year)
 #                    instead of history depth — kills the uniform +10% that put
 #                    every first-snapshot NBA projection above last year's line
-MODEL_VERSION = "franchise-v1.2"
+#   franchise-v1.3 — 2026-08-01: season horizon only. (a) fg3a added to
+#                    RATE_STATS — it was missing while franchise_edge (next_game)
+#                    had it, so proj_3pa was NULL on all 13,803 season rows ever
+#                    written and any league weighting 3PA lost the penalty
+#                    entirely (Curry: 52.8 projected vs 41.5 actual fpts on an
+#                    identical stat line); (b) small-sample shrinkage
+#                    on per-36 rates + MPG (previously ONLY games-played was
+#                    shrunk, so a 12-game cameo projected as a full-season role);
+#                    (c) player_historical_stats now backfills seasons the game
+#                    logs don't retain, which for NBA restores 2024-25 as a
+#                    second prior — without it (b) alone buried injured stars
+#                    (Tatum's 16-game year shrank him to 13.1 ppg)
+MODEL_VERSION = "franchise-v1.3"
 
 # Per-36 rate stats projected by the season snapshot (mirrors
 # season_project.RATE_STATS).
 SEASON_RATE_STATS = ["pts", "reb", "ast", "stl", "blk", "tov",
-                     "fg3m", "fgm", "fga", "ftm", "fta"]
+                     "fg3m", "fg3a", "fgm", "fga", "ftm", "fta"]
 
 
 def get_conn():
@@ -471,6 +483,7 @@ def fetch_player_seasons(conn, sport: str, windows: dict) -> pd.DataFrame:
                    COALESCE(pg.blk,  0)::float            AS blk,
                    COALESCE(pg.tov,  0)::float            AS tov,
                    COALESCE(pg."3pm", 0)::float           AS fg3m,
+                   COALESCE(pg."3pa", 0)::float           AS fg3a,
                    COALESCE(pg.fgm,  0)::float            AS fgm,
                    COALESCE(pg.fga,  0)::float            AS fga,
                    COALESCE(pg.ftm,  0)::float            AS ftm,
@@ -491,6 +504,7 @@ def fetch_player_seasons(conn, sport: str, windows: dict) -> pd.DataFrame:
                SUM(blk)  / NULLIF(SUM(min_played), 0) * 36   AS blk_per36,
                SUM(tov)  / NULLIF(SUM(min_played), 0) * 36   AS tov_per36,
                SUM(fg3m) / NULLIF(SUM(min_played), 0) * 36   AS fg3m_per36,
+               SUM(fg3a) / NULLIF(SUM(min_played), 0) * 36   AS fg3a_per36,
                SUM(fgm)  / NULLIF(SUM(min_played), 0) * 36   AS fgm_per36,
                SUM(fga)  / NULLIF(SUM(min_played), 0) * 36   AS fga_per36,
                SUM(ftm)  / NULLIF(SUM(min_played), 0) * 36   AS ftm_per36,
@@ -501,7 +515,71 @@ def fetch_player_seasons(conn, sport: str, windows: dict) -> pd.DataFrame:
         ORDER BY player_id, season
     """
     min_minutes, min_games = 3.0, 5
-    return pd.read_sql(q, conn, params=(*wparams, sport, min_minutes, min_games))
+    logs = pd.read_sql(q, conn, params=(*wparams, sport, min_minutes, min_games))
+
+    # Fill seasons the game logs don't cover from player_historical_stats.
+    # player_games retention is one season for NBA, but player_historical_stats
+    # keeps 2024-25 — without this the season model sees a single prior year and
+    # treats a returning starter's thin current sample as if he had no career
+    # (33 of the 114 thin-sample 2026-27 candidates have a 40+ game 2024-25).
+    # Game logs win wherever both exist (WNBA has logs for every prior season,
+    # so this path is NBA-only today).
+    hist = fetch_historical_season_rates(conn, sport, list(windows), min_games)
+    if hist.empty:
+        return logs
+    covered = set(zip(logs["player_id"], logs["season"])) if not logs.empty else set()
+    gap = hist[[(p, s) not in covered
+                for p, s in zip(hist["player_id"], hist["season"])]]
+    if gap.empty:
+        return logs
+    return pd.concat([logs, gap], ignore_index=True).sort_values(
+        ["player_id", "season"]).reset_index(drop=True)
+
+
+def fetch_historical_season_rates(conn, sport: str, start_years: list,
+                                  min_games: int = 5) -> pd.DataFrame:
+    """Season aggregates from player_historical_stats, in fetch_player_seasons'
+    shape (player_id, season, games_played, mpg, <stat>_per36).
+
+    Two deliberate approximations vs the game-log path, both acceptable because
+    this only ever supplies a recency-DOWNWEIGHTED prior season:
+      - per-36 rates are derived from 1-dp per-game averages (avg_x / avg_min ×
+        36), so low-volume stats (blk, stl) carry a few percent of rounding
+        noise that the raw-minute path doesn't have;
+      - the per-game `min >= 3` garbage-time filter can't be applied to an
+        already-aggregated row, so a player's DNP-adjacent cameos are included
+        in their average where the log path would drop them.
+    """
+    labels = [season_label(sport, y) for y in start_years]
+    q = """
+        SELECT player_id, season, games_played,
+               avg_min AS mpg,
+               avg_pts  / NULLIF(avg_min, 0) * 36 AS pts_per36,
+               avg_reb  / NULLIF(avg_min, 0) * 36 AS reb_per36,
+               avg_ast  / NULLIF(avg_min, 0) * 36 AS ast_per36,
+               avg_stl  / NULLIF(avg_min, 0) * 36 AS stl_per36,
+               avg_blk  / NULLIF(avg_min, 0) * 36 AS blk_per36,
+               avg_tov  / NULLIF(avg_min, 0) * 36 AS tov_per36,
+               avg_3pm  / NULLIF(avg_min, 0) * 36 AS fg3m_per36,
+               avg_3pa  / NULLIF(avg_min, 0) * 36 AS fg3a_per36,
+               avg_fgm  / NULLIF(avg_min, 0) * 36 AS fgm_per36,
+               avg_fga  / NULLIF(avg_min, 0) * 36 AS fga_per36,
+               avg_ftm  / NULLIF(avg_min, 0) * 36 AS ftm_per36,
+               avg_fta  / NULLIF(avg_min, 0) * 36 AS fta_per36
+        FROM player_historical_stats
+        WHERE sport = %s AND season = ANY(%s)
+          AND games_played >= %s AND avg_min > 0
+    """
+    df = pd.read_sql(q, conn, params=(sport, labels, min_games))
+    if df.empty:
+        return df
+    # Back to the engine's integer start-year key.
+    df["season"] = df["season"].map(parse_start_year)
+    df["player_id"] = df["player_id"].astype(str)
+    for col in df.columns:
+        if col not in ("player_id", "season"):
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype(float)
+    return df
 
 
 def get_draft_years(conn, sport: str) -> dict:

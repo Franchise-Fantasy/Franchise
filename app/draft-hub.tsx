@@ -121,7 +121,8 @@ export default function DraftHub() {
           swaps={data.swaps}
           teams={data.teams}
           validSeasons={data.validSeasons}
-          pickConditionsEnabled={data.leagueSettings.pickConditionsEnabled}
+          pickProtectionsEnabled={data.leagueSettings.pickProtectionsEnabled}
+          pickSwapsEnabled={data.leagueSettings.pickSwapsEnabled}
         />
       )}
       </View>

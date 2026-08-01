@@ -11,7 +11,7 @@ import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
+import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonProduction';
 import { ordinalSuffix } from '@/utils/formatting';
 import {
   buildLeagueComparison,

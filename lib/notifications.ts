@@ -3,6 +3,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 
+import { DEFAULT_PREFERENCES, type PushPreferences } from '@/constants/NotificationPrefs';
 import type { Json } from '@/types/database.types';
 
 import { supabase } from './supabase';
@@ -24,45 +25,11 @@ function deviceTimezone(): string | null {
   }
 }
 
-export interface PushPreferences {
-  draft: boolean;
-  trades: boolean;
-  trade_rumors: boolean;
-  trade_block: boolean;
-  matchups: boolean;
-  matchup_daily: boolean;
-  matchup_closeup: boolean;
-  waivers: boolean;
-  injuries: boolean;
-  playoffs: boolean;
-  commissioner: boolean;
-  league_activity: boolean;
-  roster_reminders: boolean;
-  lottery: boolean;
-  chat: boolean;
-  roster_moves: boolean;
-  player_news: boolean;
-}
-
-export const DEFAULT_PREFERENCES: PushPreferences = {
-  draft: true,
-  trades: true,
-  trade_rumors: false,
-  trade_block: true,
-  matchups: true,
-  matchup_daily: false,
-  matchup_closeup: true,
-  waivers: true,
-  injuries: true,
-  playoffs: true,
-  commissioner: true,
-  league_activity: false,
-  roster_reminders: false,
-  lottery: false,
-  chat: false,
-  roster_moves: false,
-  player_news: true,
-};
+// The preference shape and its defaults live in a native-import-free module so
+// tests can read them without pulling expo-device/expo-notifications in.
+// Re-exported here because this is the import path every call site already uses.
+export { DEFAULT_PREFERENCES } from '@/constants/NotificationPrefs';
+export type { PushPreferences } from '@/constants/NotificationPrefs';
 
 export async function hasBeenAsked(): Promise<boolean> {
   return (await AsyncStorage.getItem(ASKED_KEY)) === 'true';
@@ -101,11 +68,11 @@ export async function registerPushToken(userId: string): Promise<boolean> {
         { id: 'waivers',      name: 'Waiver Results',       importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'injuries',     name: 'Injury Updates',       importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'playoffs',     name: 'Playoffs',             importance: Notifications.AndroidImportance.HIGH },
-        { id: 'commissioner', name: 'Commissioner Actions', importance: Notifications.AndroidImportance.HIGH },
+        { id: 'commissioner', name: 'League Admin',         importance: Notifications.AndroidImportance.HIGH },
         { id: 'league',       name: 'League Activity',      importance: Notifications.AndroidImportance.LOW },
-        { id: 'roster',       name: 'Roster Reminders',     importance: Notifications.AndroidImportance.DEFAULT },
         { id: 'lottery',      name: 'Lottery',              importance: Notifications.AndroidImportance.DEFAULT },
-        { id: 'chat',         name: 'Chat Messages',        importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'chat',         name: 'League Chat',          importance: Notifications.AndroidImportance.DEFAULT },
+        { id: 'direct_messages', name: 'Direct Messages',   importance: Notifications.AndroidImportance.HIGH },
         { id: 'roster_moves', name: 'League Roster Moves',  importance: Notifications.AndroidImportance.LOW },
         { id: 'player_news', name: 'Player News',           importance: Notifications.AndroidImportance.DEFAULT },
       ];
@@ -121,6 +88,17 @@ export async function registerPushToken(userId: string): Promise<boolean> {
   }
 
   const tokenResult = await Notifications.getExpoPushTokenAsync({ projectId: EAS_PROJECT_ID });
+
+  // Seed DEFAULT_PREFERENCES only on a genuine first opt-in. Re-registering (the
+  // Profile toggle flipped off then on, a token rotation) must NOT clobber the
+  // categories the user has since tuned — the upsert used to write defaults
+  // unconditionally, silently resetting every customization.
+  const { data: existingRow } = await supabase
+    .from('push_tokens')
+    .select('preferences')
+    .eq('user_id', userId)
+    .maybeSingle();
+
   const { error } = await supabase
     .from('push_tokens')
     .upsert(
@@ -128,7 +106,7 @@ export async function registerPushToken(userId: string): Promise<boolean> {
         user_id: userId,
         token: tokenResult.data,
         timezone: deviceTimezone(),
-        preferences: DEFAULT_PREFERENCES as unknown as Json,
+        preferences: (existingRow?.preferences ?? DEFAULT_PREFERENCES) as unknown as Json,
       },
       { onConflict: 'user_id' },
     );
@@ -154,7 +132,13 @@ export async function getPushPrefs(
 
   return {
     enabled: !!data?.token,
-    preferences: (data?.preferences as PushPreferences | null) ?? DEFAULT_PREFERENCES,
+    // Merge over the defaults: a row written before a category existed has no
+    // key for it, and a bare read would render that toggle as OFF regardless of
+    // its intended default. Mirrors the server-side fallback in _shared/push.ts.
+    preferences: {
+      ...DEFAULT_PREFERENCES,
+      ...((data?.preferences as Partial<PushPreferences> | null) ?? {}),
+    },
     muteAll: data?.mute_all ?? false,
   };
 }
@@ -287,9 +271,11 @@ export async function updatePreferences(
     .eq('user_id', userId)
     .maybeSingle();
 
-  const current: PushPreferences =
-    (data?.preferences as PushPreferences | null) ?? DEFAULT_PREFERENCES;
-  const merged = { ...current, ...patch };
+  const merged: PushPreferences = {
+    ...DEFAULT_PREFERENCES,
+    ...((data?.preferences as Partial<PushPreferences> | null) ?? {}),
+    ...patch,
+  };
 
   await supabase
     .from('push_tokens')

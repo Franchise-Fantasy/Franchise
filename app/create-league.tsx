@@ -46,7 +46,6 @@ import {
   LeagueWizardState,
   SCORING_TYPE_TO_DB,
   ScoringTypeOption,
-  PLAYER_LOCK_TO_DB,
   FAAB_TIEBREAK_TO_DB,
   SEEDING_TO_DB,
   WAIVER_PRIORITY_RESET_TO_DB,
@@ -147,7 +146,8 @@ const initialState: LeagueWizardState = {
   combineCupWeek: false,
   playoffTeams: PLAYOFF_DEFAULTS.playoffTeams,
   playoffSeedingFormat: "Standard",
-  pickConditionsEnabled: false,
+  pickProtectionsEnabled: false,
+  pickSwapsEnabled: false,
   irTradingEnabled: true,
   draftPickTradingEnabled: false,
   tradeDeadlineWeek: defaultTradeDeadlineWeek(DEFAULT_REG_SEASON_WEEKS),
@@ -165,7 +165,6 @@ const initialState: LeagueWizardState = {
   paypalUsername: '',
   taxiMaxExperience: 1,
   weeklyAcquisitionLimit: null,
-  playerLockType: 'Daily',
   autoRumorsEnabled: true,
   tiebreakerPrimary: 'Head-to-Head',
   divisionCount: 1,
@@ -304,7 +303,8 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
         return {
           ...next,
           draftPickTradingEnabled: false,
-          pickConditionsEnabled: false,
+          pickProtectionsEnabled: false,
+          pickSwapsEnabled: false,
           maxDraftYears: 0,
           rosterSlots: next.rosterSlots.map((slot) =>
             slot.position === ROSTER_SLOT.TAXI ? { ...slot, count: 0 } : slot,
@@ -370,12 +370,9 @@ function reducer(state: LeagueWizardState, action: Action): LeagueWizardState {
           // Scoring stat names differ per sport (PTS/REB vs PASS_YD/REC), so a
           // sport switch swaps the whole scoring sheet for the new sport's
           // default (NFL = Half-PPR preset). Categories are basketball-only:
-          // force Points scoring for sports without them. NFL locks default to
-          // per-player ("individual") — games are weekly, a daily lock is
-          // meaningless.
+          // force Points scoring for sports without them.
           scoring: newModule.defaultScoring.map((s) => ({ ...s })),
           scoringType: (newModule.supportsCategories ? next.scoringType : 'Points') as ScoringTypeOption,
-          playerLockType: (newSport === 'nfl' ? 'Individual' : 'Daily') as LeagueWizardState['playerLockType'],
         });
         return { ...merged, tradeDeadlineDate: deriveTradeDeadlineDate(merged) };
       }
@@ -699,8 +696,11 @@ export default function CreateLeague() {
         taxi_slots: isDynasty ? taxiSlotCount : 0,
         taxi_max_experience: isDynasty && taxiSlotCount > 0 ? state.taxiMaxExperience : null,
         weekly_acquisition_limit: state.weeklyAcquisitionLimit,
-        player_lock_type: PLAYER_LOCK_TO_DB[state.playerLockType],
-        pick_conditions_enabled: isDynasty ? state.pickConditionsEnabled : false,
+        // Locks are individual everywhere; the column survives only so builds
+        // that predate the removal keep enforcing the right behavior.
+        player_lock_type: 'individual',
+        pick_protections_enabled: isDynasty ? state.pickProtectionsEnabled : false,
+        pick_swaps_enabled: isDynasty ? state.pickSwapsEnabled : false,
         ir_trading_enabled: state.irTradingEnabled,
         draft_pick_trading_enabled: isDynasty ? state.draftPickTradingEnabled : false,
         initial_draft_order: INITIAL_DRAFT_ORDER_TO_DB[state.initialDraftOrder],

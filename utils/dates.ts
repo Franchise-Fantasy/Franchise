@@ -1,37 +1,13 @@
 import { useEffect, useRef, useState } from 'react';
 import { AppState } from 'react-native';
 
+import { addDays, daysBetween, parseLocalDate, toDateStr } from '@/utils/dateMath';
 import { getSportToday, nextSlateRollover } from '@/utils/leagueTime';
 
-/** Format a Date as "YYYY-MM-DD" in local time. */
-export function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** Parse a "YYYY-MM-DD" string into a local Date (no timezone shift). */
-export function parseLocalDate(str: string): Date {
-  const [y, m, d] = str.split('-').map(Number);
-  return new Date(y, m - 1, d);
-}
-
-/** Add (or subtract) days from a "YYYY-MM-DD" string. */
-export function addDays(dateStr: string, n: number): string {
-  const d = parseLocalDate(dateStr);
-  d.setDate(d.getDate() + n);
-  return toDateStr(d);
-}
-
-/** Whole days from `fromStr` to `toStr` (both "YYYY-MM-DD"); positive when
- *  `toStr` is later. Parses at local midnight so a DST shift in the span can't
- *  skew the day count. */
-export function daysBetween(fromStr: string, toStr: string): number {
-  const from = parseLocalDate(fromStr);
-  const to = parseLocalDate(toStr);
-  return Math.round((to.getTime() - from.getTime()) / 86_400_000);
-}
+// The pure day arithmetic lives in utils/dateMath.ts so modules that must stay
+// React-Native-free (and their unit tests) can use it without pulling in the
+// hooks below. Re-exported here so every existing import keeps working.
+export { addDays, daysBetween, parseLocalDate, toDateStr };
 
 /**
  * Hook that returns today's date string and refreshes when the app

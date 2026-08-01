@@ -68,8 +68,17 @@ export function ListRow({
     );
   }
 
+  // `accessibilityLabel` on a View is IGNORED unless the View is also marked
+  // `accessible` — without it VoiceOver walks the children and reads the raw
+  // cells ("32%", "Spoers") instead of the row's composed sentence. Gated on a
+  // label being supplied: an unlabelled row (e.g. the league-info team row,
+  // which wraps its own TouchableOpacity) must keep its children reachable.
   return (
-    <View style={rowStyle} accessibilityLabel={accessibilityLabel}>
+    <View
+      style={rowStyle}
+      accessible={accessibilityLabel ? true : undefined}
+      accessibilityLabel={accessibilityLabel}
+    >
       {children}
     </View>
   );

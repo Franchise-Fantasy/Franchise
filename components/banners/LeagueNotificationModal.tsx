@@ -12,6 +12,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors } from '@/constants/Colors';
+import { NOTIFICATION_CATEGORIES } from '@/constants/NotificationCategories';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import {
   getLeagueNotifPrefs,
@@ -31,31 +32,9 @@ interface Props {
   leagueName: string;
 }
 
-// Each notification category with its display info
-const CATEGORIES: {
-  key: keyof PushPreferences;
-  icon: keyof typeof Ionicons.glyphMap;
-  label: string;
-  parentKey?: keyof PushPreferences;
-}[] = [
-  { key: 'draft', icon: 'basketball-outline', label: 'Draft' },
-  { key: 'trades', icon: 'swap-horizontal-outline', label: 'Trades' },
-  { key: 'trade_block', icon: 'hand-left-outline', label: 'Trade Block Interest', parentKey: 'trades' },
-  { key: 'trade_rumors', icon: 'ear-outline', label: 'Trade Rumors', parentKey: 'trades' },
-  { key: 'matchups', icon: 'stats-chart-outline', label: 'Matchup Results' },
-  { key: 'matchup_daily', icon: 'trending-up-outline', label: 'Daily Score Updates', parentKey: 'matchups' },
-  { key: 'matchup_closeup', icon: 'flash-outline', label: 'Close Matchup Alerts', parentKey: 'matchups' },
-  { key: 'waivers', icon: 'hourglass-outline', label: 'Waiver Results' },
-  { key: 'injuries', icon: 'medkit-outline', label: 'Injury Updates' },
-  { key: 'player_news', icon: 'newspaper-outline', label: 'Player News' },
-  { key: 'playoffs', icon: 'trophy-outline', label: 'Playoff Alerts' },
-  { key: 'lottery', icon: 'dice-outline', label: 'Lottery Results' },
-  { key: 'chat', icon: 'chatbubbles-outline', label: 'Chat Messages' },
-  { key: 'commissioner', icon: 'shield-outline', label: 'Commissioner Actions' },
-  { key: 'league_activity', icon: 'people-outline', label: 'League Activity' },
-  { key: 'roster_reminders', icon: 'clipboard-outline', label: 'Roster Reminders' },
-  { key: 'roster_moves', icon: 'person-add-outline', label: 'League Roster Moves' },
-];
+// Category list, labels, and parent wiring all come from the shared constant so
+// this sheet can't drift from the global settings screen.
+const CATEGORIES = NOTIFICATION_CATEGORIES;
 
 export function LeagueNotificationModal({ visible, onClose, userId, leagueId, leagueName }: Props) {
   const scheme = useColorScheme() ?? 'light';
@@ -94,16 +73,11 @@ export function LeagueNotificationModal({ visible, onClose, userId, leagueId, le
   }
 
   // Toggle: if no override exists, create one with the opposite of global.
-  // If override exists, flip it.
+  // If override exists, flip it. Children are gated by their parent server-side
+  // (PARENT_OF in _shared/push.ts), so a parent going off never overwrites them.
   function handleToggle(key: keyof PushPreferences) {
     return (value: boolean) => {
       const patch: Partial<PushPreferences> = { [key]: value };
-      // Turn off sub-toggles when parent is disabled
-      if (key === 'matchups' && !value) {
-        patch.matchup_daily = false;
-        patch.matchup_closeup = false;
-      }
-      if (key === 'trades' && !value) { patch.trade_block = false; patch.trade_rumors = false; }
       setOverrides(prev => ({ ...prev, ...patch }));
       updateLeagueNotifPrefs(userId, leagueId, patch);
     };

@@ -24,7 +24,7 @@ import { SeasonAverages } from "@/components/player/SeasonAverages";
 import { Badge } from "@/components/ui/Badge";
 import { BottomSheet } from "@/components/ui/BottomSheet";
 import { ThemedText } from "@/components/ui/ThemedText";
-import { getCurrentSeason, getSeasonEnd, getSeasonStart } from "@/constants/LeagueDefaults";
+import { getCurrentSeason, getSeasonEnd, isSeasonStarted } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useConfirm, useTextPrompt } from "@/context/ConfirmProvider";
 import { useToast } from "@/context/ToastProvider";
@@ -50,7 +50,7 @@ import {
   getSportTomorrow,
   nextSlateRollover,
 } from "@/utils/leagueTime";
-import { GameTimeMap, hasAnyGameStarted, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
+import { GameTimeMap, isGameStarted, useTodayGameTimes } from "@/utils/nba/gameStarted";
 import {
   formatGameInfo,
   liveToGameLog,
@@ -85,8 +85,6 @@ interface PlayerDetailModalProps {
   onClaimPlayer?: () => void;
   /** Pre-fetched owner team name from parent - avoids flash while ownership query loads */
   ownerTeamName?: string;
-  /** Lock mode passed from FreeAgentList for add-drop game-time checks */
-  playerLockType?: "daily" | "individual";
   /** Today's game times passed from FreeAgentList */
   gameTimeMap?: GameTimeMap;
   /** When true, swap the "Add" CTA for "Draft" - used when this modal is
@@ -114,7 +112,6 @@ export function PlayerDetailModal({
   onDropForClaim,
   onClaimPlayer,
   ownerTeamName,
-  playerLockType,
   draftMode,
   canDraft,
   onDraftPlayer,
@@ -352,10 +349,9 @@ export function PlayerDetailModal({
   // How many games has this player's team played so far this season?
   const currentSeason = getCurrentSeason(sport);
   // Before the season tips off, the current-season box is empty — SeasonAverages
-  // shows the season projection in its place. A missing start date (cache cold)
-  // defaults to "started" so we never hide real averages on a stale config.
-  const seasonStart = getSeasonStart(sport, currentSeason);
-  const seasonStarted = !seasonStart || new Date().toISOString().slice(0, 10) >= seasonStart;
+  // shows the season projection in its place (same gate the roster pages use to
+  // default their stat window to "Proj").
+  const seasonStarted = isSeasonStarted(sport, new Date().toISOString().slice(0, 10));
   const { data: teamGamesPlayed } = useQuery({
     queryKey: queryKeys.teamGamesPlayed(sport, currentSeason, player?.pro_team ?? ''),
     queryFn: async () => {
@@ -705,7 +701,6 @@ export function PlayerDetailModal({
           position: player.position,
           pro_team: player.pro_team ?? "",
         },
-        playerLockType: playerLockType ?? null,
         gameTimeMap: parentGameTimeMap ?? gameTimeMap,
       });
 
@@ -757,21 +752,17 @@ export function PlayerDetailModal({
       // always applies immediately — that's how a GM clears an over-cap or IR
       // lock, so it can't wait for tomorrow.
       const queueDrop =
-        isAddDrop && !!parentGameTimeMap && !!playerLockType
-          ? playerLockType === "daily"
-            ? hasAnyGameStarted(parentGameTimeMap)
-            : isGameStarted(dropping.pro_team, parentGameTimeMap)
+        isAddDrop && !!parentGameTimeMap
+          ? isGameStarted(dropping.pro_team, parentGameTimeMap)
           : false;
 
       // The incoming player's own lock. Only consulted when the drop isn't
       // queued — a queued drop defers the add regardless.
       const addGameTimes = parentGameTimeMap ?? gameTimeMap;
       const deferAdd =
-        isAddDrop && !queueDrop && playerLockType === "daily"
-          ? hasAnyGameStarted(addGameTimes)
-          : isAddDrop && !queueDrop && playerLockType === "individual"
-            ? isGameStarted(player!.pro_team ?? "", addGameTimes)
-            : false;
+        isAddDrop && !queueDrop
+          ? isGameStarted(player!.pro_team ?? "", addGameTimes)
+          : false;
 
       // One transaction: lineup markers, the roster delete, the waiver
       // placement, the roster-size/position guard, the add, and both ledger
@@ -847,9 +838,7 @@ export function PlayerDetailModal({
       const today = getSportToday(sport);
 
       // Check if the player's game is in progress - defer to tomorrow if so
-      const isLocked =
-        (playerLockType === "daily" && hasAnyGameStarted(parentGameTimeMap ?? gameTimeMap)) ||
-        (playerLockType === "individual" && playerGameStarted);
+      const isLocked = playerGameStarted;
 
       if (isLocked) {
         const tomorrowStr = getSportTomorrow(sport);
@@ -1463,7 +1452,6 @@ export function PlayerDetailModal({
         needsWaiverClaim={needsWaiverClaim}
         scoringWeights={scoringWeights}
         isCategories={isCategories}
-        playerLockType={playerLockType}
         gameTimeMap={gameTimeMap}
         translateY={translateY}
         panHandlers={panResponder.panHandlers}

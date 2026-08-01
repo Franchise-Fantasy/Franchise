@@ -63,8 +63,46 @@ INJURY_THRESHOLD  = 0.80    # GP% below this = "injured season"
 INJURY_PENALTY    = 0.148   # Empirical: prior injury → 14.8pp lower next-year GP%
 TREND_MIN_SEASONS = 3       # Need at least this many seasons to apply trend adjustment
 
-# Stats to model via per-36 rates
-RATE_STATS = ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fg3m', 'fgm', 'fga', 'ftm', 'fta']
+# ── Small-sample shrinkage: rates + minutes ───────────────────────────────────
+# Until 2026-08 the games-played model above was the ONLY shrunk output — the
+# per-36 rates and MPG were a straight recency-weighted mean of the player's own
+# seasons. With one season of history (NBA's retention depth) that means the
+# projection IS last season's line, so a fringe player whose entire sample is a
+# 12-game late-season run was projected to hold that role for a full year
+# (Cormac Ryan: 12 GP @ 24.1 mpg / 14.2 pts → projected 24.1 min / 15.6 pts).
+# Both outputs now regress toward a league prior by how many games back them.
+#
+# Shape: a capped linear ramp, w = min(sample_games / threshold, 1), NOT the
+# games-played model's n/(n+k) — that form never reaches 1, so it would also
+# drag a 70-game starter toward the prior (~5 projected minutes for a 30-mpg
+# player). Above the threshold the projection is byte-identical to before;
+# below it, confidence falls off linearly.
+#
+# The thresholds are FRACTIONS of the projected season length, not game counts:
+# 20 games is a solid half-season of evidence in a 44-game WNBA year and a
+# marginal quarter of an NBA one, and hardcoding a WNBA-fit constant into the
+# NBA path is exactly the mis-calibration SPORT_SEASON_PARAMS already documents.
+#
+# Values picked by backtest, not by feel: train on NBA 2024-25 alone, project
+# 2025-26, score against actual 2025-26 fantasy points (n=432; thin-sample
+# n=52). Shrinkage cut thin-sample RMSE 8.25 -> 6.91 and left full-sample
+# players bit-identical. The response is flat between ~0.40 and ~0.50 (overall
+# RMSE 7.19 either way), so these sit at the measured optimum without being
+# finely tuned to one train/test pair — don't treat the 2nd decimal as precise.
+MPG_FULL_CONF_FRAC   = 0.40  # games (as season share) for full trust in MINUTES
+RATE_FULL_CONF_FRAC  = 0.25  # per-36 rates stabilise faster than role → earlier
+REPLACEMENT_MPG_FRAC = 0.55  # replacement-level MPG as a share of the league mean
+
+# Stats to model via per-36 rates.
+# `fg3a` was missing here until 2026-08-01 while franchise_edge.STATS (the
+# next_game horizon) had it, so write_projections received nothing for a column
+# it writes and EVERY season projection ever produced had proj_3pa NULL (0 of
+# 13,803 rows). Leagues that weight 3PA — a common negative — silently lost the
+# whole penalty from projected fantasy points, inflating exactly the high-volume
+# three-point shooters most: Curry projected 52.8 fpts against a 41.5 actual on
+# an otherwise IDENTICAL stat line, the entire gap being 11.3 unpenalised 3PA.
+RATE_STATS = ['pts', 'reb', 'ast', 'stl', 'blk', 'tov', 'fg3m', 'fg3a',
+              'fgm', 'fga', 'ftm', 'fta']
 
 # Fantasy scoring weights  (stat: points per unit)
 SCORING = {
@@ -191,6 +229,7 @@ def weighted_projection(player_hist: pd.DataFrame):
     acc = {f'{s}_per36': 0.0 for s in RATE_STATS}
     acc_mpg = 0.0
     acc_gp_pct = 0.0
+    acc_games = 0.0
     total_w = 0.0
 
     for _, row in player_hist.iterrows():
@@ -210,6 +249,7 @@ def weighted_projection(player_hist: pd.DataFrame):
             acc_mpg += w * float(row['mpg'])
 
         acc_gp_pct += w * gp_pct
+        acc_games += w * float(row['games_played'])
         total_w += w
 
     if total_w == 0:
@@ -218,7 +258,60 @@ def weighted_projection(player_hist: pd.DataFrame):
     proj = {k: v / total_w for k, v in acc.items()}
     proj['mpg']    = acc_mpg / total_w
     proj['gp_pct'] = acc_gp_pct / total_w
+    # How much evidence backs those rates: recency-WEIGHTED SUM of games (not
+    # the mean), so a 70-game season two years back still adds evidence, just
+    # less than last year's. Consumed by shrink_to_priors; kept here rather
+    # than recomputed by the caller so it can't drift from the weights above.
+    proj['sample_games'] = acc_games
     return proj
+
+
+def league_rate_priors(hist: pd.DataFrame) -> dict:
+    """League-wide per-36 rates + mean MPG over the training frame — the prior
+    thin-sample players regress toward.
+
+    Rates are MINUTE-weighted (a 5-game cameo shouldn't move the league mean as
+    much as a full season); MPG is a plain per-season mean, which is the scale
+    an individual player's MPG is measured on."""
+    minutes = hist['mpg'] * hist['games_played']
+    total_min = float(minutes.sum())
+    priors = {}
+    for stat in RATE_STATS:
+        col = f'{stat}_per36'
+        if col not in hist:
+            continue
+        vals = hist[col].astype(float).fillna(0.0)
+        priors[col] = float((vals * minutes).sum() / total_min) if total_min > 0 else 0.0
+    priors['mpg'] = float(hist['mpg'].astype(float).mean())
+    return priors
+
+
+def shrink_to_priors(proj: dict, priors: dict, project_games: int) -> dict:
+    """Regress a thin-sample player's per-36 rates and MPG toward the league
+    priors. Confidence is a capped linear ramp in evidence games — at or above
+    the threshold the projection passes through UNCHANGED.
+
+    Minutes ramp later (heavier prior) because ROLE is what a short sample
+    fails to establish — a player can genuinely score at a 21-pts-per-36 clip
+    over 12 games and still not hold 24 minutes a night next season; minutes
+    regress toward a REPLACEMENT-level share of the league mean, since the
+    uncertainty about a fringe role is one-sided. The rate prior is the plain
+    league mean and symmetric — a low-usage short sample gets pulled UP as
+    well, which is the honest read of a small sample; the minutes term still
+    lands the product (per-36 × MPG) below the raw line for the players this
+    exists to fix."""
+    n = float(proj.get('sample_games') or 0.0)
+    out = dict(proj)
+
+    w_mpg = min(n / max(project_games * MPG_FULL_CONF_FRAC, 1.0), 1.0)
+    out['mpg'] = w_mpg * proj['mpg'] + (1.0 - w_mpg) * priors['mpg'] * REPLACEMENT_MPG_FRAC
+
+    w_rate = min(n / max(project_games * RATE_FULL_CONF_FRAC, 1.0), 1.0)
+    for stat in RATE_STATS:
+        key = f'{stat}_per36'
+        if key in proj and key in priors:
+            out[key] = w_rate * proj[key] + (1.0 - w_rate) * priors[key]
+    return out
 
 
 def project_games_played(player_hist: pd.DataFrame, weighted_gp_pct: float) -> tuple:

@@ -93,10 +93,11 @@ export function HomeListCard({
   );
 }
 
-/** The "Rosters" entry point both offseason cards share. During the offseason
- *  StandingsSection is swapped out, so these cards are the only surface listing
- *  every team — the pill keeps rosters reachable (the team-roster page carries
- *  its own switcher, so any team works as the landing point). */
+/** The "Rosters" entry point the dynasty offseason cards share. During the
+ *  offseason StandingsSection is swapped out, so these cards are the only
+ *  surface listing every team — the pill keeps rosters reachable (the
+ *  team-roster page carries its own switcher, so any team works as the landing
+ *  point). */
 export function RostersPill({ teamId }: { teamId: string | null }) {
   const c = useColors();
   const router = useRouter();
@@ -113,6 +114,29 @@ export function RostersPill({ teamId }: { teamId: string | null }) {
       <IconSymbol name="person.3.fill" size={14} color={c.gold} />
       <ThemedText type="varsitySmall" style={[styles.pillText, { color: c.text }]}>
         Rosters
+      </ThemedText>
+    </TouchableOpacity>
+  );
+}
+
+/** RostersPill's twin for redraft/keeper, whose rosters are CLEARED during the
+ *  offseason — an empty roster is a dead end, so their card points at league
+ *  history instead. */
+export function HistoryPill() {
+  const c = useColors();
+  const router = useRouter();
+  return (
+    <TouchableOpacity
+      style={[styles.pill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
+      onPress={() => router.push('/league-history' as never)}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityLabel="View league history"
+      hitSlop={8}
+    >
+      <IconSymbol name="book.fill" size={14} color={c.gold} />
+      <ThemedText type="varsitySmall" style={[styles.pillText, { color: c.text }]}>
+        History
       </ThemedText>
     </TouchableOpacity>
   );

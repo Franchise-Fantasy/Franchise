@@ -11,7 +11,6 @@ import {
   FAAB_TIEBREAK_OPTIONS,
   FaabTiebreakOption,
   LeagueWizardState,
-  PLAYER_LOCK_OPTIONS,
   WAIVER_PRIORITY_RESET_OPTIONS,
   WAIVER_TYPE_OPTIONS,
   WaiverPriorityResetOption,
@@ -154,33 +153,18 @@ export function StepWaivers({ state, onChange }: StepWaiversProps) {
         />
       </AnimatedSection>
 
-      {state.sport === 'nfl' ? (
-        // NFL has exactly one lock model — each player locks at their game's
-        // kickoff and stays locked for the week (the wizard reducer pins
-        // playerLockType to Individual). A Daily/Individual picker would be a
-        // meaningless choice, so state the rule instead of offering it.
-        <FieldGroup
-          label="Player Lock"
-          helperText="Each player locks at their game's kickoff and stays locked for that week. Players who haven't played yet can be moved all week."
-        >
-          {null}
-        </FieldGroup>
-      ) : (
-        <FieldGroup
-          label="Player Lock"
-          helperText={
-            state.playerLockType === 'Daily'
-              ? 'Once the first game of the day starts, lineups, adds, and drops lock for the day.'
-              : 'Lineup changes, adds, and drops for a player lock the moment their game starts.'
-          }
-        >
-          <SegmentedControl
-            options={PLAYER_LOCK_OPTIONS}
-            selectedIndex={PLAYER_LOCK_OPTIONS.indexOf(state.playerLockType)}
-            onSelect={(i) => onChange('playerLockType', PLAYER_LOCK_OPTIONS[i])}
-          />
-        </FieldGroup>
-      )}
+      {/* Player lock has one model — each player locks individually at their
+          own game's start — so state the rule instead of offering a choice. */}
+      <FieldGroup
+        label="Player Lock"
+        helperText={
+          state.sport === 'nfl'
+            ? "Each player locks at their game's kickoff and stays locked for that week. Players who haven't played yet can be moved all week."
+            : "Each player locks at their game's start. Everyone else on the roster stays movable, and players whose games haven't started can still be added or dropped."
+        }
+      >
+        {null}
+      </FieldGroup>
     </FormSection>
   );
 

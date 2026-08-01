@@ -59,7 +59,8 @@ export interface DraftHubLeagueSettings {
   lotteryDraws: number;
   lotteryOdds: number[] | null;
   rookieDraftRounds: number;
-  pickConditionsEnabled: boolean;
+  pickProtectionsEnabled: boolean;
+  pickSwapsEnabled: boolean;
   leagueFull: boolean;
   lotteryComplete: boolean;
   lotteryDrawn: boolean;
@@ -81,7 +82,7 @@ export function useDraftHub(leagueId: string | null) {
     queryFn: async (): Promise<DraftHubData> => {
       const { data: league, error: leagueError } = await supabase
         .from('leagues')
-        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, sport, pick_conditions_enabled, teams, current_teams, lottery_status, offseason_step')
+        .select('max_future_seasons, playoff_teams, lottery_draws, lottery_odds, rookie_draft_rounds, season, sport, pick_protections_enabled, pick_swaps_enabled, teams, current_teams, lottery_status, offseason_step')
         .eq('id', leagueId!)
         .single();
       if (leagueError) throw leagueError;
@@ -266,7 +267,8 @@ export function useDraftHub(leagueId: string | null) {
           lotteryDraws: league?.lottery_draws ?? 4,
           lotteryOdds: (league?.lottery_odds as number[] | null) ?? null,
           rookieDraftRounds: league?.rookie_draft_rounds ?? 2,
-          pickConditionsEnabled: league?.pick_conditions_enabled ?? false,
+          pickProtectionsEnabled: league?.pick_protections_enabled ?? false,
+          pickSwapsEnabled: league?.pick_swaps_enabled ?? false,
           leagueFull: (league?.current_teams ?? 0) >= (league?.teams ?? 0),
           lotteryComplete,
           lotteryDrawn,

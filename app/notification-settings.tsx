@@ -1,6 +1,15 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useEffect, useState } from 'react';
-import { ScrollView, StyleSheet, TouchableOpacity, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  AppState,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { LeagueNotificationModal } from '@/components/banners/LeagueNotificationModal';
@@ -9,6 +18,7 @@ import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Fonts } from '@/constants/Colors';
+import { NOTIFICATION_GROUPS } from '@/constants/NotificationCategories';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
 import { useColors } from '@/hooks/useColors';
@@ -23,6 +33,30 @@ import {
 import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
 
+type PresetKey = 'recommended' | 'everything' | 'essentials';
+
+const ALL_KEYS = Object.keys(DEFAULT_PREFERENCES) as (keyof PushPreferences)[];
+
+// The smallest set that still keeps you from losing your team: your pick, a
+// trade aimed at you, waiver outcomes, and anything a commissioner does to you.
+const ESSENTIALS: (keyof PushPreferences)[] = [
+  'draft',
+  'trades',
+  'waivers',
+  'playoffs',
+  'commissioner',
+  'direct_messages',
+];
+
+function buildPreset(preset: PresetKey): PushPreferences {
+  if (preset === 'recommended') return { ...DEFAULT_PREFERENCES };
+  const on = preset === 'everything';
+  return ALL_KEYS.reduce(
+    (acc, key) => ({ ...acc, [key]: on || ESSENTIALS.includes(key) }),
+    {} as PushPreferences,
+  );
+}
+
 export default function NotificationSettingsScreen() {
   const session = useSession();
   const c = useColors();
@@ -34,6 +68,7 @@ export default function NotificationSettingsScreen() {
   const [muteAll, setMuteAllState] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [showLeagueNotifs, setShowLeagueNotifs] = useState(false);
+  const [osBlocked, setOsBlocked] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -47,11 +82,35 @@ export default function NotificationSettingsScreen() {
       })
       .catch((err) => {
         logger.warn('getPushPrefs failed', err);
+        if (!cancelled) setLoaded(true);
       });
     return () => {
       cancelled = true;
     };
   }, [userId]);
+
+  // Every toggle on this screen is inert if notifications are denied at the OS
+  // level, so check it here and re-check on foreground — the user leaves to iOS
+  // Settings to fix it and comes back expecting the banner to be gone.
+  const checkOsPermission = useCallback(async () => {
+    if (Platform.OS === 'web') return;
+    try {
+      const { granted } = await Notifications.getPermissionsAsync();
+      setOsBlocked(!granted);
+    } catch {
+      // Permission API unavailable (Expo Go edge cases) — assume fine rather
+      // than showing a banner we can't substantiate.
+      setOsBlocked(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    checkOsPermission();
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active') checkOsPermission();
+    });
+    return () => sub.remove();
+  }, [checkOsPermission]);
 
   function handleMuteAll(value: boolean) {
     if (!userId) return;
@@ -59,22 +118,22 @@ export default function NotificationSettingsScreen() {
     setMuteAll(userId, value);
   }
 
+  // A child category is gated by its parent server-side (PARENT_OF in
+  // _shared/push.ts), so switching a parent off never writes to its children —
+  // their own setting survives and comes back when the parent returns.
   function toggle(key: keyof PushPreferences) {
     return (value: boolean) => {
       if (!userId) return;
-      const patch: Partial<PushPreferences> = { [key]: value };
-      // Turn off sub-toggles when parent is disabled
-      if (key === 'matchups' && !value) {
-        patch.matchup_daily = false;
-        patch.matchup_closeup = false;
-      }
-      if (key === 'trades' && !value) {
-        patch.trade_block = false;
-        patch.trade_rumors = false;
-      }
-      setPrefs((prev) => ({ ...prev, ...patch }));
-      updatePreferences(userId, patch);
+      setPrefs((prev) => ({ ...prev, [key]: value }));
+      updatePreferences(userId, { [key]: value });
     };
+  }
+
+  function applyPreset(preset: PresetKey) {
+    if (!userId) return;
+    const next = buildPreset(preset);
+    setPrefs(next);
+    updatePreferences(userId, next);
   }
 
   if (!loaded)
@@ -97,6 +156,43 @@ export default function NotificationSettingsScreen() {
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
+        {osBlocked && (
+          <TouchableOpacity
+            style={[styles.banner, { backgroundColor: c.card, borderColor: c.danger }]}
+            onPress={() =>
+              Linking.openSettings().catch((err) =>
+                logger.warn('openSettings failed', err),
+              )
+            }
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Notifications are turned off in system settings"
+            accessibilityHint="Opens the system settings for this app"
+          >
+            <Ionicons
+              name="notifications-off-outline"
+              size={ms(18)}
+              color={c.danger}
+              accessible={false}
+            />
+            <View style={styles.bannerText}>
+              <ThemedText style={[styles.bannerTitle, { color: c.text }]}>
+                Notifications are off for Franchise
+              </ThemedText>
+              <ThemedText style={[styles.bannerBody, { color: c.secondaryText }]}>
+                Nothing below will be delivered until you allow notifications in
+                your device settings. Tap to open them.
+              </ThemedText>
+            </View>
+            <Ionicons
+              name="chevron-forward"
+              size={ms(16)}
+              color={c.secondaryText}
+              accessible={false}
+            />
+          </TouchableOpacity>
+        )}
+
         <Section title="Master">
           <ToggleRow
             icon="volume-mute-outline"
@@ -109,15 +205,6 @@ export default function NotificationSettingsScreen() {
           />
         </Section>
 
-        <ThemedText
-          type="varsitySmall"
-          style={[styles.explainer, { color: c.secondaryText }]}
-        >
-          {muteAll
-            ? 'ALL NOTIFICATIONS MUTED · TOGGLE OFF TO RE-ENABLE'
-            : 'GLOBAL DEFAULTS · APPLY TO EVERY LEAGUE YOU’RE IN'}
-        </ThemedText>
-
         {leagueId && league?.name && (
           <TouchableOpacity
             style={[
@@ -128,6 +215,7 @@ export default function NotificationSettingsScreen() {
             activeOpacity={0.7}
             accessibilityRole="button"
             accessibilityLabel={`Customize notifications for ${league.name}`}
+            accessibilityHint="Opens per-league settings that override the defaults below"
           >
             <View style={[styles.leagueIcon, { backgroundColor: c.goldMuted }]}>
               <Ionicons
@@ -150,6 +238,9 @@ export default function NotificationSettingsScreen() {
               >
                 {league.name}
               </ThemedText>
+              <ThemedText style={[styles.leagueSub, { color: c.secondaryText }]}>
+                Override the defaults below for this league only
+              </ThemedText>
             </View>
             <Ionicons
               name="chevron-forward"
@@ -160,162 +251,61 @@ export default function NotificationSettingsScreen() {
           </TouchableOpacity>
         )}
 
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.explainer, { color: c.secondaryText }]}
+        >
+          {muteAll
+            ? 'ALL NOTIFICATIONS MUTED · TOGGLE OFF TO RE-ENABLE'
+            : 'GLOBAL DEFAULTS · APPLY TO EVERY LEAGUE YOU’RE IN'}
+        </ThemedText>
+
         <View style={dimmed} pointerEvents={muteAll ? 'none' : 'auto'}>
-          <Section title="Core Alerts">
-            <ToggleRow
-              icon="basketball-outline"
-              label="Draft"
-              description="Your pick, draft started & completed, autopick"
-              value={prefs.draft}
-              onToggle={toggle('draft')}
-              c={c}
-            />
-            <ToggleRow
-              icon="swap-horizontal-outline"
-              label="Trades"
-              description="Proposed, accepted, completed, vetoed"
-              value={prefs.trades}
-              onToggle={toggle('trades')}
-              c={c}
-            />
-            <ToggleRow
-              icon="hand-left-outline"
-              label="Trade Block Interest"
-              description="When someone expresses interest in your player"
-              value={prefs.trade_block}
-              onToggle={toggle('trade_block')}
-              disabled={!prefs.trades}
-              c={c}
-              indented
-            />
-            <ToggleRow
-              icon="ear-outline"
-              label="Trade Rumors"
-              description="Leaked and auto-generated trade rumors in chat"
-              value={prefs.trade_rumors}
-              onToggle={toggle('trade_rumors')}
-              disabled={!prefs.trades}
-              c={c}
-              indented
-            />
-            <ToggleRow
-              icon="stats-chart-outline"
-              label="Matchup Results"
-              description="Final scores and weekly results"
-              value={prefs.matchups}
-              onToggle={toggle('matchups')}
-              c={c}
-            />
-            <ToggleRow
-              icon="trending-up-outline"
-              label="Daily Score Updates"
-              description="Daily matchup progress during the week"
-              value={prefs.matchup_daily}
-              onToggle={toggle('matchup_daily')}
-              disabled={!prefs.matchups}
-              c={c}
-              indented
-            />
-            <ToggleRow
-              icon="flash-outline"
-              label="Close Matchup Alerts"
-              description="Sunday nudge when your week is going down to the wire"
-              value={prefs.matchup_closeup}
-              onToggle={toggle('matchup_closeup')}
-              disabled={!prefs.matchups}
-              c={c}
-              indented
-            />
-            <ToggleRow
-              icon="hourglass-outline"
-              label="Waiver Results"
-              description="Claim won or lost, FAAB bid results"
-              value={prefs.waivers}
-              onToggle={toggle('waivers')}
-              c={c}
-            />
-            <ToggleRow
-              icon="medkit-outline"
-              label="Injury Updates"
-              description="Your rostered player status changes"
-              value={prefs.injuries}
-              onToggle={toggle('injuries')}
-              c={c}
-            />
-            <ToggleRow
-              icon="newspaper-outline"
-              label="Player News"
-              description="Beat-reporter updates on players you roster"
-              value={prefs.player_news}
-              onToggle={toggle('player_news')}
-              c={c}
-              last
-            />
-          </Section>
+          <View style={styles.presetRow}>
+            {(
+              [
+                { key: 'essentials', label: 'Essentials' },
+                { key: 'recommended', label: 'Recommended' },
+                { key: 'everything', label: 'Everything' },
+              ] as { key: PresetKey; label: string }[]
+            ).map((preset) => (
+              <TouchableOpacity
+                key={preset.key}
+                style={[styles.presetChip, { borderColor: c.border, backgroundColor: c.card }]}
+                onPress={() => applyPreset(preset.key)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel={`Apply ${preset.label} notification preset`}
+                accessibilityHint="Replaces all category settings below"
+              >
+                <ThemedText
+                  type="varsitySmall"
+                  style={[styles.presetLabel, { color: c.text }]}
+                >
+                  {preset.label.toUpperCase()}
+                </ThemedText>
+              </TouchableOpacity>
+            ))}
+          </View>
 
-          <Section title="Playoffs & Lottery">
-            <ToggleRow
-              icon="trophy-outline"
-              label="Playoff Alerts"
-              description="Seed pick turn, championship"
-              value={prefs.playoffs}
-              onToggle={toggle('playoffs')}
-              c={c}
-            />
-            <ToggleRow
-              icon="dice-outline"
-              label="Lottery Results"
-              description="Draft position and lottery draws"
-              value={prefs.lottery}
-              onToggle={toggle('lottery')}
-              c={c}
-              last
-            />
-          </Section>
-
-          <Section title="Other">
-            <ToggleRow
-              icon="chatbubbles-outline"
-              label="Chat Messages"
-              description="New messages in league chat and DMs"
-              value={prefs.chat}
-              onToggle={toggle('chat')}
-              c={c}
-            />
-            <ToggleRow
-              icon="shield-outline"
-              label="Commissioner Actions"
-              description="Force add/drop/move on your team"
-              value={prefs.commissioner}
-              onToggle={toggle('commissioner')}
-              c={c}
-            />
-            <ToggleRow
-              icon="people-outline"
-              label="League Activity"
-              description="New team joins, season starts"
-              value={prefs.league_activity}
-              onToggle={toggle('league_activity')}
-              c={c}
-            />
-            <ToggleRow
-              icon="clipboard-outline"
-              label="Roster Reminders"
-              description="Pending drops executed, locked players"
-              value={prefs.roster_reminders}
-              onToggle={toggle('roster_reminders')}
-              c={c}
-            />
-            <ToggleRow
-              icon="person-add-outline"
-              label="League Roster Moves"
-              description="When other teams add or drop players"
-              value={prefs.roster_moves}
-              onToggle={toggle('roster_moves')}
-              c={c}
-              last
-            />
-          </Section>
+          {NOTIFICATION_GROUPS.map((group) => (
+            <Section key={group.title} title={group.title}>
+              {group.categories.map((cat, idx) => (
+                <ToggleRow
+                  key={cat.key}
+                  icon={cat.icon}
+                  label={cat.label}
+                  description={cat.description}
+                  value={prefs[cat.key]}
+                  onToggle={toggle(cat.key)}
+                  disabled={!!cat.parentKey && !prefs[cat.parentKey]}
+                  indented={!!cat.parentKey}
+                  c={c}
+                  last={idx === group.categories.length - 1}
+                />
+              ))}
+            </Section>
+          ))}
         </View>
       </ScrollView>
 
@@ -341,12 +331,54 @@ const styles = StyleSheet.create({
     paddingTop: s(12),
     paddingBottom: s(40),
   },
+  banner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(12),
+    borderWidth: 1,
+    borderRadius: 12,
+    paddingHorizontal: s(14),
+    paddingVertical: s(12),
+    marginBottom: s(16),
+  },
+  bannerText: {
+    flex: 1,
+    minWidth: 0,
+  },
+  bannerTitle: {
+    fontSize: ms(14),
+    fontWeight: '600',
+  },
+  bannerBody: {
+    fontSize: ms(12),
+    lineHeight: ms(16),
+    marginTop: s(2),
+  },
   explainer: {
     fontSize: ms(10),
     letterSpacing: 1.4,
     textAlign: 'center',
-    marginTop: -s(6),
+    marginTop: -s(4),
+    // Binds downward to the presets + category list it labels.
+    marginBottom: s(10),
+  },
+  presetRow: {
+    flexDirection: 'row',
+    gap: s(8),
     marginBottom: s(16),
+  },
+  presetChip: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 10,
+    // 44pt minimum touch target.
+    minHeight: s(44),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  presetLabel: {
+    fontSize: ms(10),
+    letterSpacing: 1.2,
   },
   leagueRow: {
     flexDirection: 'row',
@@ -379,5 +411,10 @@ const styles = StyleSheet.create({
     fontSize: ms(15),
     lineHeight: ms(18),
     letterSpacing: -0.1,
+  },
+  leagueSub: {
+    fontSize: ms(12),
+    lineHeight: ms(16),
+    marginTop: s(2),
   },
 });

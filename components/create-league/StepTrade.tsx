@@ -154,10 +154,18 @@ export function StepTrade({ state, onChange }: StepTradeProps) {
             />
             <ToggleRow
               icon="shield-checkmark-outline"
-              label="Pick Protections & Swaps"
-              description="Allow draft pick protections and pick swap rights in trades"
-              value={state.pickConditionsEnabled}
-              onToggle={(v) => onChange('pickConditionsEnabled', v)}
+              label="Pick Protections"
+              description="Let a traded pick revert to the sender if it lands in the top N"
+              value={state.pickProtectionsEnabled}
+              onToggle={(v) => onChange('pickProtectionsEnabled', v)}
+              c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
+            />
+            <ToggleRow
+              icon="swap-horizontal-outline"
+              label="Pick Swaps"
+              description="Let teams trade the right to swap draft slots in a given round"
+              value={state.pickSwapsEnabled}
+              onToggle={(v) => onChange('pickSwapsEnabled', v)}
               c={{ border: c.border, accent: c.accent, secondaryText: c.secondaryText }}
               last
             />

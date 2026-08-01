@@ -13,9 +13,10 @@ import { ListRow } from "@/components/ui/ListRow";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { Fonts, cardShadow } from "@/constants/Colors";
-import { getPreviousSeason, type Sport } from "@/constants/LeagueDefaults";
+import { getCurrentSeason, getPreviousSeason, type Sport } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useColors } from "@/hooks/useColors";
+import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useRosterGameLogs } from "@/hooks/useRosterGameLogs";
 import { PlayerSeasonStats, ScoringWeight } from "@/types/player";
 import { ordinalSuffix } from "@/utils/formatting";
@@ -23,6 +24,7 @@ import { fetchStandingsTeams } from "@/utils/league/standingsQueries";
 import { isActiveRosterSlot } from "@/utils/roster/rosterSlots";
 import { buildLeagueStrengthComparison, type TeamStrengthProfile } from "@/utils/roster/rosterStrength";
 import { ms, s } from "@/utils/scale";
+import { countStartingSlots, dailySchedule } from "@/utils/scoring/dailyOutput";
 import {
   ANALYTICS_MIN_CURRENT_SEASON_GAMES,
   calculateAvgFantasyPoints,
@@ -35,6 +37,10 @@ import { buildRosterTrendBoard, RosterTrendEntry } from "@/utils/scoring/rosterT
 import { TREND_CONFIG } from "@/utils/scoring/trendDisplay";
 
 const RECENT_WINDOW = 10;
+// Leaderboard value column: SpaceMono advances 0.6em and ThemedText's `mono`
+// type adds 0.5 letter-spacing, so this is the per-character width of a value.
+const LB_VALUE_FONT_SIZE = ms(12.5);
+const LB_VALUE_CHAR_WIDTH = LB_VALUE_FONT_SIZE * 0.6 + 0.5;
 const WINDOW_OPTIONS: readonly GameWindow[] = ['L5', 'L10', 'L15', 'season'];
 const WINDOW_LABELS: Record<GameWindow, string> = {
   L5: 'Last 5',
@@ -95,10 +101,20 @@ export function PointsStrengthAnalytics({
   const c = useColors();
   const prevSeasonLabel = shortSeasonLabel(getPreviousSeason(sport));
   const [infoVisible, setInfoVisible] = useState(false);
+  const [metricInfoVisible, setMetricInfoVisible] = useState(false);
   const [windowSel, setWindowSel] = useState<GameWindow>('season');
   // Comparison lens: per-active-player average (size-independent quality) vs.
-  // total points/day (raw daily output — rewards a deeper active lineup).
-  const [metricSel, setMetricSel] = useState<'perPlayer' | 'total'>('perPlayer');
+  // expected starting-lineup output on an average day (what the roster is
+  // actually worth once slot count and schedule density are applied).
+  const [metricSel, setMetricSel] = useState<'perPlayer' | 'daily'>('perPlayer');
+
+  // Inputs for the daily lens: how many players the league starts, and how
+  // often a player has a game. Both are needed — without either, `dailyFpts`
+  // can't be computed and the lens is hidden rather than approximated.
+  const { data: rosterConfig } = useLeagueRosterConfig(leagueId);
+  const startingSlots = useMemo(() => countStartingSlots(rosterConfig), [rosterConfig]);
+  const schedule = useMemo(() => dailySchedule(sport, getCurrentSeason(sport)), [sport]);
+  const dailyAvailable = startingSlots > 0 && schedule != null;
 
   // Fetch game logs for the WHOLE league (not just my roster) — the
   // comparison + scoring rows both need them when a Lx window is selected.
@@ -160,8 +176,20 @@ export function PointsStrengthAnalytics({
       gameWindow: windowSel,
       gameLogsByPlayer,
       sport,
+      startingSlots,
+      schedule,
     });
-  }, [allPlayers, weights, teamId, prevSeasonFptsMap, windowSel, gameLogsByPlayer, sport]);
+  }, [
+    allPlayers,
+    weights,
+    teamId,
+    prevSeasonFptsMap,
+    windowSel,
+    gameLogsByPlayer,
+    sport,
+    startingSlots,
+    schedule,
+  ]);
 
   // Per-player scoring list, highest first. Each row uses the same FPTS/G
   // calc as the comparison card so the list and the rank/vs-league numbers
@@ -235,12 +263,13 @@ export function PointsStrengthAnalytics({
   }, [players, weights, gameLogsByPlayer, trendWindow]);
 
   // Re-derive rank / league-average / bar-scale for the selected lens. The
-  // builder ranks by per-player average; picking "total/day" re-sorts by each
-  // team's summed output instead. Non-null whenever `comparison` is.
-  const isTotal = metricSel === 'total';
+  // builder ranks by per-player average; picking "pts/day" re-sorts by each
+  // team's expected daily starting output instead. Non-null whenever
+  // `comparison` is.
+  const isDaily = metricSel === 'daily' && dailyAvailable;
   const metricView = useMemo(() => {
     if (!comparison) return null;
-    const valueOf = (p: TeamStrengthProfile) => (isTotal ? p.totalFpts : p.avgFpts);
+    const valueOf = (p: TeamStrengthProfile) => (isDaily ? p.dailyFpts : p.avgFpts);
     const sorted = [...comparison.allProfiles].sort((a, b) => valueOf(b) - valueOf(a));
     const leagueAvg =
       Math.round((sorted.reduce((sum, p) => sum + valueOf(p), 0) / sorted.length) * 10) / 10;
@@ -250,11 +279,15 @@ export function PointsStrengthAnalytics({
     // Bar scale — the strongest roster fills the track; the league-average
     // marker sits proportionally within it.
     const maxValue = Math.max(...sorted.map(valueOf), leagueAvg, 1);
-    return { valueOf, sorted, leagueAvg, teamValue, teamRank, maxValue };
-  }, [comparison, isTotal, teamId]);
+    // The value column is fixed-width so every bar starts at the same x, which
+    // means it has to be sized for the longest value the list will render — a
+    // points/day figure ("253.7") is a character wider than a per-player one.
+    const valueWidth = Math.ceil(maxValue.toFixed(1).length * LB_VALUE_CHAR_WIDTH) + s(4);
+    return { valueOf, sorted, leagueAvg, teamValue, teamRank, maxValue, valueWidth };
+  }, [comparison, isDaily, teamId]);
 
   const vsAvg = metricView ? metricView.teamValue - metricView.leagueAvg : 0;
-  const metricLabel = isTotal ? 'PTS/DAY VS AVG' : 'FPTS/G VS AVG';
+  const metricLabel = isDaily ? 'PTS/DAY VS AVG' : 'FPTS/G VS AVG';
 
   // Only surface the "IR/taxi excluded" caption when the league actually has
   // such players — redraft leagues without those slots shouldn't see it.
@@ -264,6 +297,20 @@ export function PointsStrengthAnalytics({
   );
 
   const selectedWindowLabel = WINDOW_LABELS[windowSel];
+  // Names both inputs behind the daily number so it's auditable at a glance:
+  // how many seats it fills, and how often a player has a game to fill one.
+  const dailyExplainer = `Expected FPTS from ${startingSlots} starting slots on an average day (${(schedule?.gamesPerWeek ?? 0).toFixed(1)} games/wk per player)`;
+
+  // The long-form version, behind the info button. Built from the same live
+  // inputs as the metric so the explanation can't drift from the number.
+  const metricInfoMessage =
+    `Both lenses score every player on the active roster — starters and bench, never IR or taxi — using their FPTS/G over the window selected above. A player with fewer than ${ANALYTICS_MIN_CURRENT_SEASON_GAMES} games this season falls back to their ${prevSeasonLabel} average.\n\n` +
+    `PER PLAYER is that roster's average FPTS/G. It doesn't care how many players a team carries, so an add, a drop, or an IR stash never moves it — it's roster quality on its own.\n\n` +
+    (dailyAvailable
+      ? `PTS/DAY estimates what a roster actually STARTS on a given day. Only the ${startingSlots} starting slots score, and a player averages ${(schedule?.gamesPerWeek ?? 0).toFixed(1)} games a week — so each one counts on the days they have a game AND fewer than ${startingSlots} better teammates also do. Depth is worth real points until it starts competing for seats, and less after that.\n\n` +
+        `It deliberately isn't the roster's total FPTS/G: that would be what a team scores if every player played on the same day and all of them could be started at once.\n\n` +
+        `Position eligibility isn't modelled — with only a handful of players in action on a typical day, games rather than positions are what limit a lineup.`
+      : `PTS/DAY needs this league's starting-slot count and the sport's schedule, so it isn't available here.`);
 
   return (
     <ScrollView
@@ -289,17 +336,20 @@ export function PointsStrengthAnalytics({
         </View>
       )}
 
-      {/* ── Comparison lens ── per-active-player quality vs. total daily output.
-          Drives the rank, vs-avg, and the full-league leaderboard below. */}
-      {comparison && (
+      {/* ── Comparison lens ── per-active-player quality vs. expected daily
+          starting output. Drives the rank, vs-avg, and the leaderboard below.
+          The daily lens needs the league's slot count and the sport's schedule
+          density; without them the control is hidden rather than offering a
+          number we can't stand behind. */}
+      {comparison && dailyAvailable && (
         <View
           style={styles.windowRow}
-          accessibilityLabel={`Comparison metric: ${isTotal ? "total points per day" : "average per active player"}. Tap to change.`}
+          accessibilityLabel={`Comparison metric: ${isDaily ? "expected points per day" : "average per active player"}. Tap to change.`}
         >
           <SegmentedControl
-            options={["Per Player", "Total/Day"]}
-            selectedIndex={isTotal ? 1 : 0}
-            onSelect={(i) => setMetricSel(i === 1 ? "total" : "perPlayer")}
+            options={["Per Player", "Pts/Day"]}
+            selectedIndex={isDaily ? 1 : 0}
+            onSelect={(i) => setMetricSel(i === 1 ? "daily" : "perPlayer")}
           />
         </View>
       )}
@@ -327,7 +377,7 @@ export function PointsStrengthAnalytics({
           <View style={styles.columnsRow}>
             <View
               style={styles.column}
-              accessibilityLabel={`Ranked ${metricView.teamRank}${ordinalSuffix(metricView.teamRank)} of ${comparison.totalTeams} teams by ${isTotal ? "total points per day" : "roster strength"}`}
+              accessibilityLabel={`Ranked ${metricView.teamRank}${ordinalSuffix(metricView.teamRank)} of ${comparison.totalTeams} teams by ${isDaily ? "expected points per day" : "roster strength"}`}
             >
               <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
                 LEAGUE RANK
@@ -344,7 +394,7 @@ export function PointsStrengthAnalytics({
 
             <View
               style={styles.column}
-              accessibilityLabel={`${vsAvg >= 0 ? "plus" : "minus"} ${Math.abs(vsAvg).toFixed(1)} ${isTotal ? "total points per day" : "fantasy points per game"} versus the league average`}
+              accessibilityLabel={`${vsAvg >= 0 ? "plus" : "minus"} ${Math.abs(vsAvg).toFixed(1)} ${isDaily ? "expected points per day" : "fantasy points per game"} versus the league average`}
             >
               <ThemedText type="varsitySmall" style={[styles.columnLabel, { color: c.secondaryText }]}>
                 VS LEAGUE
@@ -381,9 +431,17 @@ export function PointsStrengthAnalytics({
             >
               {`FULL LEAGUE · ${selectedWindowLabel.toUpperCase()}`}
             </ThemedText>
+            <TouchableOpacity
+              onPress={() => setMetricInfoVisible(true)}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityRole="button"
+              accessibilityLabel={`How ${isDaily ? "expected points per day" : "average points per active player"} is calculated`}
+            >
+              <Ionicons name="information-circle-outline" size={ms(18)} color={c.secondaryText} />
+            </TouchableOpacity>
           </View>
           <ThemedText style={[styles.subtitle, { color: c.secondaryText }]}>
-            {`${isTotal ? "Total FPTS/G per day (all active starters)" : "Avg FPTS/G per active player"} · tick marks league avg (${metricView.leagueAvg.toFixed(1)})`}
+            {`${isDaily ? dailyExplainer : "Avg FPTS/G per active player"} · tick marks league avg (${metricView.leagueAvg.toFixed(1)})`}
           </ThemedText>
           {metricView.sorted.map((p, idx) => {
             const team = teamById.get(p.teamId);
@@ -403,7 +461,7 @@ export function PointsStrengthAnalytics({
                 index={idx}
                 total={comparison.allProfiles.length}
                 isActive={isViewed}
-                accessibilityLabel={`${rank}${ordinalSuffix(rank)}, ${name}${isMine ? " (your team)" : ""}, ${value.toFixed(1)} ${isTotal ? "total fantasy points per day" : "fantasy points per game per player"}`}
+                accessibilityLabel={`${rank}${ordinalSuffix(rank)}, ${name}${isMine ? " (your team)" : ""}, ${value.toFixed(1)} ${isDaily ? "expected fantasy points per day" : "fantasy points per game per player"}`}
                 style={styles.lbRow}
               >
                 <ThemedText type="mono" style={[styles.lbRank, { color: c.secondaryText }]}>
@@ -433,7 +491,11 @@ export function PointsStrengthAnalytics({
                   />
                   <View style={[styles.lbAvgMarker, { left: `${avgPct}%`, borderColor: c.secondaryText }]} />
                 </View>
-                <ThemedText type="mono" style={[styles.lbValue, { color: c.text }]}>
+                <ThemedText
+                  type="mono"
+                  style={[styles.lbValue, { color: c.text, width: metricView.valueWidth }]}
+                  numberOfLines={1}
+                >
                   {value.toFixed(1)}
                 </ThemedText>
               </ListRow>
@@ -497,6 +559,14 @@ export function PointsStrengthAnalytics({
         scoringType={scoringType}
         teamId={teamId}
         leagueId={leagueId}
+        prevSeasonFptsMap={prevSeasonFptsMap}
+      />
+
+      <InfoModal
+        visible={metricInfoVisible}
+        onClose={() => setMetricInfoVisible(false)}
+        title="How these numbers are calculated"
+        message={metricInfoMessage}
       />
 
       <InfoModal
@@ -734,8 +804,7 @@ const styles = StyleSheet.create({
     borderStyle: "dashed",
   },
   lbValue: {
-    width: s(40),
-    fontSize: ms(12.5),
+    fontSize: LB_VALUE_FONT_SIZE,
     textAlign: "right",
   },
 

@@ -16,7 +16,11 @@ Two horizons:
               breakouts stay accurate.
   season    — pre-season / draft snapshot (run on a schedule through the
               offseason so it absorbs injuries & trades). Recency-weighted prior
-              seasons + experience curve + games-played model.
+              seasons + experience curve + games-played model + small-sample
+              shrinkage. Prior seasons come from player_games where we still
+              retain them and from player_historical_stats where we don't (NBA
+              keeps one season of logs), so a returning starter's injury year
+              isn't mistaken for a player with no career.
 
 USAGE
 -----
@@ -232,7 +236,13 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
         # players without one fall back to history depth.
         draft_years = fdb.get_draft_years(conn, sport)
 
+        # League priors for the small-sample shrinkage: minute-weighted per-36
+        # rates + mean MPG over the same training frame the players are
+        # projected from. Computed once — identical for every player in the run.
+        priors = sea_model.league_rate_priors(hist)
+
         rows = []
+        n_shrunk = 0
         for pid in active:
             phist = hist[hist["player_id"] == pid].sort_values("season")
             if phist.empty:
@@ -240,11 +250,19 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
             proj = sea_model.weighted_projection(phist)
             if proj is None:
                 continue
+            # Shrink BEFORE the experience curve: the priors live on the raw
+            # per-36 scale, so applying the curve first would compare a
+            # curve-boosted rate against an unboosted prior.
+            if proj.get("sample_games", 0) < project_games * sea_model.MPG_FULL_CONF_FRAC:
+                n_shrunk += 1
+            proj = sea_model.shrink_to_priors(proj, priors, project_games)
             proj = sea_model.experience_curve(
                 proj, experience_seasons(season, draft_years.get(str(pid)), len(phist)))
             pg = sea_model.to_per_game(proj)
             proj_games, _ = sea_model.project_games_played(phist, proj["gp_pct"])
             rows.append({"player_id": pid, "projected_games": proj_games, **pg})
+        print(f"[season] small-sample shrinkage applied to {n_shrunk} players "
+              f"(< {project_games * sea_model.MPG_FULL_CONF_FRAC:.0f} evidence games)")
 
         result = pd.DataFrame(rows)
         n = fdb.write_projections(conn, result, sport, season, "season")

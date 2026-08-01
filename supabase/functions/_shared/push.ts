@@ -3,40 +3,72 @@ import { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 const EXPO_PUSH_URL = 'https://exp.host/--/api/v2/push/send';
 
 type NotifCategory =
-  | 'draft' | 'trades' | 'trade_rumors' | 'trade_block' | 'matchups' | 'matchup_daily'
+  | 'draft' | 'trades' | 'trade_rumors' | 'trade_block' | 'matchups'
   | 'matchup_closeup' | 'waivers' | 'injuries' | 'playoffs' | 'commissioner'
-  | 'league_activity' | 'roster_reminders' | 'lottery' | 'chat' | 'roster_moves'
+  | 'league_activity' | 'lottery' | 'chat' | 'direct_messages' | 'roster_moves'
   | 'player_news';
 
 // Server-side mirror of DEFAULT_PREFERENCES from lib/notifications.ts.
 // Used as fallback when a stored push_tokens row is missing newer keys.
+// Keep the two in sync — a drift here means the client shows a toggle state the
+// server does not honour.
 const DEFAULT_PREFS: Record<string, boolean> = {
   draft: true,
   trades: true,
   trade_rumors: false,
   trade_block: true,
   matchups: true,
-  matchup_daily: false,
   matchup_closeup: true,
   waivers: true,
   injuries: true,
   playoffs: true,
   commissioner: true,
-  league_activity: false,
-  roster_reminders: false,
-  lottery: false,
+  league_activity: true,
+  lottery: true,
   chat: false,
+  direct_messages: true,
   roster_moves: false,
-  player_news: true,
+  player_news: false,
 };
 
 const CHANNEL_MAP: Record<string, string> = {
-  matchup_daily: 'matchups',
   matchup_closeup: 'matchups',
   league_activity: 'league',
-  roster_reminders: 'roster',
   roster_moves: 'roster_moves',
 };
+
+// Sub-categories that a parent switch gates. Mirrors the parentKey wiring in
+// constants/NotificationCategories.ts. Enforcing the parent HERE is what lets
+// the settings UI leave a child's own stored value untouched when its parent is
+// switched off — previously the client had to overwrite children with `false`,
+// which silently forgot the user's choice once the parent came back on.
+const PARENT_OF: Record<string, NotifCategory> = {
+  matchup_closeup: 'matchups',
+  trade_block: 'trades',
+  trade_rumors: 'trades',
+};
+
+/**
+ * Resolves whether one recipient should receive one category.
+ *
+ * Global preference wins first; a per-league override can only turn something
+ * OFF, never on past the global setting. A child category additionally requires
+ * its parent to be enabled under the same rules.
+ */
+function isCategoryEnabled(
+  category: NotifCategory,
+  preferences: Record<string, boolean> | null | undefined,
+  overrides: Record<string, boolean> | null | undefined,
+): boolean {
+  const stored = preferences?.[category];
+  const globalEnabled = stored !== undefined ? stored === true : (DEFAULT_PREFS[category] ?? false);
+  if (!globalEnabled) return false;
+  if (overrides?.[category] === false) return false;
+
+  const parent = PARENT_OF[category];
+  if (parent && !isCategoryEnabled(parent, preferences, overrides)) return false;
+  return true;
+}
 
 interface PushMessage {
   to: string;
@@ -90,15 +122,7 @@ export async function getTokenInfosForUsers(
   return data
     .filter((row: any) => {
       if (row.mute_all) return false;
-      const stored = row.preferences?.[category];
-      const globalEnabled = stored !== undefined ? stored === true : (DEFAULT_PREFS[category] ?? false);
-      const leagueOverride = overridesMap[row.user_id]?.[category];
-      // League override can only disable, not enable past global
-      // If global is off, notification is off regardless
-      // If global is on, league override can turn it off
-      if (!globalEnabled) return false;
-      if (leagueOverride === false) return false;
-      return true;
+      return isCategoryEnabled(category, row.preferences, overridesMap[row.user_id]);
     })
     .map((row: any) => ({ token: row.token, timezone: row.timezone ?? null }));
 }
@@ -407,11 +431,8 @@ export async function notifyTeamsBulk(
       const tokens = tokenByUser.get(team.user_id) ?? [];
       for (const tk of tokens) {
         if (tk.mute_all) continue;
-        const stored = tk.preferences[category];
-        const globalEnabled = stored !== undefined ? stored === true : (DEFAULT_PREFS[category] ?? false);
-        const leagueOverride = overridesMap.get(`${team.user_id}:${team.league_id}`)?.[category];
-        if (!globalEnabled) continue;
-        if (leagueOverride === false) continue;
+        const overrides = overridesMap.get(`${team.user_id}:${team.league_id}`);
+        if (!isCategoryEnabled(category, tk.preferences, overrides)) continue;
 
         const subtitle = notif.subtitle ?? opts?.subtitle;
         const priority = notif.priority ?? opts?.priority;
@@ -496,11 +517,8 @@ export async function notifyUsersBulk(
     const tokens = tokenByUser.get(notif.userId) ?? [];
     for (const tk of tokens) {
       if (tk.mute_all) continue;
-      const stored = tk.preferences[category];
-      const globalEnabled = stored !== undefined ? stored === true : (DEFAULT_PREFS[category] ?? false);
-      const leagueOverride = overridesMap.get(`${notif.userId}:${notif.leagueId}`)?.[category];
-      if (!globalEnabled) continue;
-      if (leagueOverride === false) continue;
+      const overrides = overridesMap.get(`${notif.userId}:${notif.leagueId}`);
+      if (!isCategoryEnabled(category, tk.preferences, overrides)) continue;
 
       messages.push({
         to: tk.token,

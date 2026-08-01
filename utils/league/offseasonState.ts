@@ -7,7 +7,42 @@
  * layers the tip-off countdown on top for the Matchup hero.
  */
 import { getSeasonStart, type Sport } from '@/constants/LeagueDefaults';
-import { daysBetween } from '@/utils/dates';
+import { daysBetween } from '@/utils/dateMath';
+
+/** `leagues.offseason_step` while a redraft/keeper league is asleep, waiting
+ *  for its rookie class. Set by advance-season / finalize-keepers; cleared by
+ *  the open-draft-season cron. */
+export const DORMANT_STEP = 'offseason';
+
+/** What we call that state everywhere the user can see it. */
+export const BETWEEN_SEASONS_LABEL = 'Between Seasons';
+
+/** Is this league asleep — history viewable, nothing else actionable? */
+export function isBetweenSeasons(offseasonStep: string | null | undefined): boolean {
+  return offseasonStep === DORMANT_STEP;
+}
+
+/**
+ * The one dormant-state message, shared by every surface a between-seasons
+ * league can reach and find nothing: the scoreboard, the schedule, the matchup
+ * tab, the trade page. They each used to hand-roll their own "Offseason." copy,
+ * which meant four different explanations of the same state.
+ *
+ * `upcomingSeason` is `leagues.season`, which advance-season has already rolled
+ * forward — so it names the season the league will REOPEN for, not the one that
+ * just finished.
+ */
+export function betweenSeasonsCopy(upcomingSeason: string): {
+  title: string;
+  subtitle: string;
+  accessibilityLabel: string;
+} {
+  return {
+    title: 'Between seasons.',
+    subtitle: `THE LEAGUE REOPENS FOR THE ${upcomingSeason} DRAFT`,
+    accessibilityLabel: `The league is between seasons. It reopens for the ${upcomingSeason} draft.`,
+  };
+}
 
 export interface OffseasonState {
   stepIndex: number;
@@ -38,14 +73,24 @@ export function computeOffseasonState(
     label: 'Rookie Draft',
     dbKeys: ['rookie_draft_pending', 'rookie_draft_complete'],
   };
+  // The dormant wait. A redraft/keeper league can't draft until the incoming
+  // rookie class is in the player pool, which is months out for most sports —
+  // so the wait is a real phase, not a gap between phases. `open-draft-season`
+  // moves the league off it. See utils/draft/rookieClassGate.ts.
+  //
+  // Deliberately NOT called "Offseason": a dynasty offseason is a period of
+  // activity (lottery, keepers, rookie draft, roster moves), and borrowing the
+  // word made a redraft league look like it had that work to do when the
+  // league is in fact asleep. "Between Seasons" says gap, not process.
+  const dormant: Step = { label: BETWEEN_SEASONS_LABEL, dbKeys: [DORMANT_STEP] };
   const draft: Step = { label: 'Draft', dbKeys: ['ready_for_new_season', 'draft'] };
   const newSeason: Step = { label: 'New Season', dbKeys: ['new_season'] };
 
   let steps: Step[];
   if (leagueType === 'redraft') {
-    steps = [seasonOver, draft, newSeason];
+    steps = [dormant, draft, newSeason];
   } else if (leagueType === 'keeper') {
-    steps = [seasonOver, keepers, draft, newSeason];
+    steps = [keepers, dormant, draft, newSeason];
   } else if (rookieDraftOrder === 'lottery') {
     steps = [seasonOver, lottery, rookieDraft, newSeason];
   } else {

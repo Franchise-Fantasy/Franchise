@@ -4,15 +4,12 @@ import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 import { ThemedText } from "@/components/ui/ThemedText";
 import { useColors } from "@/hooks/useColors";
+import { type RosterStatMode } from "@/utils/roster/statWindowOptions";
 import { ms, s } from "@/utils/scale";
-import { GameWindow } from "@/utils/scoring/fantasyPoints";
 
-/** The roster pages layer two non-window choices on top of the historical stat
- *  windows: "Proj" (next-game projection) and "Prev" (last season's averages).
- *  Neither is a `GameWindow` (they slice nothing from the current game log), so
- *  they live only here where the picker and roster rows consume them — analytics
- *  keeps the plain `GameWindow`. */
-export type RosterStatMode = GameWindow | "proj" | "prev";
+// Re-exported so the picker stays the one import site for its own prop types;
+// the option logic itself is pure and lives in utils/roster/statWindowOptions.
+export type { RosterStatMode };
 
 const WINDOW_LABELS: Record<RosterStatMode, string> = {
   L5: "L5",
@@ -27,7 +24,9 @@ interface Props {
   windowSel: RosterStatMode;
   onWindowChange: (w: RosterStatMode) => void;
   /** Sorted list of windows worth offering — drives the dropdown options.
-   *  Hide the whole picker (renders nothing) when only "Season" is here. */
+   *  Hide the whole picker (renders nothing) when "Season" is the only one:
+   *  a season average needs no label. A lone "Proj"/"Prev" still renders, so
+   *  the numbers on the rows are never left unattributed. */
   availableWindows: readonly RosterStatMode[];
   /** Label for the "Prev" option — the compact previous-season string (e.g.
    *  "'25" / "'24-'25"). Falls back to "Prev" when omitted. */
@@ -38,7 +37,8 @@ interface Props {
  * Discreet header-right pill for swapping a roster page's stat window between
  * Last 5 / Last 10 / Last 15 / Season / Proj / previous season. Mirrors the
  * inline window picker on the player-detail Insights card so the gesture and
- * chrome read the same. Renders nothing when there's effectively one option.
+ * chrome read the same. Renders nothing when the only option is the unlabelled
+ * default ("Season").
  */
 export function RosterWindowPicker({
   windowSel,
@@ -49,7 +49,8 @@ export function RosterWindowPicker({
   const c = useColors();
   const [open, setOpen] = useState(false);
 
-  if (availableWindows.length <= 1) return null;
+  if (availableWindows.length === 0) return null;
+  if (availableWindows.length === 1 && availableWindows[0] === "season") return null;
 
   const labelFor = (w: RosterStatMode) =>
     w === "prev" && prevLabel ? prevLabel : WINDOW_LABELS[w];

@@ -42,7 +42,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, PLAYER_LOCK_DISPLAY, seedingDisplay, type Sport, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
+import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, seedingDisplay, type Sport, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { PAYWALL_ENABLED, TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
@@ -760,7 +760,10 @@ export default function LeagueInfoScreen() {
             <Row label="Votes to Veto" value={String(league.trade_votes_to_veto ?? '-')} c={c} />
           )}
           {(league.league_type ?? 'dynasty') === 'dynasty' && (
-            <Row label="Pick Protections & Swaps" value={league.pick_conditions_enabled ? 'Enabled' : 'Disabled'} c={c} />
+            <>
+              <Row label="Pick Protections" value={league.pick_protections_enabled ? 'Enabled' : 'Disabled'} c={c} />
+              <Row label="Pick Swaps" value={league.pick_swaps_enabled ? 'Enabled' : 'Disabled'} c={c} />
+            </>
           )}
           <Row label="IR Player Trading" value={league.ir_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
           <Row
@@ -788,7 +791,7 @@ export default function LeagueInfoScreen() {
             <Row label="Priority Reset" value={WAIVER_PRIORITY_RESET_DISPLAY[league.waiver_priority_reset] ?? 'Reverse Standings'} c={c} />
           )}
           <Row label="Weekly Add Limit" value={league.weekly_acquisition_limit != null ? String(league.weekly_acquisition_limit) : 'Unlimited'} c={c} />
-          <Row label="Player Lock" value={PLAYER_LOCK_DISPLAY[league.player_lock_type] ?? 'Daily'} c={c} last />
+          <Row label="Player Lock" value={league.sport === 'nfl' ? 'At kickoff (weekly)' : 'At game start'} c={c} last />
         </SectionCard>
 
         {/* ── Season Settings ── */}
@@ -1127,7 +1130,8 @@ export default function LeagueInfoScreen() {
             visible={showPickConditions}
             leagueId={leagueId}
             teams={(league?.league_teams ?? []).map((t: any) => ({ id: t.id, name: t.name }))}
-            pickConditionsEnabled={!!league?.pick_conditions_enabled}
+            pickProtectionsEnabled={!!league?.pick_protections_enabled}
+            pickSwapsEnabled={!!league?.pick_swaps_enabled}
             onClose={() => setShowPickConditions(false)}
           />
           {league?.season && (

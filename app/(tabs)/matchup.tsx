@@ -68,7 +68,11 @@ import {
   formatShortDate,
   useSportToday,
 } from "@/utils/dates";
-import { getOffseasonMilestone } from "@/utils/league/offseasonState";
+import {
+  betweenSeasonsCopy,
+  getOffseasonMilestone,
+  isBetweenSeasons,
+} from "@/utils/league/offseasonState";
 import { calcRounds, getPlayoffRoundLabel } from "@/utils/league/playoff";
 import {
   categoryResultsToLines,
@@ -957,9 +961,14 @@ export default function MatchupScreen() {
       <ThemedView style={{ flex: 1 }}>
         {league?.offseason_step ? (
           <OffseasonEmptyState
-            title="Offseason."
-            subtitle="GAMES RETURN NEXT SEASON"
-            accessibilityLabel="It's the offseason. Games will return next season."
+            {...(isBetweenSeasons(league.offseason_step)
+              ? betweenSeasonsCopy(league.season)
+              : {
+                  title: 'Offseason.',
+                  subtitle: 'GAMES RETURN NEXT SEASON',
+                  accessibilityLabel:
+                    "It's the offseason. Games will return next season.",
+                })}
           />
         ) : (
           <OffseasonEmptyState

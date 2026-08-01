@@ -19,6 +19,7 @@ import { useColors } from "@/hooks/useColors";
 import { useLeagueRosterConfig } from "@/hooks/useLeagueRosterConfig";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useLeagueScoringType } from "@/hooks/useLeagueScoringType";
+import { useProspectPhotos } from "@/hooks/useProspectPhotos";
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
@@ -37,6 +38,9 @@ import { PlayerDetailModal } from "../player/PlayerDetailModal";
 interface TeamRosterProps {
   teamId: string;
   leagueId: string;
+  /** Set on rookie drafts only — pulls the class's Contentful scouting photos
+   *  so just-drafted prospects (no external_id_nba yet) don't all silhouette. */
+  rookieClassYear?: number;
 }
 
 interface RosterPlayer extends PlayerSeasonStats {
@@ -49,9 +53,10 @@ interface SlotEntry {
   player: RosterPlayer | null;
 }
 
-export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
+export function TeamRoster({ teamId, leagueId, rookieClassYear }: TeamRosterProps) {
   const c = useColors();
   const sport = useActiveLeagueSport(leagueId);
+  const { data: prospectPhotos } = useProspectPhotos(sport, rookieClassYear, rookieClassYear != null);
   const [selectedPlayer, setSelectedPlayer] =
     useState<PlayerSeasonStats | null>(null);
 
@@ -308,6 +313,7 @@ export function TeamRoster({ teamId, leagueId }: TeamRosterProps) {
                   sport={sport}
                   style={styles.rosterHeadshotImg}
                   accessible={false}
+                  fallbackUri={prospectPhotos?.get(player.player_id)}
                 />
               </View>
               {/* Only render the team pill when the player has a pro team —

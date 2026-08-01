@@ -19,6 +19,7 @@ import { useDraftPlayer } from '@/hooks/useDraftPlayer';
 import { useDraftQueue , QueuedPlayer } from '@/hooks/useDraftQueue';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLeagueScoringType } from '@/hooks/useLeagueScoringType';
+import { useProspectPhotos } from '@/hooks/useProspectPhotos';
 import { supabase } from '@/lib/supabase';
 import { formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
@@ -42,9 +43,12 @@ interface DraftQueueProps {
   leagueId: string;
   teamId: string;
   currentPick: { id: string; current_team_id: string } | null;
+  /** Set on rookie drafts only — pulls the class's Contentful scouting photos
+   *  so queued prospects (no external_id_nba yet) don't all silhouette. */
+  rookieClassYear?: number;
 }
 
-export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueueProps) {
+export function DraftQueue({ draftId, leagueId, teamId, currentPick, rookieClassYear }: DraftQueueProps) {
   const c = useColors();
   const { isDesktop } = useBreakpoint();
   const rowHeight = isDesktop ? DESK_ROW_HEIGHT : ROW_HEIGHT;
@@ -53,6 +57,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
   const isMyTurn = currentPick?.current_team_id === teamId;
 
   const { queue, isLoading, removeFromQueue, reorderQueue } = useDraftQueue(draftId, teamId, leagueId);
+  const { data: prospectPhotos } = useProspectPhotos(sport, rookieClassYear, rookieClassYear != null);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
   const { isCategories } = useLeagueScoringType(leagueId);
   const { mutate: draftPlayer, isPending: isDrafting } = useDraftPlayer(leagueId, draftId);
@@ -179,6 +184,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
                 sport={sport}
                 style={[styles.headshotImg, isDesktop && styles.headshotImgDesktop]}
                 accessible={false}
+                fallbackUri={prospectPhotos?.get(item.player.player_id)}
               />
             </View>
             {!isDesktop && (
@@ -316,7 +322,7 @@ export function DraftQueue({ draftId, leagueId, teamId, currentPick }: DraftQueu
     );
     // isDesktop/rowHeight were already read here but missing from the deps, so
     // a resize across the breakpoint kept rendering the stale variant.
-  }, [c, sport, scoringWeights, isCategories, isMyTurn, isDrafting, hasLimits, positionLimits, myRoster, handleDraft, removeFromQueue, isDesktop, rowHeight, queue.length, moveInQueue]);
+  }, [c, sport, scoringWeights, isCategories, isMyTurn, isDrafting, hasLimits, positionLimits, myRoster, handleDraft, removeFromQueue, isDesktop, rowHeight, queue.length, moveInQueue, prospectPhotos]);
 
   if (isLoading) {
     return (

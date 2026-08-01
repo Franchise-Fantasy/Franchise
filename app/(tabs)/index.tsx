@@ -23,6 +23,7 @@ import { HomeAnnouncementBanner } from '@/components/home/HomeAnnouncementBanner
 import { HomeHero, type HomeHeroVariant, type PaymentBadge } from '@/components/home/HomeHero';
 import { LeagueSwitcher } from '@/components/home/LeagueSwitcher';
 import { NextSeasonOutlook } from '@/components/home/NextSeasonOutlook';
+import { OffseasonFinalStandings } from '@/components/home/OffseasonFinalStandings';
 import { OffseasonLotteryOrder } from '@/components/home/OffseasonLotteryOrder';
 import { PendingInvitesCard } from '@/components/home/PendingInvitesCard';
 import { QuickNav } from '@/components/home/QuickNav';
@@ -39,7 +40,7 @@ import { WebActivityCard } from '@/components/web/home/WebActivityCard';
 import { WebMatchupCard } from '@/components/web/home/WebMatchupCard';
 import { WebStandingsCard } from '@/components/web/home/WebStandingsCard';
 import { Colors, Fonts } from '@/constants/Colors';
-import { type Sport } from '@/constants/LeagueDefaults';
+import { getRookieClassAvailableDate, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
@@ -55,7 +56,7 @@ import { usePaymentLink } from '@/hooks/usePaymentLink';
 import { usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { markSplashReady } from '@/lib/splashReady';
 import { supabase } from '@/lib/supabase';
-import { formatDateTimeWithZone } from '@/utils/dates';
+import { daysBetween, formatShortDate, formatDateTimeWithZone, useToday } from '@/utils/dates';
 import { computeOffseasonState } from '@/utils/league/offseasonState';
 import { calcRounds } from '@/utils/league/playoff';
 import { minSeasonStartForDraft } from '@/utils/league/seasonStart';
@@ -120,13 +121,10 @@ function computeOffseasonHeroAction({
     return { label: 'Create Draft', onPress: actions.handleCreateRookieDraft };
   }
 
-  if (
-    !isDynasty &&
-    offseasonStep === 'ready_for_new_season' &&
-    !seasonDraft
-  ) {
-    return { label: 'Create Draft', onPress: actions.handleCreateSeasonDraft };
-  }
+  // No Create Draft for redraft/keeper: `open-draft-season` builds the board
+  // the moment the rookie class lands, so by the time the league leaves the
+  // dormant step its draft already exists and the hero shows the normal
+  // draft_pending card. Nothing to create by hand.
 
   const canStartNewSeason =
     (isDynasty &&
@@ -255,6 +253,7 @@ export default function HomeScreen() {
   const offseasonActions = useOffseasonActions({
     leagueId: league?.id ?? '',
     season: league?.season ?? '',
+    leagueType,
   });
 
   // Dynasty roster-cap overage — returns both the aggregate count (how
@@ -354,6 +353,18 @@ export default function HomeScreen() {
   }, [league, teamId, isCommissioner, paymentLedger]);
 
   const isOffseason = !!league?.offseason_step;
+  // Dormant offseason: rosters are cleared and the next draft can't happen
+  // until the incoming rookie class is in the player pool. Nothing is
+  // actionable, so the hero's job is to say when that changes.
+  const isDormantOffseason = league?.offseason_step === 'offseason';
+  const today = useToday();
+  const draftOpens = useMemo(() => {
+    if (!isDormantOffseason || !league) return null;
+    const opensISO = getRookieClassAvailableDate(league.sport as Sport, league.season);
+    if (!opensISO) return null;
+    const days = daysBetween(today, opensISO);
+    return { label: formatShortDate(opensISO), days: days > 0 ? days : 0 };
+  }, [isDormantOffseason, league, today]);
 
   // Once the rookie draft is done the draft-order card has nothing left to say
   // — the board is settled and the full results live in League History → Drafts
@@ -367,6 +378,10 @@ export default function HomeScreen() {
     league?.scoring_type !== 'h2h_categories' &&
     (league?.offseason_step === 'rookie_draft_complete' ||
       league?.offseason_step === 'ready_for_new_season');
+  // Redraft/keeper leagues have no rookie draft, so the lottery/draft-order
+  // card has nothing true to say — and their rosters are cleared, so there's no
+  // forward-looking state either. The season that just ended is what's real.
+  const showFinalStandings = isOffseason && !isDynastyLeague;
   const isImportedNotStarted =
     !!league?.imported_from && !league?.schedule_generated && !isOffseason;
 
@@ -484,7 +499,12 @@ export default function HomeScreen() {
           : null,
         myTeam,
         action: isCommissioner
-          ? { label: 'Advance Season', onPress: offseasonActions.advanceSeason }
+          ? {
+              // Redraft/keeper don't "advance into an offseason" — they close
+              // out and go dormant. Match the confirm dialog's wording.
+              label: isDynastyLeague ? 'Advance Season' : 'Close Out Season',
+              onPress: offseasonActions.advanceSeason,
+            }
           : null,
       };
     }
@@ -584,6 +604,7 @@ export default function HomeScreen() {
         nextStepLabel,
         action,
         warning,
+        draftOpens,
       };
     }
 
@@ -647,6 +668,7 @@ export default function HomeScreen() {
     isDynastyLeague,
     isSeasonComplete,
     isOffseason,
+    draftOpens,
     isImportedNotStarted,
     claimStatus,
     isCommissioner,
@@ -892,6 +914,31 @@ export default function HomeScreen() {
 
   const handleChatPress = () => router.push('/chat');
 
+  // The card that takes the standings slot during the offseason. Built once
+  // because the desktop and mobile layouts render the identical choice and
+  // only diverge on the in-season fallback. Null in season.
+  const offseasonCard = !league ? null : showNextSeasonOutlook ? (
+    <NextSeasonOutlook
+      leagueId={league.id}
+      sport={(league.sport as Sport | null) ?? 'nba'}
+      season={league.season}
+    />
+  ) : showFinalStandings ? (
+    <OffseasonFinalStandings
+      leagueId={league.id}
+      championTeamId={league.champion_team_id ?? null}
+    />
+  ) : isOffseason ? (
+    <OffseasonLotteryOrder
+      leagueId={league.id}
+      playoffTeams={league.playoff_teams ?? 0}
+      lotteryOdds={(league.lottery_odds as number[] | null) ?? null}
+      rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
+      offseasonStep={league.offseason_step!}
+      season={league.season}
+    />
+  ) : null;
+
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
       {/* On desktop web the sidebar carries the league switcher + chat, so the
@@ -1029,22 +1076,7 @@ export default function HomeScreen() {
                       )}
                     </>
                   )}
-                  {showNextSeasonOutlook ? (
-                    <NextSeasonOutlook
-                      leagueId={league.id}
-                      sport={(league.sport as Sport | null) ?? 'nba'}
-                      season={league.season}
-                    />
-                  ) : isOffseason ? (
-                    <OffseasonLotteryOrder
-                      leagueId={league.id}
-                      playoffTeams={league.playoff_teams ?? 0}
-                      lotteryOdds={(league.lottery_odds as number[] | null) ?? null}
-                      rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
-                      offseasonStep={league.offseason_step!}
-                      season={league.season}
-                    />
-                  ) : (
+                  {offseasonCard ?? (
                     <WebStandingsCard
                       leagueId={league.id}
                       playoffTeams={league.playoff_teams}
@@ -1128,22 +1160,7 @@ export default function HomeScreen() {
                 full roster list made the home page far too heavy. */}
             <QuickNav leagueType={league.league_type ?? 'dynasty'} />
 
-            {showNextSeasonOutlook ? (
-              <NextSeasonOutlook
-                leagueId={league.id}
-                sport={(league.sport as Sport | null) ?? 'nba'}
-                season={league.season}
-              />
-            ) : isOffseason ? (
-              <OffseasonLotteryOrder
-                leagueId={league.id}
-                playoffTeams={league.playoff_teams ?? 0}
-                lotteryOdds={(league.lottery_odds as number[] | null) ?? null}
-                rookieDraftOrder={league.rookie_draft_order ?? 'reverse_record'}
-                offseasonStep={league.offseason_step!}
-                season={league.season}
-              />
-            ) : (
+            {offseasonCard ?? (
               <StandingsSection
                 leagueId={league.id}
                 playoffTeams={league.playoff_teams}

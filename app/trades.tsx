@@ -19,6 +19,7 @@ import { TradeDetailModal } from "@/components/trade/TradeDetailModal";
 import { Badge } from "@/components/ui/Badge";
 import { BrandButton } from "@/components/ui/BrandButton";
 import { LogoSpinner } from "@/components/ui/LogoSpinner";
+import { OffseasonEmptyState } from "@/components/ui/OffseasonEmptyState";
 import { PageHeader } from "@/components/ui/PageHeader";
 import { SegmentedControl } from "@/components/ui/SegmentedControl";
 import { ThemedText } from "@/components/ui/ThemedText";
@@ -26,6 +27,7 @@ import { Colors } from "@/constants/Colors";
 import { queryKeys } from "@/constants/queryKeys";
 import { useAppState } from "@/context/AppStateProvider";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import { useLeague } from "@/hooks/useLeague";
 import { usePlayerSeasonStats } from "@/hooks/usePlayerSeasonStats";
 import {
   TradeBlockPlayer,
@@ -37,6 +39,7 @@ import {
 import { supabase } from "@/lib/supabase";
 import { PlayerSeasonStats } from "@/types/player";
 import { TRADE_STATUS } from "@/types/trade";
+import { betweenSeasonsCopy, isBetweenSeasons } from "@/utils/league/offseasonState";
 import { ms } from "@/utils/scale";
 
 const TABS = ["Active", "History"];
@@ -87,6 +90,7 @@ export default function Trades() {
   const scheme = useColorScheme() ?? "light";
   const c = Colors[scheme];
   const { leagueId, teamId } = useAppState();
+  const { data: league } = useLeague();
 
   const [tab, setTab] = useState(0);
   const [showPropose, setShowPropose] = useState(false);
@@ -224,6 +228,18 @@ export default function Trades() {
   };
 
   const hasTradeBlock = (tradeBlock ?? []).length > 0;
+
+  // A between-seasons league has cleared rosters and no draft picks, so the
+  // trade room had nothing to trade — you could still open the builder and
+  // propose into the void. It's the one dormant surface that had no gate.
+  if (isBetweenSeasons(league?.offseason_step)) {
+    return (
+      <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>
+        <PageHeader title="Trade Room" />
+        <OffseasonEmptyState {...betweenSeasonsCopy(league!.season)} />
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.cardAlt }]}>

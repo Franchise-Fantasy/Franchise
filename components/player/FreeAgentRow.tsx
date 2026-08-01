@@ -35,6 +35,13 @@ interface FreeAgentRowProps {
   ownerTeamName: string | null;
   sport: Sport;
   isDisabled: boolean;
+  /** The list is showing projections rather than real production. Re-words the
+   *  spoken label (a screen reader never sees the column-key header alongside
+   *  the row) and surfaces the projected-games count under the FPTS value —
+   *  the list ranks on total projected production, so without the count a
+   *  47-game flier sitting below a higher-availability starter with a lower
+   *  per-game number would look mis-sorted. */
+  isProjected?: boolean;
   /** Stable callbacks that receive the row's player — required so React.memo
    *  can actually skip re-renders (per-row closures would defeat it). */
   onPress: (player: PlayerSeasonStats) => void;
@@ -70,6 +77,7 @@ export const FreeAgentRow = memo(function FreeAgentRow({
   ownerTeamName,
   sport,
   isDisabled,
+  isProjected,
   onPress,
   onAddOrClaimPress,
   canTrade,
@@ -102,12 +110,17 @@ export const FreeAgentRow = memo(function FreeAgentRow({
     `${player.name}, ${formatPosition(player.position)}, ${player.pro_team}` +
     (ownerTeamName ? `, rostered by ${ownerTeamName}` : '') +
     (gameToday ? `, plays ${gameToday}` : '') +
-    (fpts !== undefined ? `, ${fpts} fantasy points` : '') +
+    (fpts !== undefined
+      ? `, ${fpts} ${isProjected ? 'projected ' : ''}fantasy points`
+      : '') +
+    (isProjected && player.games_played > 1
+      ? `, over ${player.games_played} projected games`
+      : '') +
     (projFpts != null && projFpts > 0
       ? `, ${projFpts.toFixed(1)} projected next game`
       : '') +
     (isCategories
-      ? `, ${player.avg_pts} points, ${player.avg_reb} rebounds, ${player.avg_ast} assists, ${player.avg_stl} steals, ${player.avg_blk} blocks`
+      ? `,${isProjected ? ' projected' : ''} ${player.avg_pts} points, ${player.avg_reb} rebounds, ${player.avg_ast} assists, ${player.avg_stl} steals, ${player.avg_blk} blocks`
       : '');
 
   return (
@@ -250,6 +263,13 @@ export const FreeAgentRow = memo(function FreeAgentRow({
                   style={[styles.fptsValue, { color: c.gold }]}
                 >
                   {fpts.toFixed(1)}
+                </ThemedText>
+              )}
+              {/* The "×" is load-bearing: the list ranks on per-game × games,
+                  so without it a 40.6 sitting above a 52.8 reads as a bug. */}
+              {isProjected && player.games_played > 1 && (
+                <ThemedText style={[styles.catLine, { color: c.secondaryText }]}>
+                  ×{player.games_played} gm
                 </ThemedText>
               )}
             </>

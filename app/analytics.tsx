@@ -18,7 +18,7 @@ import { useColors } from "@/hooks/useColors";
 import { useLeague } from "@/hooks/useLeague";
 import { useLeagueRosterStats } from "@/hooks/useLeagueRosterStats";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
-import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonFpts";
+import { usePrevSeasonFpts } from "@/hooks/usePrevSeasonProduction";
 import { fetchStandingsTeams } from "@/utils/league/standingsQueries";
 import { s } from "@/utils/scale";
 import { getSportModule } from "@/utils/sports/registry";

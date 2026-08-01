@@ -10,7 +10,7 @@ import type { ProspectCardData, ProspectProfileData } from '@/types/prospect';
 import { extractText } from './cms-mappers';
 
 /** Normalise a Contentful asset URL (protocol-relative → https). */
-function assetUrl(value: any): string | undefined {
+export function assetUrl(value: any): string | undefined {
   const url: string | undefined =
     typeof value === 'string' ? value : value?.fields?.file?.url;
   if (!url) return undefined;

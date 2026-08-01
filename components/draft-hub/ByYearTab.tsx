@@ -108,7 +108,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
   );
 
   const displayPicks = useMemo(() => {
-    if (!leagueSettings.pickConditionsEnabled || seasonSwaps.length === 0) return seasonPicks;
+    if (!leagueSettings.pickSwapsEnabled || seasonSwaps.length === 0) return seasonPicks;
     const standingOrder: Record<string, number> = {};
     reversedStandings.forEach((t, i) => { standingOrder[t.id] = i; });
     const result = seasonPicks.map((p) => ({ ...p }));
@@ -134,7 +134,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
       }
     }
     return result;
-  }, [seasonPicks, seasonSwaps, reversedStandings, leagueSettings.pickConditionsEnabled]);
+  }, [seasonPicks, seasonSwaps, reversedStandings, leagueSettings.pickSwapsEnabled]);
 
   const tricodeMap = useMemo(() => {
     const map: Record<string, string> = {};
@@ -332,7 +332,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             let effectiveIsTraded = ownership?.isTraded ?? false;
             let protectionHolds = false;
             const hasResolvedProtection = !!simResult && !!ownership?.protectionThreshold;
-            if (ownership?.protectionThreshold && ownership?.protectionOwnerId && leagueSettings.pickConditionsEnabled) {
+            if (ownership?.protectionThreshold && ownership?.protectionOwnerId && leagueSettings.pickProtectionsEnabled) {
               protectionHolds = row.position <= ownership.protectionThreshold;
               if (protectionHolds) {
                 effectiveOwnerName = ownership.protectionOwnerName ?? ownership.ownerName;
@@ -341,9 +341,9 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             }
 
             const showProtectionStory =
-              ownership?.protectionThreshold && leagueSettings.pickConditionsEnabled;
+              ownership?.protectionThreshold && leagueSettings.pickProtectionsEnabled;
             const showSwapStory =
-              ownership?.wasSwapped && leagueSettings.pickConditionsEnabled;
+              ownership?.wasSwapped && leagueSettings.pickSwapsEnabled;
 
             const round1Pick = displayPicks.find(
               (p) => p.round === 1 && p.original_team_id === row.team.id,
@@ -558,7 +558,7 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
             {roundPicks.map((pick, idx) => {
               const pickPos = pick.display_slot;
               const pickNumber = overallPickNumber(round, pickPos, teams.length);
-              const protHolds = pick.protection_threshold && leagueSettings.pickConditionsEnabled && isUpcomingSeason
+              const protHolds = pick.protection_threshold && leagueSettings.pickProtectionsEnabled && isUpcomingSeason
                 ? pickPos <= pick.protection_threshold
                 : false;
 
@@ -569,11 +569,11 @@ export function ByYearTab({ picks, swaps, teams, validSeasons, leagueSettings }:
                 ? (pick.protection_owner_id !== pick.original_team_id)
                 : pick.isTraded;
 
-              const hasProtection = pick.protection_threshold && leagueSettings.pickConditionsEnabled;
+              const hasProtection = pick.protection_threshold && leagueSettings.pickProtectionsEnabled;
               const hasResolvedProtection = !!hasProtection && isUpcomingSeason;
 
               const swapInfo =
-                pick.wasSwapped && leagueSettings.pickConditionsEnabled
+                pick.wasSwapped && leagueSettings.pickSwapsEnabled
                   ? findSwapInfo(pick)
                   : null;
 

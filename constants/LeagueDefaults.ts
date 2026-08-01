@@ -1,3 +1,7 @@
+import {
+  rookieClassAvailableDate,
+  SPORT_ROOKIE_CLASS_OPENS,
+} from '@/utils/draft/rookieClassGate';
 import { schedulableEnd, type MergeWindow } from '@/utils/league/scheduleWindows';
 import { getSportModule } from '@/utils/sports/registry';
 
@@ -164,18 +168,6 @@ export const FAAB_TIEBREAK_TO_DB: Record<FaabTiebreakOption, string> = {
 export const FAAB_TIEBREAK_DISPLAY: Record<string, FaabTiebreakOption> = {
   earliest_bid: 'Earliest Bid',
   waiver_priority: 'Waiver Priority',
-};
-
-export const PLAYER_LOCK_OPTIONS = ['Daily', 'Individual'] as const;
-export type PlayerLockOption = (typeof PLAYER_LOCK_OPTIONS)[number];
-
-export const PLAYER_LOCK_TO_DB: Record<PlayerLockOption, string> = {
-  'Daily': 'daily',
-  'Individual': 'individual',
-};
-export const PLAYER_LOCK_DISPLAY: Record<string, string> = {
-  daily: 'Daily',
-  individual: 'Individual',
 };
 
 export const ROOKIE_DRAFT_ORDER_OPTIONS = ['Reverse Record', 'Lottery'] as const;
@@ -407,6 +399,17 @@ export function getSeasonStart(sport: Sport, season: string): string | undefined
   return NBA_SEASON_START[season];
 }
 
+/** Has the sport's current season tipped off as of `today` (ISO yyyy-mm-dd)?
+ *  Before it has, `player_season_stats` is empty for every player — the matview
+ *  is scoped to `season_config.is_current` — so any "this season" surface has to
+ *  show something else (a projection) rather than a blank or a stale prior year.
+ *  A missing start date (cold season-config cache) defaults to "started" so we
+ *  never hide real averages on a stale config. */
+export function isSeasonStarted(sport: Sport, today: string): boolean {
+  const start = getSeasonStart(sport, getCurrentSeason(sport));
+  return !start || today >= start;
+}
+
 /** Last date a fantasy season for this sport+season may be scheduled to. A
  *  terminal merge window (the WNBA FIBA break) walls off the season end — the
  *  regular season AND playoffs must finish before it — so the effective end is
@@ -462,19 +465,9 @@ export function getMergeWindows(sport: Sport, season: string): MergeWindow[] {
   return (sport === 'wnba' ? WNBA_MERGE_WINDOWS : NBA_MERGE_WINDOWS)[season] ?? [];
 }
 
-// Hardcoded month/day per sport when next-season league creation becomes
-// available. Picked to land AFTER that sport's rookie draft, so the new rookie
-// class is already in the player pool (otherwise a dynasty league drafts last
-// year's rookies): NBA post-late-June draft (Jul 1, pre-Summer League), WNBA
-// post-mid-April draft (Apr 20, a few weeks before the mid-May tipoff). Adjust
-// as the calendar shifts; per-year overrides live in season_config.creation_opens_at.
-const SPORT_NEXT_SEASON_OPENS: Record<Sport, { month: number; day: number } | undefined> = {
-  nba: { month: 7, day: 1 },
-  wnba: { month: 4, day: 20 },
-  nfl: { month: 5, day: 1 }, // post-late-April NFL draft
-  nhl: undefined,
-  mlb: undefined,
-};
+// League creation for next season opens on the same date that season's rookie
+// class lands in the player pool, so the per-sport table is SPORT_ROOKIE_CLASS_OPENS
+// (utils/draft/rookieClassGate.ts) rather than a second copy here.
 
 /** Minimum weeks remaining in the current season for it to still be worth
  *  creating a league for — below this the regular season is too short to
@@ -572,7 +565,7 @@ export function getCreationStatus(
   // Prefer a concrete opens date from season_config (set when the schedule is
   // known); otherwise the recurring hardcoded month/day for the current year.
   const nextRow = cachedSeasonRow(sport, nextSeason);
-  const opens = SPORT_NEXT_SEASON_OPENS[sport];
+  const opens = SPORT_ROOKIE_CLASS_OPENS[sport];
   let openDate: Date | null = null;
   if (nextRow?.creation_opens_at) {
     const [oy, om, od] = nextRow.creation_opens_at.split('-').map(Number);
@@ -612,21 +605,15 @@ export function getCreationStatus(
   };
 }
 
-/** The date `season`'s rookie class becomes draftable — once that sport's real
- *  draft has happened (and sync-players has ingested the class). Mirrors the
- *  next-season-creation gate so the offseason rookie draft can't be scheduled
- *  before its rookies exist (else it drafts last year's class): prefers the
- *  season_config `creation_opens_at` override, else the hardcoded post-draft
- *  month/day for the season's start year. Null when the sport has no open date. */
-export function getRookieClassAvailableDate(sport: Sport, season: string): Date | null {
-  const row = cachedSeasonRow(sport, season);
-  if (row?.creation_opens_at) {
-    const [y, m, d] = row.creation_opens_at.split('-').map(Number);
-    return new Date(y, m - 1, d);
-  }
-  const opens = SPORT_NEXT_SEASON_OPENS[sport];
-  if (!opens) return null;
-  return new Date(parseSeasonStartYear(season), opens.month - 1, opens.day);
+/** The date `season`'s rookie class becomes draftable, as "YYYY-MM-DD" — once
+ *  that sport's real draft has happened (and sync-players has ingested the
+ *  class). This is the gate that holds a redraft/keeper league in its dormant
+ *  offseason: drafting before it means drafting last year's rookies. The
+ *  resolution rules live in utils/draft/rookieClassGate.ts, shared with the
+ *  `open-draft-season` cron that enforces it. Null when the sport has no known
+ *  draft calendar — callers must read that as "no gate", never as "closed". */
+export function getRookieClassAvailableDate(sport: Sport, season: string): string | null {
+  return rookieClassAvailableDate(sport, season, cachedSeasonRow(sport, season)?.creation_opens_at);
 }
 
 // Realistic upper bound on the rookie pool each year — caps fantasy rookie
@@ -775,7 +762,10 @@ export interface LeagueWizardState {
   combineCupWeek?: boolean;
   playoffTeams: number;
   playoffSeedingFormat: PlayoffSeedingOption;
-  pickConditionsEnabled: boolean;
+  /** Allow top-N protections on traded picks. Independent of `pickSwapsEnabled`. */
+  pickProtectionsEnabled: boolean;
+  /** Allow pick swap rights in trades. Independent of `pickProtectionsEnabled`. */
+  pickSwapsEnabled: boolean;
   /** Allow IR players in trades — a traded IR player lands on the receiving team's bench. */
   irTradingEnabled: boolean;
   draftPickTradingEnabled: boolean;
@@ -796,7 +786,6 @@ export interface LeagueWizardState {
   /** null = unlimited, positive = max adds per matchup week */
   weeklyAcquisitionLimit: number | null;
   /** Lock mode for free-agent adds once games start */
-  playerLockType: PlayerLockOption;
   /** Auto-announce when multiple teams bid on the same player */
   autoRumorsEnabled: boolean;
   /** Primary tiebreaker method when teams have equal wins */

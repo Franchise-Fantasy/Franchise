@@ -7,10 +7,16 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { PlayoffBracket } from '@/components/playoff/PlayoffBracket';
 import { SeedPickModal } from '@/components/playoff/SeedPickModal';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { OffseasonEmptyState } from '@/components/ui/OffseasonEmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand, Fonts } from '@/constants/Colors';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import {
+  CURRENT_NBA_SEASON,
+  formatSeason,
+  parseSeasonStartYear,
+  type Sport,
+} from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColors } from '@/hooks/useColors';
@@ -18,6 +24,7 @@ import { useLeague } from '@/hooks/useLeague';
 import { usePendingSeedPick, usePlayoffBracket } from '@/hooks/usePlayoffBracket';
 import { supabase } from '@/lib/supabase';
 import { PlayoffBracketSlot } from '@/types/playoff';
+import { betweenSeasonsCopy, isBetweenSeasons } from '@/utils/league/offseasonState';
 import {
   BracketPairing,
   buildFixedRound1,
@@ -172,10 +179,20 @@ export default function PlayoffBracketScreen() {
   const { leagueId } = useAppState();
 
   const { data: league } = useLeague();
-  const season = league?.season ?? CURRENT_NBA_SEASON;
+
+  // A between-seasons league is dormant except for its history — and its last
+  // completed bracket is exactly that. advance-season has already rolled
+  // `leagues.season` forward, so look back one season to find it.
+  const betweenSeasons = isBetweenSeasons(league?.offseason_step);
+  const season = !league
+    ? CURRENT_NBA_SEASON
+    : betweenSeasons
+      ? formatSeason(parseSeasonStartYear(league.season) - 1, league.sport as Sport)
+      : league.season;
 
   const { data: bracketSlots, isLoading: bracketLoading } = usePlayoffBracket(season);
-  const { data: pendingPick } = usePendingSeedPick(season, true);
+  // No seed pick can be pending in a season that's already over.
+  const { data: pendingPick } = usePendingSeedPick(season, !betweenSeasons);
 
   const [seedPickVisible, setSeedPickVisible] = useState(false);
 
@@ -245,38 +262,26 @@ export default function PlayoffBracketScreen() {
     ? playoffTeams
     : Math.min(playoffTeams, teamsData?.length ?? playoffTeams);
 
-  const isOffseason = !!league?.offseason_step;
-
-  if (isOffseason) {
+  // Dynasty's offseason still hides the bracket — its rosters and standings
+  // roll on, so a stale bracket is noise. A between-seasons league instead
+  // shows its finished bracket as history, but only a REAL one: with no stored
+  // bracket we'd fall through and project a fresh one off standings that
+  // advance-season just zeroed, which is worse than saying nothing.
+  const showFinishedBracket = betweenSeasons && hasRealBracket;
+  if (league?.offseason_step && !showFinishedBracket) {
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <PageHeader title="Playoff Bracket" />
-        <View
-          style={styles.empty}
-          accessible
-          accessibilityRole="text"
-          accessibilityLabel="It's the offseason. The bracket will return when next season's playoffs begin."
-        >
-          <View style={[styles.emptyRule, { backgroundColor: c.gold }]} />
-          <Ionicons
-            name="sunny-outline"
-            size={ms(40)}
-            color={c.secondaryText}
-            accessible={false}
-          />
-          <ThemedText
-            type="display"
-            style={[styles.emptyTitle, { color: c.text }]}
-          >
-            Offseason.
-          </ThemedText>
-          <ThemedText
-            type="varsitySmall"
-            style={[styles.emptySub, { color: c.secondaryText }]}
-          >
-            BRACKET RETURNS NEXT POSTSEASON
-          </ThemedText>
-        </View>
+        <OffseasonEmptyState
+          {...(betweenSeasons
+            ? betweenSeasonsCopy(league.season)
+            : {
+                title: 'Offseason.',
+                subtitle: 'BRACKET RETURNS NEXT POSTSEASON',
+                accessibilityLabel:
+                  "It's the offseason. The bracket will return when next season's playoffs begin.",
+              })}
+        />
       </SafeAreaView>
     );
   }
@@ -405,30 +410,6 @@ const styles = StyleSheet.create({
   loader: {
     marginTop: s(40),
     alignItems: 'center',
-  },
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: s(32),
-    gap: s(10),
-  },
-  emptyRule: {
-    height: 2,
-    width: s(48),
-    marginBottom: s(8),
-  },
-  emptyTitle: {
-    fontFamily: Fonts.display,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.2,
-    textAlign: 'center',
-  },
-  emptySub: {
-    fontSize: ms(11),
-    letterSpacing: 1.3,
-    textAlign: 'center',
   },
 });
 

@@ -56,7 +56,8 @@ export function EditTradeSettingsModal({
   const [vetoType, setVetoType] = useState('Commissioner');
   const [reviewHours, setReviewHours] = useState(24);
   const [votesToVeto, setVotesToVeto] = useState(4);
-  const [pickConditions, setPickConditions] = useState(false);
+  const [pickProtections, setPickProtections] = useState(false);
+  const [pickSwaps, setPickSwaps] = useState(false);
   const [irTrading, setIrTrading] = useState(false);
   const [autoRumors, setAutoRumors] = useState(false);
   // ISO `yyyy-mm-dd`, or null for no deadline — this is the actual persisted
@@ -71,7 +72,8 @@ export function EditTradeSettingsModal({
     setVetoType(VETO_DISPLAY[league.trade_veto_type] ?? 'Commissioner');
     setReviewHours(league.trade_review_period_hours ?? 24);
     setVotesToVeto(league.trade_votes_to_veto ?? 4);
-    setPickConditions(league.pick_conditions_enabled ?? false);
+    setPickProtections(league.pick_protections_enabled ?? false);
+    setPickSwaps(league.pick_swaps_enabled ?? false);
     setIrTrading(league.ir_trading_enabled ?? false);
     setAutoRumors(league.auto_rumors_enabled ?? false);
     setTradeDeadlineDate(league.trade_deadline ?? null);
@@ -112,7 +114,8 @@ export function EditTradeSettingsModal({
         trade_veto_type: vetoDb,
         trade_review_period_hours: vetoDb === 'none' ? 0 : reviewHours,
         trade_votes_to_veto: votesToVeto,
-        pick_conditions_enabled: pickConditions,
+        pick_protections_enabled: pickProtections,
+        pick_swaps_enabled: pickSwaps,
         ir_trading_enabled: irTrading,
         auto_rumors_enabled: autoRumors,
         trade_deadline: hasStartDate ? tradeDeadlineDate : null,
@@ -199,12 +202,23 @@ export function EditTradeSettingsModal({
         />
       )}
 
-      {/* Pick Protections & Swaps */}
+      {/* Pick Protections */}
       <ToggleRow
         icon="shield-checkmark-outline"
-        label="Pick Protections & Swaps"
-        value={pickConditions}
-        onToggle={setPickConditions}
+        label="Pick Protections"
+        description="Let a traded pick revert to the sender if it lands in the top N."
+        value={pickProtections}
+        onToggle={setPickProtections}
+        c={c}
+      />
+
+      {/* Pick Swaps */}
+      <ToggleRow
+        icon="swap-horizontal-outline"
+        label="Pick Swaps"
+        description="Let teams trade the right to swap draft slots in a given round."
+        value={pickSwaps}
+        onToggle={setPickSwaps}
         c={c}
       />
 

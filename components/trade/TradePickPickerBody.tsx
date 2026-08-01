@@ -34,7 +34,7 @@ interface TradePickPickerBodyProps {
   leagueId: string;
   selectedPickIds: string[];
   pickProtections: Record<string, number | undefined>;
-  pickConditionsEnabled: boolean;
+  pickProtectionsEnabled: boolean;
   draftPickTradingEnabled?: boolean;
   lockedPickIds?: Set<string>;
   teamCount: number;
@@ -58,7 +58,7 @@ export function TradePickPickerBody({
   leagueId,
   selectedPickIds,
   pickProtections,
-  pickConditionsEnabled,
+  pickProtectionsEnabled,
   draftPickTradingEnabled,
   lockedPickIds,
   teamCount,
@@ -86,7 +86,7 @@ export function TradePickPickerBody({
     // Stepper auto-shows whenever a protection is engaged — no separate
     // "is the editor open" state. Tapping the shield toggles protection
     // on/off; the threshold is adjusted inline via the stepper.
-    const showProtectionEditor = pickConditionsEnabled && isSelected && protection != null;
+    const showProtectionEditor = pickProtectionsEnabled && isSelected && protection != null;
     const isLast = index === (picks as TradablePickRow[]).length - 1;
 
     return (
@@ -157,7 +157,7 @@ export function TradePickPickerBody({
             )}
           </View>
           <View style={styles.rightActions}>
-            {pickConditionsEnabled && isSelected && existingProtection == null && (
+            {pickProtectionsEnabled && isSelected && existingProtection == null && (
               <TouchableOpacity
                 accessibilityRole="button"
                 accessibilityLabel={protection != null ? 'Remove pick protection' : 'Add pick protection'}

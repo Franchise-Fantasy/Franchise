@@ -265,6 +265,81 @@ describe('league invitations', () => {
     }, TIMEOUT);
   });
 
+  describe('claim_imported_team respects a reservation', () => {
+    // A team reserved for someone else is HELD. send-league-invite already
+    // refuses to double-reserve; before this guard the claim side ignored
+    // `invitations` entirely, so any other invitee could take the roster and
+    // strand the person it was meant for.
+    async function seedOpenTeam(name: string, tricode: string): Promise<string> {
+      const admin = adminClient();
+      const { data, error } = await admin
+        .from('teams')
+        .insert({ league_id: s.leagueId, user_id: null, name, tricode, is_commissioner: false })
+        .select('id')
+        .single();
+      if (error || !data) throw new Error(`seedOpenTeam failed: ${error?.message}`);
+      return data.id;
+    }
+
+    it('blocks a user claiming a team reserved for someone else', async () => {
+      const admin = adminClient();
+      const teamId = await seedOpenTeam('Reserved For Bot 3', 'R3');
+      await seedInvite(s, s.botUserIds[2], BOT_EMAIL(3), teamId);
+
+      const bot4 = await signInAsBot(4);
+      const { error } = await bot4.rpc('claim_imported_team', { team_id_input: teamId });
+      expect(error).not.toBeNull();
+      expect(error?.message).toMatch(/reserved for another manager/i);
+
+      const { data: row } = await admin.from('teams').select('user_id').eq('id', teamId).single();
+      expect(row?.user_id).toBeNull();
+    }, TIMEOUT);
+
+    it('lets the invitee it is reserved for claim it', async () => {
+      const admin = adminClient();
+      const teamId = await seedOpenTeam('Reserved For Bot 3', 'R3');
+      await seedInvite(s, s.botUserIds[2], BOT_EMAIL(3), teamId);
+
+      const bot3 = await signInAsBot(3);
+      const { error } = await bot3.rpc('claim_imported_team', { team_id_input: teamId });
+      expect(error).toBeNull();
+
+      const { data: row } = await admin.from('teams').select('user_id').eq('id', teamId).single();
+      expect(row?.user_id).toBe(s.botUserIds[2]);
+    }, TIMEOUT);
+
+    it('leaves unreserved teams claimable by anyone', async () => {
+      const admin = adminClient();
+      const reservedId = await seedOpenTeam('Reserved For Bot 3', 'R3');
+      const openId = await seedOpenTeam('Open Team', 'OP');
+      await seedInvite(s, s.botUserIds[2], BOT_EMAIL(3), reservedId);
+
+      // bot4 deviating onto an unheld team is allowed — the client confirms it.
+      const bot4 = await signInAsBot(4);
+      const { error } = await bot4.rpc('claim_imported_team', { team_id_input: openId });
+      expect(error).toBeNull();
+
+      const { data: row } = await admin.from('teams').select('user_id').eq('id', openId).single();
+      expect(row?.user_id).toBe(s.botUserIds[3]);
+    }, TIMEOUT);
+
+    it('frees the team once the reservation is cancelled', async () => {
+      const admin = adminClient();
+      const teamId = await seedOpenTeam('Reserved For Bot 3', 'R3');
+      const inviteId = await seedInvite(s, s.botUserIds[2], BOT_EMAIL(3), teamId);
+
+      const bot1 = await signInAsBot(1);
+      await bot1.rpc('cancel_league_invite', { p_invite_id: inviteId });
+
+      const bot4 = await signInAsBot(4);
+      const { error } = await bot4.rpc('claim_imported_team', { team_id_input: teamId });
+      expect(error).toBeNull();
+
+      const { data: row } = await admin.from('teams').select('user_id').eq('id', teamId).single();
+      expect(row?.user_id).toBe(s.botUserIds[3]);
+    }, TIMEOUT);
+  });
+
   describe('archive_league cancels dangling invites', () => {
     it('cancels pending invites when the league is archived', async () => {
       const admin = adminClient();

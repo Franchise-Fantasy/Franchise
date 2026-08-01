@@ -131,7 +131,11 @@ const ExecuteBody = z.object({
     trade_review_period_hours: z.number(),
     trade_votes_to_veto: z.number(),
     draft_pick_trading_enabled: z.boolean(),
-    pick_conditions_enabled: z.boolean(),
+    // All three optional: app builds from before the protections/swaps split
+    // send only `pick_conditions_enabled`.
+    pick_conditions_enabled: z.boolean().optional(),
+    pick_protections_enabled: z.boolean().optional(),
+    pick_swaps_enabled: z.boolean().optional(),
     ir_trading_enabled: z.boolean().optional().default(true),
     waiver_type: z.string(),
     waiver_period_days: z.number(),
@@ -886,7 +890,9 @@ async function handleExecute(
       trade_review_period_hours: number;
       trade_votes_to_veto: number;
       draft_pick_trading_enabled: boolean;
-      pick_conditions_enabled: boolean;
+      pick_conditions_enabled?: boolean;
+      pick_protections_enabled?: boolean;
+      pick_swaps_enabled?: boolean;
       ir_trading_enabled: boolean;
       waiver_type: string;
       waiver_period_days: number;
@@ -985,7 +991,8 @@ async function handleExecute(
     trade_votes_to_veto: settings.trade_votes_to_veto,
     trade_deadline: settings.trade_deadline,
     draft_pick_trading_enabled: settings.draft_pick_trading_enabled,
-    pick_conditions_enabled: settings.pick_conditions_enabled,
+    pick_protections_enabled: settings.pick_protections_enabled ?? settings.pick_conditions_enabled ?? false,
+    pick_swaps_enabled: settings.pick_swaps_enabled ?? settings.pick_conditions_enabled ?? false,
     ir_trading_enabled: settings.ir_trading_enabled,
     rookie_draft_rounds: settings.rookie_draft_rounds,
     rookie_draft_order: settings.rookie_draft_order,

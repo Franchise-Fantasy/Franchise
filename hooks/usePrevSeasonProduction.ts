@@ -3,8 +3,21 @@ import { useQuery } from '@tanstack/react-query';
 import { getPreviousSeason, type Sport } from '@/constants/LeagueDefaults';
 import { inputsDigest, queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
-import type { ScoringWeight } from '@/types/player';
+import type { PlayerSeasonStats, ScoringWeight } from '@/types/player';
+import { catContributionPerGame } from '@/utils/scoring/dependencyRisk';
 import { seasonAvgRowToFpts } from '@/utils/scoring/fantasyPoints';
+
+/** Previous-season season-average rows for the given players. */
+async function fetchPrevSeasonRows(sport: Sport, season: string, playerIds: string[]) {
+  const { data, error } = await supabase
+    .from('player_historical_stats')
+    .select('*')
+    .eq('sport', sport)
+    .eq('season', season)
+    .in('player_id', playerIds);
+  if (error) throw error;
+  return data ?? [];
+}
 
 /** Loads previous-season fpts-per-game for every player on the given list,
  *  keyed by player_id. Used as a fallback weight when the current season
@@ -40,14 +53,8 @@ export function usePrevSeasonFpts(
       if (playerIds.length === 0 || !scoringWeights || scoringWeights.length === 0) {
         return map;
       }
-      const { data, error } = await supabase
-        .from('player_historical_stats')
-        .select('*')
-        .eq('sport', sport)
-        .eq('season', previousSeason)
-        .in('player_id', playerIds);
-      if (error) throw error;
-      for (const row of data ?? []) {
+      const rows = await fetchPrevSeasonRows(sport, previousSeason, playerIds);
+      for (const row of rows) {
         const pid = (row as { player_id?: string }).player_id;
         if (!pid) continue;
         const fpts = seasonAvgRowToFpts(row as Record<string, unknown>, scoringWeights, sport);
@@ -56,6 +63,36 @@ export function usePrevSeasonFpts(
       return map;
     },
     enabled: !!leagueId && playerIds.length > 0 && (scoringWeights?.length ?? 0) > 0,
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
+/** Categories twin of `usePrevSeasonFpts`: previous-season composite cat
+ *  contribution per game, keyed by player_id. Fantasy points aren't a
+ *  categories league's currency, so its analytics need this shape instead to
+ *  survive the pre-tipoff window. Same fetch, different scoring lens. */
+export function usePrevSeasonCatProduction(
+  leagueId: string | null | undefined,
+  sport: Sport,
+  playerIds: string[],
+) {
+  const previousSeason = getPreviousSeason(sport);
+  const digest = inputsDigest(playerIds);
+
+  return useQuery<Map<string, number>>({
+    queryKey: queryKeys.prevSeasonCatProduction(leagueId ?? '', previousSeason, digest),
+    queryFn: async () => {
+      const map = new Map<string, number>();
+      if (playerIds.length === 0) return map;
+      const rows = await fetchPrevSeasonRows(sport, previousSeason, playerIds);
+      for (const row of rows) {
+        const r = row as unknown as PlayerSeasonStats;
+        const value = catContributionPerGame(r);
+        if (value > 0) map.set(r.player_id, value);
+      }
+      return map;
+    },
+    enabled: !!leagueId && playerIds.length > 0,
     staleTime: 1000 * 60 * 30,
   });
 }

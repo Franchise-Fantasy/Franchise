@@ -893,11 +893,13 @@ export default function DraftRoomScreen() {
                     leagueId={draftData?.league_id || ''}
                     teamId={teamData?.id || ''}
                     currentPick={currentPick}
+                    rookieClassYear={isRookieDraft ? rookieClassYear : undefined}
                   />
                 ) : rightMode === 'roster' ? (
                   <TeamRoster
                     teamId={teamData?.id || ''}
                     leagueId={draftData?.league_id || ''}
+                    rookieClassYear={isRookieDraft ? rookieClassYear : undefined}
                   />
                 ) : (
                   tradesPanel
@@ -954,6 +956,7 @@ export default function DraftRoomScreen() {
               leagueId={draftData?.league_id || ''}
               teamId={teamData?.id || ''}
               currentPick={currentPick}
+              rookieClassYear={isRookieDraft ? rookieClassYear : undefined}
             />
           ) : viewMode === 'trades' ? (
             tradesPanel
@@ -961,6 +964,7 @@ export default function DraftRoomScreen() {
             <TeamRoster
               teamId={teamData?.id || ''}
               leagueId={draftData?.league_id || ''}
+              rookieClassYear={isRookieDraft ? rookieClassYear : undefined}
             />
           ) : null}
         </View>

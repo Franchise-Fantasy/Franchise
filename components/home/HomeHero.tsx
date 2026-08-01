@@ -7,6 +7,7 @@ import { IconSymbol } from '@/components/ui/IconSymbol';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Brand } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
+import { BETWEEN_SEASONS_LABEL } from '@/utils/league/offseasonState';
 import { ms, s } from '@/utils/scale';
 
 // The embroidered F patch is used as a static watermark — bundled at
@@ -117,6 +118,10 @@ export type HomeHeroVariant =
         | { scope: 'personal'; overBy: number; onPress?: () => void }
         | { scope: 'aggregate'; count: number; onPress?: () => void }
         | null;
+      // Redraft/keeper dormant step only: when the incoming rookie class lands
+      // and the draft opens. There is no action to offer during the wait, so
+      // this is what the hero says instead of "Up Next".
+      draftOpens?: { label: string; days: number } | null;
     };
 
 type Props = {
@@ -683,13 +688,31 @@ function Offseason({
 }: {
   variant: Extract<HomeHeroVariant, { kind: 'offseason' }>;
 }) {
-  const { season, stepIndex, stepCount, stepLabel, nextStepLabel, action, warning } =
+  const { season, stepIndex, stepCount, stepLabel, nextStepLabel, action, warning, draftOpens } =
     variant;
+
+  // During the dormant wait the rail counts down to the draft opening — the
+  // one fact that matters and the only thing that will change. Everywhere else
+  // it names the step that follows this one.
+  const railLabel = draftOpens
+    ? `Draft Opens ${draftOpens.label}${draftOpens.days > 0 ? ` · ${draftOpens.days}d` : ''}`
+    : nextStepLabel
+      ? `Up Next · ${nextStepLabel}`
+      : 'Final Step';
+  // Only the countdown needs an override — "5d" has to be spoken as "5 days".
+  // Every other rail label reads correctly as written.
+  const railAccessibilityLabel = draftOpens
+    ? `Draft opens ${draftOpens.label}${
+        draftOpens.days > 0
+          ? `, in ${draftOpens.days} day${draftOpens.days === 1 ? '' : 's'}`
+          : ''
+      }`
+    : undefined;
 
   return (
     <>
       <EyebrowRow
-        segments={[shortSeason(season), 'Offseason']}
+        segments={[shortSeason(season), draftOpens ? BETWEEN_SEASONS_LABEL : 'Offseason']}
         rightSlot={
           action ? (
             <OutlinePill
@@ -710,20 +733,34 @@ function Offseason({
       </ThemedText>
 
       <View style={styles.statRow}>
-        <View style={styles.pipRow}>
-          {Array.from({ length: stepCount }).map((_, i) => (
-            <View
-              key={i}
-              style={[
-                styles.pip,
-                i <= stepIndex ? styles.pipActive : styles.pipInactive,
-              ]}
-            />
-          ))}
-        </View>
+        {/* A dormant league gets no step pips. There is no process to be
+            partway through — showing "1 of 3" is precisely the dynasty framing
+            that made a sleeping redraft league look like it had work to do. */}
+        {draftOpens ? (
+          <ThemedText type="varsitySmall" style={styles.statLabel} numberOfLines={1}>
+            History Only
+          </ThemedText>
+        ) : (
+          <View style={styles.pipRow}>
+            {Array.from({ length: stepCount }).map((_, i) => (
+              <View
+                key={i}
+                style={[
+                  styles.pip,
+                  i <= stepIndex ? styles.pipActive : styles.pipInactive,
+                ]}
+              />
+            ))}
+          </View>
+        )}
         <View style={styles.statDivider} />
-        <ThemedText type="varsitySmall" style={styles.statLabel} numberOfLines={1}>
-          {nextStepLabel ? `Up Next · ${nextStepLabel}` : 'Final Step'}
+        <ThemedText
+          type="varsitySmall"
+          style={styles.statLabel}
+          numberOfLines={1}
+          accessibilityLabel={railAccessibilityLabel}
+        >
+          {railLabel}
         </ThemedText>
       </View>
 

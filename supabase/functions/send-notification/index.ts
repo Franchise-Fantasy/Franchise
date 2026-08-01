@@ -7,7 +7,10 @@ import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
-const NOTIFICATION_CATEGORIES = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_daily', 'matchup_closeup', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'roster_reminders', 'lottery', 'chat', 'roster_moves'] as const;
+// Must stay in sync with NotifCategory in _shared/push.ts — a category missing
+// here is unreachable from the client, which is how `player_news` was silently
+// un-sendable through this function.
+const NOTIFICATION_CATEGORIES = ['draft', 'trades', 'trade_rumors', 'trade_block', 'matchups', 'matchup_closeup', 'waivers', 'injuries', 'playoffs', 'commissioner', 'league_activity', 'lottery', 'chat', 'direct_messages', 'roster_moves', 'player_news'] as const;
 
 const Body = z.object({
   league_id: z.string().uuid(),

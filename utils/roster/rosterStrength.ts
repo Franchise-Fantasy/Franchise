@@ -1,5 +1,6 @@
 import { PlayerGameLog, PlayerSeasonStats, ScoringWeight } from '@/types/player';
 import { isActiveRosterSlot } from '@/utils/roster/rosterSlots';
+import { expectedDailyFpts, type DailySchedule } from '@/utils/scoring/dailyOutput';
 import {
   effectiveFantasyPoints,
   GameWindow,
@@ -23,7 +24,7 @@ import {
 export interface TeamStrengthProfile {
   teamId: string;
   avgFpts: number; // mean effectiveFantasyPoints across active roster players
-  totalFpts: number; // sum across active players — the team's total points/day
+  dailyFpts: number; // expected starting-lineup points on an average day — 0 when not computable
   playerCount: number; // active players counted — scored ones only under excludeUnscored
 }
 
@@ -61,6 +62,13 @@ export interface BuildLeagueStrengthComparisonOptions {
    *  as active), and each one drags its team's average down. A team that traded
    *  for extra rookie picks would rank WORSE for having more of them. */
   excludeUnscored?: boolean;
+  /** Starting slots the league fills each day (`countStartingSlots`). Together
+   *  with `schedule` this unlocks the `dailyFpts` lens; without both, that
+   *  field stays 0 and callers should hide it rather than show a sum of
+   *  per-game averages dressed up as a daily rate. */
+  startingSlots?: number;
+  /** The sport's schedule density, from `dailySchedule`. */
+  schedule?: DailySchedule | null;
 }
 
 export function buildLeagueStrengthComparison(
@@ -76,6 +84,8 @@ export function buildLeagueStrengthComparison(
     gameLogsByPlayer,
     sport,
     excludeUnscored = false,
+    startingSlots = 0,
+    schedule,
   } = options;
   const windowSize = gameWindowSize(gameWindow);
 
@@ -102,6 +112,7 @@ export function buildLeagueStrengthComparison(
   for (const [teamId, teamPlayers] of byTeam) {
     let totalFpts = 0;
     let scoredCount = 0;
+    const fptsList: number[] = [];
     for (const p of teamPlayers) {
       let fpts: number;
       if (windowSize != null) {
@@ -117,6 +128,7 @@ export function buildLeagueStrengthComparison(
       }
       if (excludeUnscored && fpts <= 0) continue;
       totalFpts += Math.max(fpts, 0);
+      fptsList.push(Math.max(fpts, 0));
       scoredCount++;
     }
     profiles.push({
@@ -124,10 +136,10 @@ export function buildLeagueStrengthComparison(
       // A team with nothing scoreable averages 0 rather than NaN — it still
       // belongs in the ranking (at the bottom), just with no signal.
       avgFpts: scoredCount === 0 ? 0 : Math.round((totalFpts / scoredCount) * 10) / 10,
-      // Sum kept alongside the average so the UI can offer a "total points/day"
-      // lens (raw daily output — rewards depth) next to the size-independent
-      // per-player average.
-      totalFpts: Math.round(totalFpts * 10) / 10,
+      // The second lens the UI offers: what this roster is expected to actually
+      // start on a given day, which needs the league's slot count and the
+      // sport's schedule density (see dailyOutput.ts for the model).
+      dailyFpts: expectedDailyFpts(fptsList, startingSlots, schedule),
       playerCount: scoredCount,
     });
   }

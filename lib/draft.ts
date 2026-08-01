@@ -1,43 +1,10 @@
 import { formatSeason, type Sport } from '@/constants/LeagueDefaults';
 import { supabase } from '@/lib/supabase';
+import { buildDraftPicks, type BuiltPick } from '@/utils/draft/buildDraftPicks';
 
-export type BuiltPick = {
-  season: string;
-  round: number;
-  slot_number: number;
-  pick_number?: number;
-};
-
-/**
- * Pure: lay out an initial draft's picks. Snake rounds reverse the slot order,
- * so slot 1 picks last in round 2. No DB access — the caller decides whether to
- * insert them or hand them to `replace_draft_picks`.
- */
-export function buildDraftPicks(
-  numberOfTeams: number,
-  roundsCount: number,
-  season: string,
-  draftType: 'snake' | 'linear' = 'snake',
-): BuiltPick[] {
-  const picks: BuiltPick[] = [];
-
-  for (let round = 1; round <= roundsCount; round++) {
-    const isSnakeReverse = draftType === 'snake' && round % 2 === 0;
-
-    for (let slot = 1; slot <= numberOfTeams; slot++) {
-      picks.push({
-        season,
-        round,
-        slot_number: slot,
-        pick_number:
-          (round - 1) * numberOfTeams +
-          (isSnakeReverse ? numberOfTeams - slot + 1 : slot),
-      });
-    }
-  }
-
-  return picks;
-}
+// The board layout itself lives in utils/draft/buildDraftPicks.ts so edge
+// functions can import it too (this module pulls in the RN Supabase client).
+export { buildDraftPicks, type BuiltPick };
 
 /**
  * Pure: lay out placeholder picks for each future season. These carry no
@@ -68,44 +35,6 @@ export function buildFutureDraftPicks(
   }
 
   return picks;
-}
-
-export async function generateDraftPicks(
-  draftId: string,
-  numberOfTeams: number,
-  roundsCount: number,
-  season: string,
-  leagueId: string,
-  draftType: 'snake' | 'linear' = 'snake'
-) {
-  const picks = buildDraftPicks(numberOfTeams, roundsCount, season, draftType).map((p) => ({
-    ...p,
-    league_id: leagueId,
-    draft_id: draftId,
-  }));
-
-  // One statement, so a draft never ends up with only some of its picks. The
-  // old chunked loop committed each 100-row batch separately.
-  await supabase.from('draft_picks').insert(picks).throwOnError();
-}
-
-export async function generateFutureDraftPicks(
-  leagueId: string,
-  numberOfTeams: number,
-  roundsCount: number,
-  currentSeason: string,
-  maxFutureSeasons: number,
-  sport: Sport,
-) {
-  const picks = buildFutureDraftPicks(
-    numberOfTeams,
-    roundsCount,
-    currentSeason,
-    maxFutureSeasons,
-    sport,
-  ).map((p) => ({ ...p, league_id: leagueId }));
-
-  await supabase.from('draft_picks').insert(picks).throwOnError();
 }
 
 export async function checkAndAssignDraftSlots(leagueId: string) {

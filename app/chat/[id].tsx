@@ -5,9 +5,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   FlatList,
-  Modal,
   Platform,
-  Pressable,
   StyleSheet,
   TouchableOpacity,
   View,
@@ -27,8 +25,13 @@ import { ChatInput } from '@/components/chat/ChatInput';
 import { CreatePollModal } from '@/components/chat/CreatePollModal';
 import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
 import { GifPicker } from '@/components/chat/GifPicker';
-import { MessageActionMenu, type MessageAction } from '@/components/chat/MessageActionMenu';
+import {
+  MessageActionMenu,
+  type FocusedMessage,
+  type MessageAction,
+} from '@/components/chat/MessageActionMenu';
 import { MessageBubble } from '@/components/chat/MessageBubble';
+import { PinnedMessagesSheet } from '@/components/chat/PinnedMessagesSheet';
 import { PresenceAvatars } from '@/components/chat/PresenceAvatars';
 import { PresenceListSheet } from '@/components/chat/PresenceListSheet';
 import { ReadReceiptIndicator } from '@/components/chat/ReadReceiptIndicator';
@@ -58,6 +61,7 @@ import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import { isSystemAuthored } from '@/utils/chat/messageTypes';
 import { KeyboardAvoidingView } from '@/utils/keyboardController';
 import { logger } from '@/utils/logger';
 import { ms, s } from '@/utils/scale';
@@ -153,7 +157,7 @@ interface ChatItemProps {
   teamTricode: string | null;
   swipeReveal: SharedValue<number>;
   secondaryTextColor: string;
-  onLongPress: (messageId: string) => void;
+  onLongPress: (messageId: string, focused: FocusedMessage | null) => void;
   onReactionPress: (messageId: string, emoji: string) => void;
 }
 
@@ -176,9 +180,7 @@ const ChatItem = React.memo(function ChatItem({
   onLongPress,
   onReactionPress,
 }: ChatItemProps) {
-  const handleLongPress = useCallback(() => {
-    onLongPress(item.id);
-  }, [onLongPress, item.id]);
+  const bubbleRef = useRef<View>(null);
 
   const handleReactionPress = useCallback(
     (emoji: string) => {
@@ -186,6 +188,49 @@ const ChatItem = React.memo(function ChatItem({
     },
     [onReactionPress, item.id],
   );
+
+  // The action menu draws a copy of this bubble above its scrim so the message
+  // you pressed stays visible and in place. `renderBubble` is the single source
+  // for both the list row and that copy — the copy passes `selected: false`
+  // because the menu applies the lift itself.
+  const renderBubble = (selected: boolean) => (
+    <MessageBubble
+      message={item}
+      isOwnMessage={isOwn}
+      showSender={isLeagueChat && meta.showSender}
+      isFirstInGroup={meta.isFirstInGroup}
+      isLastInGroup={meta.isLastInGroup}
+      reactions={reactions}
+      onLongPress={handleLongPress}
+      onReactionPress={handleReactionPress}
+      teamId={teamId}
+      teamLogoKey={teamLogoKey}
+      teamTricode={teamTricode}
+      isCommissioner={isCommissioner}
+      swipeReveal={swipeReveal}
+      showSwipeTime={meta.showSwipeTime}
+      isSelected={selected}
+      isPinned={isPinned}
+    />
+  );
+
+  // Measure where the bubble actually sits on screen so the menu can hold it
+  // in place. Falls back to a centred menu if the measurement doesn't land.
+  const handleLongPress = () => {
+    const node = bubbleRef.current;
+    if (!node) {
+      onLongPress(item.id, null);
+      return;
+    }
+    node.measureInWindow((x, y, width, height) => {
+      onLongPress(
+        item.id,
+        Number.isFinite(x) && width > 0 && height > 0
+          ? { rect: { x, y, width, height }, isOwn, render: () => renderBubble(false) }
+          : null,
+      );
+    });
+  };
 
   return (
     <View>
@@ -201,24 +246,11 @@ const ChatItem = React.memo(function ChatItem({
           <View style={[styles.dateRule, { backgroundColor: secondaryTextColor, opacity: 0.25 }]} />
         </View>
       )}
-      <MessageBubble
-        message={item}
-        isOwnMessage={isOwn}
-        showSender={isLeagueChat && meta.showSender}
-        isFirstInGroup={meta.isFirstInGroup}
-        isLastInGroup={meta.isLastInGroup}
-        reactions={reactions}
-        onLongPress={handleLongPress}
-        onReactionPress={handleReactionPress}
-        teamId={teamId}
-        teamLogoKey={teamLogoKey}
-        teamTricode={teamTricode}
-        isCommissioner={isCommissioner}
-        swipeReveal={swipeReveal}
-        showSwipeTime={meta.showSwipeTime}
-        isSelected={isSelected}
-        isPinned={isPinned}
-      />
+      {/* collapsable={false} keeps this a real native view on Android so
+          measureInWindow has something to measure. */}
+      <View ref={bubbleRef} collapsable={false}>
+        {renderBubble(isSelected)}
+      </View>
       {isOwn && item.type !== 'poll' && readers.length > 0 && (
         <ReadReceiptIndicator isDM={isDM} readers={readers} />
       )}
@@ -382,7 +414,7 @@ export default function ConversationScreen() {
     };
     for (const m of messages) {
       counts.all += 1;
-      if (m.type === 'text' || m.type === 'image' || m.type === 'gif') counts.chat += 1;
+      if (m.type === 'text' || m.type === 'image' || m.type === 'gif' || m.type === 'announcement') counts.chat += 1;
       else if (m.type === 'trade' || m.type === 'trade_update') counts.trade += 1;
       else if (m.type === 'rumor') counts.rumor += 1;
       else if (m.type === 'poll') counts.poll += 1;
@@ -396,7 +428,7 @@ export default function ConversationScreen() {
     return messages.filter((m) => {
       switch (activeFilter) {
         case 'chat':
-          return m.type === 'text' || m.type === 'image' || m.type === 'gif';
+          return m.type === 'text' || m.type === 'image' || m.type === 'gif' || m.type === 'announcement';
         case 'trade':
           return m.type === 'trade' || m.type === 'trade_update';
         case 'rumor':
@@ -525,6 +557,8 @@ export default function ConversationScreen() {
   }, [readReceipts, messages, teamId]);
 
   const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
+  // Where the pressed bubble sits on screen, so the menu can hold it in focus.
+  const [focusedMessage, setFocusedMessage] = useState<FocusedMessage | null>(null);
 
   const handleSend = useCallback(
     (text: string) => {
@@ -535,8 +569,9 @@ export default function ConversationScreen() {
     [sendMessage],
   );
 
-  // Stable callbacks — item component passes its own ID
-  const handleLongPress = useCallback((messageId: string) => {
+  // Stable callbacks — item component passes its own ID and measured frame
+  const handleLongPress = useCallback((messageId: string, focused: FocusedMessage | null) => {
+    setFocusedMessage(focused);
     setReactionTargetId(messageId);
   }, []);
 
@@ -611,11 +646,18 @@ export default function ConversationScreen() {
       setReportingMessageId(null);
       if (!messageId) return;
       try {
-        const { error } = await supabase.functions.invoke('report-message', {
+        const { data, error } = await supabase.functions.invoke('report-message', {
           body: { message_id: messageId, reason },
         });
         if (error) throw error;
-        Alert.alert('Thanks for reporting', 'Your league commissioner has been notified.');
+        // Reports against the commissioner's own messages aren't pushed to the
+        // commissioner (circular) — they're recorded for review instead.
+        Alert.alert(
+          'Thanks for reporting',
+          data?.notified_commissioner
+            ? 'Your league commissioner has been notified.'
+            : 'Your report has been recorded for review.',
+        );
       } catch (err: any) {
         logger.error('report-message invoke failed', err);
         Alert.alert(
@@ -629,36 +671,58 @@ export default function ConversationScreen() {
 
   // Block the user behind a message's team_id. Resolves user_id, inserts into
   // user_blocks, then invalidates the messages query so the chat re-renders
-  // without the now-blocked sender's posts.
+  // without the now-blocked sender's posts. The sender is resolved BEFORE the
+  // confirm so blocking the commissioner can warn about what stays visible.
   const handleBlock = useCallback(async () => {
     if (!reactionTargetId) return;
     const target = messages.find((m) => m.id === reactionTargetId);
     setReactionTargetId(null);
     if (!target?.team_id || target.team_id === teamId) return;
 
+    let blockedUserId: string;
+    let blockerUserId: string;
+    let targetIsCommissioner = false;
+    try {
+      const { data: team, error: teamErr } = await supabase
+        .from('teams')
+        .select('user_id')
+        .eq('id', target.team_id)
+        .single();
+      if (teamErr || !team?.user_id) throw teamErr ?? new Error('Team not found');
+
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('Not signed in');
+      if (team.user_id === user.id) return;
+
+      blockedUserId = team.user_id;
+      blockerUserId = user.id;
+      if (leagueId) {
+        const { data: league } = await supabase
+          .from('leagues')
+          .select('created_by')
+          .eq('id', leagueId)
+          .single();
+        targetIsCommissioner = !!league?.created_by && league.created_by === team.user_id;
+      }
+    } catch (err: any) {
+      logger.error('Block user failed', err);
+      Alert.alert('Could not block user', err?.message ?? 'Please try again.');
+      return;
+    }
+
     confirm({
-      title: 'Block user?',
-      message:
-        'You will no longer see their messages or reactions in any league chat or DM. You can unblock them from your profile.',
+      title: targetIsCommissioner ? 'Block your commissioner?' : 'Block user?',
+      message: targetIsCommissioner
+        ? "This is your league's commissioner. Their regular messages will be hidden, but official league content — polls, surveys, trade updates, and announcements — will still appear so you don't miss league business. You can unblock them from your profile."
+        : 'You will no longer see their messages or reactions in any league chat or DM. You can unblock them from your profile.',
       action: {
         label: 'Block',
         destructive: true,
         onPress: async () => {
           try {
-            const { data: team, error: teamErr } = await supabase
-              .from('teams')
-              .select('user_id')
-              .eq('id', target.team_id!)
-              .single();
-            if (teamErr || !team?.user_id) throw teamErr ?? new Error('Team not found');
-
-            const { data: { user } } = await supabase.auth.getUser();
-            if (!user) throw new Error('Not signed in');
-            if (team.user_id === user.id) return;
-
             const { error: insertErr } = await supabase
               .from('user_blocks')
-              .insert({ blocker_id: user.id, blocked_id: team.user_id });
+              .insert({ blocker_id: blockerUserId, blocked_id: blockedUserId });
             if (insertErr && insertErr.code !== '23505') throw insertErr;
 
             await queryClient.invalidateQueries({ queryKey: queryKeys.messages(conversationId!) });
@@ -673,7 +737,7 @@ export default function ConversationScreen() {
         },
       },
     });
-  }, [reactionTargetId, messages, teamId, queryClient, conversationId, confirm]);
+  }, [reactionTargetId, messages, teamId, leagueId, queryClient, conversationId, confirm]);
 
   const handleItemReactionPress = useCallback(
     (messageId: string, emoji: string) => {
@@ -910,6 +974,9 @@ export default function ConversationScreen() {
           targetMessage?.type !== 'trade' &&
           targetMessage?.type !== 'trade_update' &&
           targetMessage?.type !== 'rumor';
+        // System-authored types carry a team_id but aren't personal speech, so
+        // they get no Report/Block. See utils/chat/messageTypes.ts.
+        const isOfficialTarget = isSystemAuthored(targetMessage?.type);
 
         const actions: MessageAction[] = [];
         if (isCommissioner && isLeagueChat) {
@@ -929,7 +996,7 @@ export default function ConversationScreen() {
             destructive: true,
           });
         }
-        if (!isOwnTarget && targetMessage?.team_id != null) {
+        if (!isOwnTarget && targetMessage?.team_id != null && !isOfficialTarget) {
           actions.push({
             id: 'report',
             label: 'Report',
@@ -948,10 +1015,14 @@ export default function ConversationScreen() {
         return (
           <MessageActionMenu
             visible
-            onClose={() => setReactionTargetId(null)}
+            onClose={() => {
+              setReactionTargetId(null);
+              setFocusedMessage(null);
+            }}
             onReactionSelect={handleReactionSelect}
             actions={actions}
             existingReactions={reactionsMap?.[reactionTargetId]}
+            focused={focusedMessage}
           />
         );
       })()}
@@ -1001,109 +1072,17 @@ export default function ConversationScreen() {
         memberCount={convMeta?.memberCount}
       />
 
-      {/* Pinned messages sheet */}
-      <Modal
+      <PinnedMessagesSheet
         visible={showPinnedSheet}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowPinnedSheet(false)}
-      >
-        <Pressable style={styles.pinnedSheetBackdrop} onPress={() => setShowPinnedSheet(false)}>
-          <Pressable
-            style={[styles.pinnedSheet, { backgroundColor: c.card }]}
-            onPress={() => {}}
-            accessibilityViewIsModal
-          >
-            <View style={[styles.pinnedSheetHandle, { backgroundColor: c.border }]} />
-            <ThemedText type="defaultSemiBold" style={styles.pinnedSheetTitle} accessibilityRole="header">
-              Pinned Messages
-            </ThemedText>
-            <FlatList
-              data={pinnedMessages ?? []}
-              keyExtractor={(item) => item.id}
-              contentContainerStyle={{ paddingBottom: 20 }}
-              renderItem={({ item, index }) => {
-                const isText = item.type === 'text';
-                const label = isText
-                  ? item.team_name ?? 'Message'
-                  : item.type === 'poll'
-                    ? 'Poll'
-                    : item.type === 'survey'
-                      ? 'Survey'
-                      : item.type === 'trade'
-                        ? 'Trade'
-                        : item.type === 'rumor'
-                          ? 'Rumor'
-                          : item.type === 'image'
-                            ? 'Photo'
-                            : item.type === 'gif'
-                              ? 'GIF'
-                              : 'Message';
-
-                const preview = isText
-                  ? item.content
-                  : item.type === 'poll'
-                    ? (item as any).poll_question ?? 'Commissioner Poll'
-                    : item.type === 'survey'
-                      ? (item as any).survey_title ?? 'Commissioner Survey'
-                      : item.type === 'trade'
-                        ? 'Trade Announcement'
-                        : item.type === 'rumor'
-                          ? 'Trade Rumor'
-                          : '';
-
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.pinnedItem,
-                      { borderBottomColor: c.border },
-                      index === (pinnedMessages?.length ?? 1) - 1 && { borderBottomWidth: 0 },
-                    ]}
-                    onPress={() => {
-                      setShowPinnedSheet(false);
-                      scrollToMessage(item.id);
-                    }}
-                    activeOpacity={0.6}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Go to pinned ${label}`}
-                  >
-                    <View style={styles.pinnedItemContent}>
-                      <ThemedText style={[styles.pinnedItemLabel, { color: isText ? c.accent : c.warning }]}>
-                        {label}
-                      </ThemedText>
-                      {!!preview && (
-                        <ThemedText style={styles.pinnedItemText} numberOfLines={2}>
-                          {preview}
-                        </ThemedText>
-                      )}
-                      <ThemedText style={[styles.pinnedItemDate, { color: c.secondaryText }]}>
-                        {new Date(item.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-                      </ThemedText>
-                    </View>
-                    {isCommissioner && (
-                      <TouchableOpacity
-                        onPress={() => {
-                          togglePin.mutate({ messageId: item.id, teamId: teamId!, isPinned: true });
-                        }}
-                        hitSlop={8}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Unpin ${label}`}
-                      >
-                        <Ionicons name="close-circle" size={20} color={c.secondaryText} />
-                      </TouchableOpacity>
-                    )}
-                  </TouchableOpacity>
-                );
-              }}
-              ListEmptyComponent={
-                <ThemedText style={{ textAlign: 'center', color: c.secondaryText, marginTop: 20 }}>
-                  No pinned messages
-                </ThemedText>
-              }
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
+        onClose={() => setShowPinnedSheet(false)}
+        messages={pinnedMessages ?? []}
+        isCommissioner={!!isCommissioner}
+        onSelect={(id) => {
+          setShowPinnedSheet(false);
+          scrollToMessage(id);
+        }}
+        onUnpin={(id) => togglePin.mutate({ messageId: id, teamId: teamId!, isPinned: true })}
+      />
     </SafeAreaView>
   );
 }
@@ -1186,51 +1165,5 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: StyleSheet.hairlineWidth,
-  },
-  pinnedSheetBackdrop: {
-    flex: 1,
-    backgroundColor: 'transparent',
-    justifyContent: 'flex-end',
-  },
-  pinnedSheet: {
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-    paddingTop: s(12),
-    paddingBottom: s(40),
-    paddingHorizontal: s(16),
-    maxHeight: '60%',
-  },
-  pinnedSheetHandle: {
-    width: s(40),
-    height: s(4),
-    borderRadius: 2,
-    alignSelf: 'center',
-    marginBottom: s(12),
-  },
-  pinnedSheetTitle: {
-    fontSize: ms(17),
-    textAlign: 'center',
-    marginBottom: s(12),
-  },
-  pinnedItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: s(12),
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    gap: s(12),
-  },
-  pinnedItemContent: {
-    flex: 1,
-    gap: s(2),
-  },
-  pinnedItemLabel: {
-    fontSize: ms(12),
-    fontWeight: '700',
-  },
-  pinnedItemText: {
-    fontSize: ms(14),
-  },
-  pinnedItemDate: {
-    fontSize: ms(11),
   },
 });

@@ -28,7 +28,7 @@ export function useFreeAgentRosterInfo(leagueId: string, teamId: string) {
         supabase
           .from('leagues')
           .select(
-            'roster_size, waiver_type, offseason_step, weekly_acquisition_limit, player_lock_type, position_limits, ir_trading_enabled',
+            'roster_size, waiver_type, offseason_step, weekly_acquisition_limit, position_limits, ir_trading_enabled',
           )
           .eq('id', leagueId)
           .single(),
@@ -49,9 +49,6 @@ export function useFreeAgentRosterInfo(leagueId: string, teamId: string) {
         weeklyAcquisitionLimit: leagueRes.data?.weekly_acquisition_limit as
           | number
           | null,
-        playerLockType: (leagueRes.data?.player_lock_type ?? 'daily') as
-          | 'daily'
-          | 'individual',
         positionLimits: leagueRes.data?.position_limits as
           | Record<string, number>
           | null,

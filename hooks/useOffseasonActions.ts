@@ -11,6 +11,9 @@ import { fetchLeagueCutsPlans, type TeamCutsPlan } from '@/utils/roster/rosterCu
 type Args = {
   leagueId: string;
   season: string;
+  /** Drives the season-close copy — redraft/keeper go dormant rather than
+   *  entering an offseason. Defaults to dynasty's wording. */
+  leagueType?: string;
 };
 
 /**
@@ -35,7 +38,7 @@ async function functionErrorDetail(err: unknown, fallback: string): Promise<stri
  * invalidation. The returned `loading` flag reflects whichever action
  * is in flight.
  */
-export function useOffseasonActions({ leagueId, season }: Args) {
+export function useOffseasonActions({ leagueId, season, leagueType }: Args) {
   const queryClient = useQueryClient();
   const router = useRouter();
   const confirm = useConfirm();
@@ -48,20 +51,27 @@ export function useOffseasonActions({ leagueId, season }: Args) {
     router.push('/lottery-room' as never);
   };
 
-  // Transition from the regular season into the offseason. Fires the
-  // `advance-season` edge function which archives stats, clears pending
-  // moves, and flips `offseason_step` to 'season_complete'.
+  // Close out the season. Fires the `advance-season` edge function, which
+  // archives stats, clears pending moves, and sets `offseason_step`.
+  //
+  // Redraft/keeper get different copy because they get a different outcome:
+  // rosters are cleared and the league goes dormant until its rookie class
+  // lands, rather than entering an offseason with work to do.
+  const isRedraftLike = leagueType === 'redraft' || leagueType === 'keeper';
   const advanceSeason = () => {
     confirm({
-      title: 'Advance to Offseason',
-      message:
-        "This will:\n\n- Archive this season's stats\n- Reset W/L records\n- Cancel pending trades, waivers, & queued moves\n- Begin the offseason process\n\nThis cannot be undone. Continue?",
+      title: isRedraftLike ? 'Close Out the Season' : 'Advance to Offseason',
+      message: isRedraftLike
+        ? "This will:\n\n- Archive this season's stats\n- Reset W/L records\n- Clear every roster\n- Cancel pending trades, waivers, & queued moves\n\nThe league then sits between seasons — history stays viewable — and reopens on its own for the next draft.\n\nThis cannot be undone. Continue?"
+        : "This will:\n\n- Archive this season's stats\n- Reset W/L records\n- Cancel pending trades, waivers, & queued moves\n- Begin the offseason process\n\nThis cannot be undone. Continue?",
       action: {
-        label: 'Advance',
+        label: isRedraftLike ? 'Close Out' : 'Advance',
         destructive: true,
         onPress: async () => {
           setLoading(true);
-          setLoadingLabel('Starting the offseason…');
+          setLoadingLabel(
+            isRedraftLike ? 'Closing out the season…' : 'Starting the offseason…',
+          );
           try {
             const { error } = await supabase.functions.invoke('advance-season', {
               body: { league_id: leagueId },
@@ -171,50 +181,12 @@ export function useOffseasonActions({ leagueId, season }: Args) {
     });
   };
 
-  const handleCreateSeasonDraft = async () => {
-    setLoading(true);
-    try {
-      const [teamsRes, prevDraftRes] = await Promise.all([
-        supabase.from('teams').select('id', { count: 'exact', head: true }).eq('league_id', leagueId),
-        supabase
-          .from('drafts')
-          .select('draft_type, time_limit')
-          .eq('league_id', leagueId)
-          // Inherit from the previous SEASON draft only — a rookie draft's
-          // clock (often a multi-hour slow clock) must not leak into the next
-          // season's startup draft just because it was created more recently.
-          .neq('type', 'rookie')
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .maybeSingle(),
-      ]);
-      const teamCount = teamsRes.count ?? 10;
-      const draftType = prevDraftRes.data?.draft_type ?? 'snake';
-      const timeLimit = prevDraftRes.data?.time_limit ?? 120;
-
-      const { error } = await supabase.from('drafts').insert({
-        league_id: leagueId,
-        season,
-        type: 'initial',
-        status: 'unscheduled',
-        draft_type: draftType,
-        rounds: teamCount,
-        time_limit: timeLimit,
-      });
-      if (error) throw error;
-
-      queryClient.invalidateQueries({ queryKey: ['seasonDraft', leagueId] });
-      queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
-      Alert.alert('Draft Created', 'Schedule the date to begin.');
-    } catch (err: unknown) {
-      Alert.alert(
-        'Error',
-        (err instanceof Error && err.message) || 'Failed to create draft',
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+  // A redraft/keeper league's season draft is built server-side by
+  // `open-draft-season` when the incoming rookie class lands — the commissioner
+  // has no Create Draft step. The old client-side version inserted a bare
+  // `drafts` row with no draft_picks, `rounds` set to the team count, and a
+  // null `picks_per_round`, which made every pick fail with "Draft is already
+  // complete." Don't reintroduce it.
 
   const startSeason = async () => {
     setLoading(true);
@@ -270,7 +242,6 @@ export function useOffseasonActions({ leagueId, season }: Args) {
     advanceSeason,
     handleCreateRookieDraft,
     handleFinalizeKeepers,
-    handleCreateSeasonDraft,
     handleStartNewSeason,
   };
 }

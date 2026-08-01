@@ -1,4 +1,5 @@
 import type { TimeRange } from "@/hooks/usePlayerFilter";
+import type { ProjectionRow } from "@/hooks/usePlayerProjections";
 import type { PlayerGameLog, PlayerSeasonStats } from "@/types/player";
 import { preferProjection } from "@/utils/draft/draftRanking";
 import { gameWindowSize, type GameWindow } from "@/utils/scoring/fantasyPoints";
@@ -180,15 +181,83 @@ export function blendBasketballSeasonView(
   });
 }
 
+/**
+ * Merge a season-horizon projection row onto a current matview row: identity
+ * stays current, every stat column becomes the projected per-game line. Totals
+ * are rebuilt as projected-average × projected_games and `games_played` set to
+ * the same count, so calculateAvgFantasyPoints — which divides totals by games
+ * — returns the projected FPTS/G. `player_season_stats` carries no stored
+ * `*_pct` columns, so those reconstructed totals are also what `shootingPct`
+ * reads, and projected FG%/FT% divide out exactly.
+ *
+ * Stats the model doesn't project are zeroed rather than carried over from the
+ * spread: PF, DD and TD would otherwise contribute the CURRENT season's counts
+ * against the projected game count, silently penalising (or rewarding) a player
+ * in leagues that score them. Same limitation projAvgRowToFpts documents.
+ *
+ * A missing projection row zeroes the whole stat line — the player keeps their
+ * identity (still searchable, still addable) but shows no production the engine
+ * never forecast.
+ */
+export function mergeProjectionRow(
+  p: PlayerSeasonStats,
+  pr: ProjectionRow | null | undefined,
+): PlayerSeasonStats {
+  const num = (v: unknown) => Number(v) || 0;
+  const g = num(pr?.projected_games) || 1;
+  const avg = {
+    pts: num(pr?.proj_pts), reb: num(pr?.proj_reb), ast: num(pr?.proj_ast),
+    stl: num(pr?.proj_stl), blk: num(pr?.proj_blk), tov: num(pr?.proj_tov),
+    fgm: num(pr?.proj_fgm), fga: num(pr?.proj_fga),
+    ftm: num(pr?.proj_ftm), fta: num(pr?.proj_fta),
+    tpm: num(pr?.proj_3pm), tpa: num(pr?.proj_3pa),
+    min: num(pr?.proj_min),
+  };
+  return {
+    ...p,
+    games_played: g,
+    avg_min: avg.min,
+    avg_pts: avg.pts, total_pts: avg.pts * g,
+    avg_reb: avg.reb, total_reb: avg.reb * g,
+    avg_ast: avg.ast, total_ast: avg.ast * g,
+    avg_stl: avg.stl, total_stl: avg.stl * g,
+    avg_blk: avg.blk, total_blk: avg.blk * g,
+    avg_tov: avg.tov, total_tov: avg.tov * g,
+    avg_fgm: avg.fgm, total_fgm: avg.fgm * g,
+    avg_fga: avg.fga, total_fga: avg.fga * g,
+    avg_ftm: avg.ftm, total_ftm: avg.ftm * g,
+    avg_fta: avg.fta, total_fta: avg.fta * g,
+    avg_3pm: avg.tpm, total_3pm: avg.tpm * g,
+    avg_3pa: avg.tpa, total_3pa: avg.tpa * g,
+    avg_pf: 0, total_pf: 0,
+    total_dd: 0, total_td: 0,
+  } as PlayerSeasonStats;
+}
+
 export function buildAdjustedPlayers(
   allPlayers: PlayerSeasonStats[] | undefined,
   recentGameLogs: any[] | undefined,
   historicalStats: any[] | undefined | null,
   timeRange: TimeRange,
   sport?: string | null,
+  /** Season-horizon projections keyed by player_id — required by the
+   *  "projected" range, ignored by every other one. */
+  seasonProjections?: Map<string, ProjectionRow> | null,
 ): PlayerSeasonStats[] | undefined {
   if (!allPlayers) return undefined;
   if (timeRange === "season") return allPlayers;
+
+  // Upcoming-season projections: the whole pool reads off the projection
+  // engine. Unlike lastSeason, players the engine has no row for are KEPT (with
+  // a zeroed line, so they sort last) rather than filtered out — this range is
+  // the pre-tipoff default on the wire, and dropping them would make an
+  // unprojected fringe player unsearchable and un-addable.
+  if (timeRange === "projected") {
+    if (!seasonProjections) return allPlayers;
+    return allPlayers.map((p) =>
+      mergeProjectionRow(p, seasonProjections.get(p.player_id)),
+    );
+  }
 
   // Last-season pill: merge per-player historical averages onto the
   // current player roster identity so name/position/team stay current

@@ -12,7 +12,7 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useColors } from '@/hooks/useColors';
 import { useLeagueRosterStats } from '@/hooks/useLeagueRosterStats';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
-import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonFpts';
+import { usePrevSeasonFpts } from '@/hooks/usePrevSeasonProduction';
 import { fetchStandingsTeams } from '@/utils/league/standingsQueries';
 import { buildLeagueStrengthComparison } from '@/utils/roster/rosterStrength';
 import { ms, s } from '@/utils/scale';

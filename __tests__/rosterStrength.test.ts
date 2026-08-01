@@ -266,4 +266,41 @@ describe('buildLeagueStrengthComparison', () => {
       expect(result.allProfiles[result.allProfiles.length - 1].teamId).toBe('team-b');
     });
   });
+
+  describe('dailyFpts', () => {
+    const players = [
+      makePlayer({ player_id: 'a1', team_id: 'team-a', games_played: 10, total_pts: 300 }), // 30
+      makePlayer({ player_id: 'a2', team_id: 'team-a', games_played: 10, total_pts: 200 }), // 20
+      makePlayer({ player_id: 'a3', team_id: 'team-a', games_played: 10, total_pts: 100 }), // 10
+      makePlayer({ player_id: 'b1', team_id: 'team-b', games_played: 10, total_pts: 100 }), // 10
+    ];
+
+    const COINFLIP = { playRate: 0.5, slateShare: 1, gamesPerWeek: 3.5 };
+
+    it('stays 0 when the slot count or schedule is unknown', () => {
+      const result = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a')!;
+      expect(result.allProfiles.find((p) => p.teamId === 'team-a')!.dailyFpts).toBe(0);
+    });
+
+    it('applies the seat limit and play rate to the active roster', () => {
+      const result = buildLeagueStrengthComparison(players, WEIGHTS, 'team-a', {
+        startingSlots: 2,
+        schedule: COINFLIP,
+      })!;
+      // Same hand-computed case as dailyOutput.test.ts: 30/20/10, 2 seats, 0.5.
+      expect(result.allProfiles.find((p) => p.teamId === 'team-a')!.dailyFpts).toBeCloseTo(28.8, 1);
+    });
+
+    it('excludes IR and taxi players, matching the per-player lens', () => {
+      const withStashedStar = [
+        ...players,
+        makePlayer({ player_id: 'b2', team_id: 'team-b', games_played: 10, total_pts: 500, roster_slot: 'IR' }),
+      ];
+      const result = buildLeagueStrengthComparison(withStashedStar, WEIGHTS, 'team-a', {
+        startingSlots: 2,
+        schedule: COINFLIP,
+      })!;
+      expect(result.allProfiles.find((p) => p.teamId === 'team-b')!.dailyFpts).toBeCloseTo(5, 1);
+    });
+  });
 });

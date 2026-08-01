@@ -121,6 +121,81 @@ describe('buildAdjustedPlayers', () => {
     const players = [makePlayer({ player_id: 'p1' })];
     expect(buildAdjustedPlayers(players, undefined, null, 'L10')).toBe(players);
   });
+
+  it('falls back to the season list when projected has no projections map', () => {
+    const players = [makePlayer({ player_id: 'p1' })];
+    expect(buildAdjustedPlayers(players, [], null, 'projected')).toBe(players);
+  });
+
+  it('projected swaps in the projection and keeps unprojected players at zero', () => {
+    const players = [
+      makePlayer({ player_id: 'p1', name: 'Projected', avg_pts: 5, games_played: 2 }),
+      makePlayer({ player_id: 'p2', name: 'No Projection', avg_pts: 9, games_played: 40 }),
+    ];
+    const result = buildAdjustedPlayers(players, [], null, 'projected', 'nba', projMap())!;
+    expect(result).toHaveLength(2);
+    expect(result[0].name).toBe('Projected'); // identity stays current
+    expect(result[0].avg_pts).toBe(24);
+    expect(result[0].games_played).toBe(70);
+    // Unprojected players stay in the pool (searchable / addable) but show no
+    // production the engine never forecast — never their real season line.
+    expect(result[1].name).toBe('No Projection');
+    expect(result[1].avg_pts).toBe(0);
+    expect(result[1].total_pts).toBe(0);
+  });
+});
+
+// ─── mergeProjectionRow ───────────────────────────────────────────────────────
+
+/** One season-horizon projection row for `p1`, in the view's column shape. */
+function projMap(overrides: Record<string, unknown> = {}) {
+  return new Map<string, any>([
+    [
+      'p1',
+      {
+        player_id: 'p1', projected_games: 70,
+        proj_pts: 24, proj_reb: 8, proj_ast: 5, proj_stl: 1.2, proj_blk: 0.6,
+        proj_tov: 2.5, proj_fgm: 9, proj_fga: 19, proj_ftm: 4, proj_fta: 5,
+        proj_3pm: 2, proj_3pa: 6, proj_min: 34,
+        ...overrides,
+      },
+    ],
+  ]);
+}
+
+describe('mergeProjectionRow', () => {
+  it('rebuilds totals as projection × projected_games so FPTS/G is the projection', () => {
+    const players = [makePlayer({ player_id: 'p1' })];
+    const r = buildAdjustedPlayers(players, [], null, 'projected', 'nba', projMap())![0];
+    expect(r.total_pts).toBe(24 * 70);
+    expect(r.total_reb).toBe(8 * 70);
+    expect(r.avg_min).toBe(34);
+    // total ÷ games_played (what calculateAvgFantasyPoints divides by) is the
+    // per-game projection again.
+    expect(r.total_ast / r.games_played).toBe(5);
+  });
+
+  it('zeroes the stats the model does not project instead of carrying the season line', () => {
+    // A mid-season row's real PF/DD/TD counts would otherwise be scored against
+    // the projected game count in leagues that weight them.
+    const players = [
+      makePlayer({ player_id: 'p1', games_played: 60, total_pf: 180, total_dd: 30, total_td: 4, avg_pf: 3 }),
+    ];
+    const r = buildAdjustedPlayers(players, [], null, 'projected', 'nba', projMap())![0];
+    expect(r.total_pf).toBe(0);
+    expect(r.avg_pf).toBe(0);
+    expect(r.total_dd).toBe(0);
+    expect(r.total_td).toBe(0);
+  });
+
+  it('treats a missing projected_games as one game so per-game math holds', () => {
+    const players = [makePlayer({ player_id: 'p1' })];
+    const r = buildAdjustedPlayers(
+      players, [], null, 'projected', 'nba', projMap({ projected_games: null }),
+    )![0];
+    expect(r.games_played).toBe(1);
+    expect(r.total_pts).toBe(24);
+  });
 });
 
 // ─── deriveMinutesUpPlayerIds ─────────────────────────────────────────────────

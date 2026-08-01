@@ -284,7 +284,10 @@ function buildOffseasonContext(
     label: rs.rosterSize
       ? `${rs.rosterCount}/${rs.rosterSize} ROSTER`
       : `${rs.rosterCount} ROSTER`,
-    urgent: !rosterFull && rs.rosterSize > 0,
+    // An under-full dynasty roster needs filling, so it's flagged. An EMPTY one
+    // means a redraft/keeper league cleared its rosters at season's end — the
+    // draft fills it and there's nothing for the GM to do, so don't alarm them.
+    urgent: !rosterFull && rs.rosterSize > 0 && rs.rosterCount > 0,
   });
   if (rs.irSlotCount > 0)
     items.push({ label: `${rs.irCount}/${rs.irSlotCount} IR` });
@@ -383,7 +386,12 @@ export function RosterHero({
     ? `${playoffPrefix}WK ${currentWeek.week_number}`
     : isUpcoming
       ? "UPCOMING"
-      : "OFFSEASON";
+      : // The phase names itself when we know it, so a between-seasons league
+        // reads "BETWEEN SEASONS" rather than borrowing dynasty's "OFFSEASON".
+        (
+          offseasonMilestone?.phaseLabels[offseasonMilestone.phaseIndex] ??
+          "Offseason"
+        ).toUpperCase();
 
   // The rail falls back to naming the phase when there's no tip-off date to
   // count down to — don't repeat it in the strip below when it does.

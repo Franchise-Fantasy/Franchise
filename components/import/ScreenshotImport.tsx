@@ -490,7 +490,8 @@ export function ScreenshotImport({ onBackToSource }: { onBackToSource?: () => vo
         trade_review_period_hours: ws.tradeVetoType === 'None' ? 0 : ws.tradeReviewPeriodHours,
         trade_votes_to_veto: ws.tradeVotesToVeto,
         draft_pick_trading_enabled: ws.draftPickTradingEnabled,
-        pick_conditions_enabled: ws.pickConditionsEnabled,
+        pick_protections_enabled: ws.pickProtectionsEnabled,
+        pick_swaps_enabled: ws.pickSwapsEnabled,
         // ?? true: a persisted (pre-flag) saved import lacks the key.
         ir_trading_enabled: ws.irTradingEnabled ?? true,
         waiver_type:

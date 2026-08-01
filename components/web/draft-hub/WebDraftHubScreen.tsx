@@ -112,7 +112,8 @@ export function WebDraftHubScreen({ leagueId, season, data, isLoading, initialTa
                     swaps={data.swaps}
                     teams={data.teams}
                     validSeasons={data.validSeasons}
-                    pickConditionsEnabled={data.leagueSettings.pickConditionsEnabled}
+                    pickProtectionsEnabled={data.leagueSettings.pickProtectionsEnabled}
+                    pickSwapsEnabled={data.leagueSettings.pickSwapsEnabled}
                   />
                 </View>
               </View>

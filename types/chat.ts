@@ -15,7 +15,7 @@ export interface ChatMember {
   created_at: string;
 }
 
-export type ChatMessageType = 'text' | 'poll' | 'trade' | 'rumor' | 'survey' | 'image' | 'gif' | 'trade_update';
+export type ChatMessageType = 'text' | 'poll' | 'trade' | 'rumor' | 'survey' | 'image' | 'gif' | 'trade_update' | 'announcement';
 
 export type TradeUpdateEvent = 'proposed' | 'accepted' | 'rejected' | 'countered' | 'completed' | 'vetoed' | 'cancelled';
 

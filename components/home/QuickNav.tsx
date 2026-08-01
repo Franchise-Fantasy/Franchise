@@ -7,6 +7,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { useUnconfirmedPaymentCount } from '@/hooks/usePaymentLedger';
 import { useMyPendingTrades } from '@/hooks/useTrades';
+import { isBetweenSeasons } from '@/utils/league/offseasonState';
 import { ms, s } from '@/utils/scale';
 
 import { IconSymbol } from '../ui/IconSymbol';
@@ -29,6 +30,20 @@ const NAV_ITEMS: readonly NavItem[] = [
   { icon: 'book.fill', label: 'History', route: '/league-history' },
 ] as const;
 
+// Destinations that still have something to show while a league is between
+// seasons. Everything else — scores, trades, schedule — is a dead end with
+// cleared rosters and no games, and offering it is how the league ends up
+// feeling like it's mid-offseason rather than asleep. Playoffs stays because
+// the finished bracket is history (see app/playoff-bracket.tsx), and League
+// Info because the commissioner still tunes settings during the wait.
+const BETWEEN_SEASONS_ROUTES: readonly string[] = [
+  '/activity',
+  '/playoff-bracket',
+  '/news',
+  '/league-history',
+  '/league-info',
+];
+
 export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
@@ -50,16 +65,57 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
     isCommissioner,
   );
 
+  const betweenSeasons = isBetweenSeasons(league?.offseason_step);
+
   const visibleItems = NAV_ITEMS.filter(item => {
     if (!isDynasty && item.route === '/draft-hub') return false;
+    if (betweenSeasons && !BETWEEN_SEASONS_ROUTES.includes(item.route)) return false;
     return true;
   });
 
-  // Non-dynasty leagues hide the draft-hub tile, leaving a gappy 7-tile
-  // grid. Promote the League Info pill into the grid so the last row fills.
-  const gridItems: readonly NavItem[] = isDynasty
+  // Non-dynasty leagues hide the draft-hub tile, leaving a gappy 7-tile grid, so
+  // League Info gets promoted into the grid to fill the last row. Between seasons
+  // the grid is already an even 4 tiles — promoting it there would orphan a fifth
+  // tile on its own row — so it stays in the header pill, same as dynasty.
+  const showLeagueInfoPill = isDynasty || betweenSeasons;
+  const gridItems: readonly NavItem[] = showLeagueInfoPill
     ? visibleItems
     : [...visibleItems, { icon: 'info.circle', label: 'League Info', route: '/league-info' }];
+
+  const renderTile = (item: NavItem) => {
+    const showTradesPip = item.route === '/trades' && pendingTradeCount > 0;
+    const showLeagueInfoPip = item.route === '/league-info' && unconfirmedPaymentCount > 0;
+    const pipCount = showTradesPip
+      ? pendingTradeCount
+      : showLeagueInfoPip
+        ? unconfirmedPaymentCount
+        : 0;
+    const showPip = pipCount > 0;
+    return (
+      <TouchableOpacity
+        key={item.route}
+        style={[styles.tile, { borderColor: c.border }]}
+        onPress={() => router.push(item.route as never)}
+        activeOpacity={0.6}
+        accessibilityRole="button"
+        accessibilityLabel={showPip ? `${item.label}, ${pipCount} pending` : item.label}
+      >
+        <View style={styles.iconWrap}>
+          <IconSymbol name={item.icon} size={22} color={c.gold} />
+          {showPip && (
+            <View style={[styles.pip, { backgroundColor: c.danger }]} accessibilityElementsHidden>
+              <Text style={[styles.pipText, { color: c.statusText }]}>
+                {pipCount}
+              </Text>
+            </View>
+          )}
+        </View>
+        <ThemedText type="varsitySmall" style={[styles.tileLabel, { color: c.text }]}>
+          {item.label}
+        </ThemedText>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -70,7 +126,7 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
             Explore
           </ThemedText>
         </View>
-        {isDynasty && (
+        {showLeagueInfoPill && (
           <TouchableOpacity
             style={[styles.leagueInfoPill, { backgroundColor: c.cardAlt, borderColor: c.border }]}
             onPress={() => router.push('/league-info' as never)}
@@ -100,44 +156,7 @@ export function QuickNav({ leagueType = 'dynasty' }: { leagueType?: string }) {
       </View>
 
       <View style={[styles.grid, { backgroundColor: c.card, borderColor: c.border }]}>
-        {gridItems.map(item => {
-          const showTradesPip = item.route === '/trades' && pendingTradeCount > 0;
-          const showLeagueInfoPip = item.route === '/league-info' && unconfirmedPaymentCount > 0;
-          const pipCount = showTradesPip
-            ? pendingTradeCount
-            : showLeagueInfoPip
-              ? unconfirmedPaymentCount
-              : 0;
-          const showPip = pipCount > 0;
-          return (
-            <TouchableOpacity
-              key={item.route}
-              style={[styles.tile, { borderColor: c.border }]}
-              onPress={() => router.push(item.route as never)}
-              activeOpacity={0.6}
-              accessibilityRole="button"
-              accessibilityLabel={
-                showPip
-                  ? `${item.label}, ${pipCount} pending`
-                  : item.label
-              }
-            >
-              <View style={styles.iconWrap}>
-                <IconSymbol name={item.icon} size={22} color={c.gold} />
-                {showPip && (
-                  <View style={[styles.pip, { backgroundColor: c.danger }]} accessibilityElementsHidden>
-                    <Text style={[styles.pipText, { color: c.statusText }]}>
-                      {pipCount}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <ThemedText type="varsitySmall" style={[styles.tileLabel, { color: c.text }]}>
-                {item.label}
-              </ThemedText>
-            </TouchableOpacity>
-          );
-        })}
+        {gridItems.map(renderTile)}
       </View>
     </View>
   );

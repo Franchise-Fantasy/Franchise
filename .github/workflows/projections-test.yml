@@ -1,8 +1,10 @@
 name: Projections — engine tests
 
-# Pytest for the pure projection math in franchise_edge.py (the edge.py port).
-# Runs on any change to the projections engine. Lightweight — the tested
-# functions import only the stdlib, so there are no heavy deps to install.
+# Pytest for the pure projection math: franchise_edge.py (the edge.py port),
+# season_windows.py, and the season model's small-sample shrinkage
+# (test_season_shrinkage.py). Runs on any change to the projections engine.
+# The shrinkage tests import season_project, which pulls the full engine deps —
+# so this installs requirements.txt, not just pytest.
 on:
   push:
     paths: ['projections/**']
@@ -18,7 +20,9 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
-      - name: Install pytest
-        run: pip install pytest
+          cache: pip
+          cache-dependency-path: projections/requirements.txt
+      - name: Install dependencies
+        run: pip install -r projections/requirements.txt pytest
       - name: Run engine tests
         run: cd projections && python -m pytest tests/ -q

@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { useTheme } from "./ThemeProvider";
 
@@ -30,16 +31,16 @@ export default function Header() {
         className="mx-auto flex max-w-6xl items-center justify-between px-6 py-3.5"
         aria-label="Main navigation"
       >
-        <a href="#" aria-label="Franchise — home" className="flex items-center">
+        <Link href="/" aria-label="Franchise — home" className="flex items-center">
           <Image
             src={wordmark}
             alt="Franchise"
-            width={480}
-            height={160}
+            width={540}
+            height={360}
             priority
             className="h-14 w-auto sm:h-20"
           />
-        </a>
+        </Link>
 
         <div className="flex items-center gap-2 sm:gap-3">
           <button
@@ -69,13 +70,13 @@ export default function Header() {
             </a>
           )}
 
-          <a
-            href="#signup"
+          <Link
+            href="/#signup"
             className="varsity rounded-md bg-[var(--turf-green)] px-4 py-2.5 text-[11px] text-ecru transition-all hover:bg-[var(--merlot)] active:scale-[0.97]"
             aria-label="Join the waitlist"
           >
             Join Waitlist
-          </a>
+          </Link>
         </div>
       </nav>
     </header>

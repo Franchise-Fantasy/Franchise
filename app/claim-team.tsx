@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useState } from 'react';
 import {
-  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,6 +17,7 @@ import { Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
+import { useConfirm } from '@/context/ConfirmProvider';
 import { useToast } from '@/context/ToastProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { supabase } from '@/lib/supabase';
@@ -46,6 +46,7 @@ export default function ClaimTeamScreen() {
   const session = useSession();
   const queryClient = useQueryClient();
   const { showToast } = useToast();
+  const confirm = useConfirm();
   const [claiming, setClaiming] = useState(false);
 
   const { data: teams, isLoading } = useQuery({
@@ -125,10 +126,32 @@ export default function ClaimTeamScreen() {
       router.replace('/(tabs)');
     } catch (err: any) {
       logger.error('Claim team error', err);
-      Alert.alert('Error', err.message ?? 'Failed to claim team.');
+      showToast('error', err.message ?? 'Failed to claim team.');
+      // "Already claimed" / "reserved for another manager" both mean this list
+      // is stale — refetch so the user isn't staring at a team they can't have.
+      queryClient.invalidateQueries({ queryKey: queryKeys.unclaimedTeams(leagueId!) });
     } finally {
       setClaiming(false);
     }
+  };
+
+  // Claiming can't be undone by the person doing it — only a commissioner can
+  // vacate a team afterwards — so every claim confirms first. Walking away from
+  // a reserved team gets the stronger copy: the reservation is the whole reason
+  // the invitee is here, and tapping past it used to commit silently.
+  const requestClaim = (team: UnclaimedTeam, reserved: boolean) => {
+    const leavingReservation = !!reservedTeam && !reserved;
+    confirm({
+      title: leavingReservation ? `Claim ${team.name} instead?` : `Claim ${team.name}?`,
+      message: leavingReservation
+        ? `Your commissioner reserved ${reservedTeam!.name} for you. Claiming ${team.name} instead leaves ${reservedTeam!.name} open for someone else, and only your commissioner can move you afterwards.`
+        : `You'll join this league as ${team.name}. Only your commissioner can change it afterwards.`,
+      action: {
+        label: leavingReservation ? 'Claim Anyway' : 'Claim',
+        destructive: leavingReservation,
+        onPress: () => handleClaim(team),
+      },
+    });
   };
 
   const renderTeam = (team: UnclaimedTeam, reserved: boolean) => (
@@ -139,11 +162,16 @@ export default function ClaimTeamScreen() {
         { backgroundColor: c.card, borderColor: reserved ? c.accent : c.border },
         reserved && styles.reservedCard,
       ]}
-      onPress={() => handleClaim(team)}
+      onPress={() => requestClaim(team, reserved)}
       disabled={claiming}
       accessibilityRole="button"
       accessibilityLabel={
         reserved ? `Claim ${team.name}, reserved for you` : `Claim ${team.name}`
+      }
+      accessibilityHint={
+        !reserved && reservedTeam
+          ? `Asks you to confirm, because ${reservedTeam.name} is reserved for you`
+          : 'Asks you to confirm before joining the league as this team'
       }
       accessibilityState={{ disabled: claiming }}
     >

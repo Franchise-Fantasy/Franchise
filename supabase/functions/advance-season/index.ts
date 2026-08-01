@@ -3,8 +3,10 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { kickOpenDraftSeason } from '../_shared/openDraftSeason.ts';
 import { notifyLeague } from '../_shared/push.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
+import { shuffle } from '../_shared/shuffle.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { getSportModule } from '../../../utils/sports/registry.ts';
 
@@ -22,17 +24,6 @@ function nextSeason(current: string, sport: string): string {
   const next = startYear + 1;
   if (getSportModule(sport).seasonFormat === 'single-year') return String(next);
   return `${next}-${String(next + 1).slice(2)}`;
-}
-
-/** In-place-safe Fisher-Yates shuffle; returns a new array. Used to randomize
- *  waiver priority order when a league's waiver_priority_reset is 'random'. */
-function shuffle<T>(arr: T[]): T[] {
-  const a = [...arr];
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [a[i], a[j]] = [a[j], a[i]];
-  }
-  return a;
 }
 
 Deno.serve(async (req) => {
@@ -223,8 +214,13 @@ Deno.serve(async (req) => {
     let pickUpdates: Record<string, unknown>[] = [];
 
     if (isRedraft) {
-      // Rosters + orphan picks are cleared inside the RPC.
-      leagueUpdates.offseason_step = 'ready_for_new_season';
+      // Rosters + orphan picks are cleared inside the RPC, so the entire
+      // offseason is "wait for the next draft" — and that draft can't happen
+      // until the incoming rookie class is in the player pool (months away for
+      // most sports). Park the league in the dormant step; open-draft-season
+      // owns the gate, builds the draft, and flips to 'ready_for_new_season'.
+      // It's kicked below so a league already past its gate opens right away.
+      leagueUpdates.offseason_step = 'offseason';
     } else if (leagueType === 'keeper') {
       // Players stay on rosters until keepers are declared.
       leagueUpdates.offseason_step = 'keeper_pending';
@@ -331,16 +327,43 @@ Deno.serve(async (req) => {
       throw advErr;
     }
 
+    // Redraft leagues park in the dormant offseason; ask the gate to look at
+    // this one now so a league whose rookie class has already landed skips
+    // straight to draft season instead of waiting for tomorrow's sweep.
+    //
+    // Awaited, not deferred: this decides the step the client renders the
+    // instant this call returns, and the home screen won't refetch on its own.
+    // Deferring would show "Offseason — draft opens <a date already past>"
+    // until the user pulled to refresh. Failure is non-fatal — the season HAS
+    // advanced, and the daily sweep opens the league.
+    if (isRedraft) {
+      try {
+        await kickOpenDraftSeason(league_id);
+      } catch (openErr) {
+        console.warn('open-draft-season kick failed (non-fatal):', openErr);
+      }
+    }
+
     // ── 14. Notify league ──
     const champName = championId
       ? allTeams.find(t => t.id === championId)?.name ?? 'The champion'
       : 'No champion';
     const ln = league.name ?? 'Your League';
 
+    // A redraft league has no offseason to work through — it goes dormant and
+    // wakes up for the draft — so don't announce a process that doesn't exist.
+    // "Offseason" is dynasty vocabulary; see utils/league/offseasonState.ts.
+    const offseasonLine = isRedraft
+      ? `Rosters are cleared and the league is between seasons. It reopens for the ${newSeason} draft once the rookie class is in.`
+      : 'The offseason is now underway.';
+    const notifTitle = isRedraft
+      ? `${ln} — Season Over`
+      : `${ln} — Season Over — Offseason Begins!`;
+
     try {
       await notifyLeague(supabaseAdmin, league_id, 'league_activity',
-        `${ln} — Season Over — Offseason Begins!`,
-        `${champName} won the ${currentSeason} championship. The offseason is now underway.`,
+        notifTitle,
+        `${champName} won the ${currentSeason} championship. ${offseasonLine}`,
         { screen: 'home' }
       );
     } catch (notifyErr) {
@@ -357,13 +380,16 @@ Deno.serve(async (req) => {
         .single();
       if (leagueChat) {
         const chatBody = championId
-          ? `🏆 ${champName} won the ${currentSeason} championship! The offseason has begun.`
-          : `The ${currentSeason} season is over. The offseason has begun.`;
+          ? `🏆 ${champName} won the ${currentSeason} championship! ${offseasonLine}`
+          : `The ${currentSeason} season is over. ${offseasonLine}`;
+        // team_id NULL + type 'announcement': this is a league notice, not a
+        // message from the champion. Attributing it to the winning team made
+        // it render as that team bragging in their own chat bubble.
         await supabaseAdmin.from('chat_messages').insert({
           conversation_id: leagueChat.id,
-          team_id: championId ?? null,
+          team_id: null,
           content: chatBody,
-          type: 'text',
+          type: 'announcement',
           league_id,
         });
       }

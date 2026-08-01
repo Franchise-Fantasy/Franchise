@@ -114,10 +114,11 @@ export function ProposeTradeModal({
     enabled: !!leagueId,
   });
 
-  // League settings for pick conditions, IR trading, swap seasons, etc.
+  // League settings for pick protections/swaps, IR trading, swap seasons, etc.
   const {
     isCategories,
-    pickConditionsEnabled,
+    pickProtectionsEnabled,
+    pickSwapsEnabled,
     picksTradeable,
     draftPickTradingEnabled,
     irTradingEnabled,
@@ -565,7 +566,7 @@ export function ProposeTradeModal({
             selectedTeamIds={state.selectedTeamIds}
             teamNameMap={teamNameMap}
             isCategories={!!isCategories}
-            pickConditionsEnabled={pickConditionsEnabled}
+            pickSwapsEnabled={pickSwapsEnabled}
             picksTradeable={picksTradeable}
             fairness={fairness}
             rosterWarnings={rosterWarnings}
@@ -669,7 +670,7 @@ export function ProposeTradeModal({
                 pickProtections={Object.fromEntries(
                   (pickerTeamBuilder?.sending_picks ?? []).map((p) => [p.draft_pick_id, p.protection_threshold]),
                 )}
-                pickConditionsEnabled={pickConditionsEnabled}
+                pickProtectionsEnabled={pickProtectionsEnabled}
                 draftPickTradingEnabled={draftPickTradingEnabled}
                 lockedPickIds={lockedAssets?.lockedPickIds}
                 teamCount={teamCount}

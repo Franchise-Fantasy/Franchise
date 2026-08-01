@@ -26,7 +26,12 @@ import { ProposeTradeModal } from "@/components/trade/ProposeTradeModal";
 import { InfoModal } from "@/components/ui/InfoModal";
 import { type ModalAction } from "@/components/ui/InlineAction";
 import { SubmitOverlay } from "@/components/ui/SubmitOverlay";
-import { getPreviousSeason } from "@/constants/LeagueDefaults";
+import {
+  formatSeasonShort,
+  getCurrentSeason,
+  getPreviousSeason,
+  isSeasonStarted,
+} from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useCompareSelection } from "@/context/CompareSelectionProvider";
 import { useActionPicker, useConfirm } from "@/context/ConfirmProvider";
@@ -105,7 +110,10 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     null,
   );
 
-  const [timeRange, setTimeRange] = useState<TimeRange>("season");
+  // Only the user's explicit pick is state — the effective range is derived
+  // below so the pre-tipoff projection default can't be clobbered by an effect
+  // racing the projections query (same pattern as useRosterStatWindow).
+  const [pickedTimeRange, setPickedTimeRange] = useState<TimeRange | null>(null);
 
   // Propose-trade target — set when the user taps the trade button on a
   // player rostered by another team. Holds the player plus the owning team
@@ -132,6 +140,34 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const { data: projections } = usePlayerProjections(sport, 'next_game', projectionsActive);
   // Fetch schedule for the selected date (defaults to today so row badges still show)
   const todayStr = getSportToday(sport);
+
+  // Upcoming-season projections — the pool behind the "Proj ‹season›" range.
+  // Global reference data cached by (sport, horizon, season) and shared with the
+  // draft board / roster pages, so this is usually already warm. Not gated on
+  // isCategories: a cats league still sorts the wire by projected REB or BLK.
+  const { data: seasonProjections } = usePlayerProjections(
+    sport,
+    'season',
+    // NFL has no projections engine in v1 — skip the query rather than fetch an
+    // empty map, which also keeps the chip hidden there.
+    sport !== 'nfl',
+  );
+  const hasSeasonProjections = (seasonProjections?.size ?? 0) > 0;
+
+  // Pre-tipoff `player_season_stats` is empty for the entire pool (the matview
+  // is scoped to season_config.is_current), so a "Season" default renders 0.0
+  // down the whole list. Open on the projection instead — the same call the
+  // roster pages make — and fall back to Season once games are being played.
+  const defaultTimeRange: TimeRange =
+    hasSeasonProjections && !isSeasonStarted(sport, todayStr) ? 'projected' : 'season';
+  // A pick the current sport can't serve (a projected range carried over into
+  // an NFL league) falls back to the default rather than showing season stats
+  // under a projection label.
+  const timeRange: TimeRange =
+    pickedTimeRange && (pickedTimeRange !== 'projected' || hasSeasonProjections)
+      ? pickedTimeRange
+      : defaultTimeRange;
+  const isProjectedView = timeRange === 'projected';
   const scheduleDate = playingOnDate ?? todayStr;
   const { data: todaySchedule } = useQuery({
     queryKey: [...queryKeys.todaySchedule(scheduleDate), sport],
@@ -192,7 +228,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
   const waiverType = rosterInfo?.waiverType ?? "none";
   const isOffseason = rosterInfo?.offseasonStep != null;
   const weeklyLimit = rosterInfo?.weeklyAcquisitionLimit ?? null;
-  const playerLockType = rosterInfo?.playerLockType ?? "daily";
   // Read path: default FALSE (blocking) until the league row loads.
   const irTradingEnabled = rosterInfo?.irTradingEnabled ?? false;
   // The ribbon only carries pills when the league has a weekly add limit
@@ -407,7 +442,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     if (!allPlayers) return [];
     return allPlayers.map((p) => p.player_id);
   }, [allPlayers]);
-  const timeRangeNeedsLogs = timeRange !== "season" && timeRange !== "lastSeason";
+  // Only the Lx windows read game logs. Listing them positively (rather than
+  // excluding the known non-window ranges) keeps a newly-added range — the
+  // projection one — from silently pulling this heavy fetch.
+  const timeRangeNeedsLogs =
+    timeRange === "L5" || timeRange === "L10" || timeRange === "L15";
   const { data: recentGameLogs } = useQuery({
     queryKey: queryKeys.recentGameLogs(leagueId),
     queryFn: async () => {
@@ -501,7 +540,14 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
 
   // Build time-range-adjusted player stats when a non-season range is selected
   const adjustedPlayers = useMemo(() => {
-    const adjusted = buildAdjustedPlayers(allPlayers, recentGameLogs, historicalStats, timeRange, sport);
+    const adjusted = buildAdjustedPlayers(
+      allPlayers,
+      recentGameLogs,
+      historicalStats,
+      timeRange,
+      sport,
+      seasonProjections,
+    );
     // NFL default season view: blend last season onto thin-sample rows so the
     // list isn't 0.0 FPTS across the board pre-season — mirrors the draft
     // board and the autodraft bot's ranking chain.
@@ -509,7 +555,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       return blendNflSeasonView(adjusted, historicalStats);
     }
     return adjusted;
-  }, [allPlayers, recentGameLogs, historicalStats, timeRange, sport]);
+  }, [allPlayers, recentGameLogs, historicalStats, timeRange, sport, seasonProjections]);
 
   const { filteredPlayers, filterBarProps } = usePlayerFilter(
     adjustedPlayers,
@@ -522,6 +568,11 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     setPlayingOnDate,
     leagueId,
     isCategories,
+    undefined,
+    // Projected rows carry games_played = projected_games (the engine's
+    // availability estimate) — rank on total projected production so a
+    // 47-game flier lands below a 74-game starter with the same per-game line.
+    isProjectedView,
   );
 
   // Look up original season stats for PlayerDetailModal (avoid passing time-range-adjusted stats)
@@ -548,7 +599,9 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     ...filterBarProps,
     availableProTeams,
     timeRange,
-    onTimeRangeChange: setTimeRange,
+    onTimeRangeChange: setPickedTimeRange,
+    hasProjections: hasSeasonProjections,
+    defaultTimeRange,
     compareMode: isCompareMode,
     onToggleCompareMode: () => setCompareMode(!isCompareMode),
   };
@@ -669,7 +722,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           position: player.position,
           pro_team: player.pro_team ?? "",
         },
-        playerLockType,
         gameTimeMap,
       });
 
@@ -1089,6 +1141,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           ownerTeamName={owner?.teamName ?? null}
           sport={sport}
           isDisabled={rowsDisabled}
+          isProjected={isProjectedView}
           compareMode={isCompareMode}
           compareSelected={compareSelectedIds.has(item.player_id)}
           onPress={onRowPress}
@@ -1102,6 +1155,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       scoringWeights, isCategories, sport, waiverType, waiverPlayerMap,
       todaySchedule, projectionsActive, projections, ownershipMap,
       rosteredPlayerIds, teamId, irTradingEnabled, addingPlayerId, rowsDisabled, listLength,
+      isProjectedView,
       isCompareMode, compareSelectedIds, onRowPress, onRowAddOrClaim, onRowTrade,
     ],
   );
@@ -1185,7 +1239,12 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
           varies by position, so the fixed basketball legend would be wrong. */}
       {sport !== "nfl" && (
         <View style={[styles.colKey, { borderBottomColor: c.border }]}>
-          <FreeAgentColumnKey isCategories={isCategories} />
+          <FreeAgentColumnKey
+            isCategories={isCategories}
+            projectedLabel={
+              isProjectedView ? formatSeasonShort(getCurrentSeason(sport), sport) : null
+            }
+          />
         </View>
       )}
 
@@ -1213,7 +1272,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
         ownerTeamName={
           (selectedPlayer && ownershipMap?.get(selectedPlayer.player_id)?.teamName) ?? undefined
         }
-        playerLockType={playerLockType}
         gameTimeMap={gameTimeMap}
         onClose={() => {
           setSelectedPlayer(null);

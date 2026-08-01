@@ -152,7 +152,10 @@ export function StepReview({
           <Row label="Votes to Veto" value={String(state.tradeVotesToVeto)} c={c} />
         )}
         {isDynasty && (
-          <Row label="Pick Protections & Swaps" value={state.pickConditionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
+          <>
+            <Row label="Pick Protections" value={state.pickProtectionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
+            <Row label="Pick Swaps" value={state.pickSwapsEnabled ? 'Enabled' : 'Disabled'} c={c} />
+          </>
         )}
         <Row label="IR Player Trading" value={state.irTradingEnabled ? 'Allowed' : 'Not allowed'} c={c} />
         <Row
@@ -178,7 +181,7 @@ export function StepReview({
         )}
         <Row
           label="Player Lock"
-          value={state.sport === 'nfl' ? 'At kickoff (weekly)' : state.playerLockType}
+          value={state.sport === 'nfl' ? 'At kickoff (weekly)' : 'At game start'}
           c={c}
         />
       </Section>

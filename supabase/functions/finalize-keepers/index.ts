@@ -4,6 +4,7 @@ import { notifyLeague } from '../_shared/push.ts';
 import { corsResponse } from '../_shared/cors.ts';
 import { requireUser } from '../_shared/auth.ts';
 import { HttpError, handleError, jsonResponse } from '../_shared/http.ts';
+import { kickOpenDraftSeason } from '../_shared/openDraftSeason.ts';
 import { checkRateLimit } from '../_shared/rate-limit.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 
@@ -44,13 +45,28 @@ Deno.serve(async (req) => {
     // writes risked an unrecoverable wipe: if the declarations delete landed
     // but the step advance failed, a commissioner retry saw zero keepers and
     // released the entire league. See finalize_keepers_atomic.
+    // Keepers are declared during the dormant offseason — you're keeping
+    // players you already have, so it needs no rookie class. The DRAFT that
+    // fills the rest of the roster still does, so finalizing drops the league
+    // back to 'offseason' and open-draft-season decides when it opens.
     const { data: result, error: rpcErr } = await supabaseAdmin.rpc('finalize_keepers_atomic', {
       p_league_id: league_id,
       p_season: league.season,
+      p_next_step: 'offseason',
     });
     if (rpcErr) throw rpcErr;
 
     const keptCount = (result as { kept_count: number } | null)?.kept_count ?? 0;
+
+    // A keeper league that finalizes after its gate has already passed should
+    // land straight in draft season rather than waiting for tomorrow's sweep.
+    // Awaited because it decides the step the client renders on return; a
+    // failure is non-fatal since the daily sweep opens the league anyway.
+    try {
+      await kickOpenDraftSeason(league_id);
+    } catch (openErr) {
+      console.warn('open-draft-season kick failed (non-fatal):', openErr);
+    }
 
     // Notify league
     try {

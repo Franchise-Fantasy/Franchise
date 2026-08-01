@@ -31,7 +31,7 @@ interface TradeLaneProps {
   teamNameMap: Record<string, string>;
   isMultiTeam: boolean;
   isCategories: boolean;
-  pickConditionsEnabled: boolean;
+  pickSwapsEnabled: boolean;
   /**
    * Whether this league can trade draft picks at all (dynasty; false for redraft) — gates the Pick/Swap chips.
    * NOT the `draft_pick_trading_enabled` setting: that flag only governs startup-draft picks and is applied
@@ -72,7 +72,7 @@ export function TradeLane({
   teamNameMap,
   isMultiTeam,
   isCategories,
-  pickConditionsEnabled,
+  pickSwapsEnabled,
   picksTradeable,
   onAddChipPress,
   onRemovePlayer,
@@ -116,7 +116,7 @@ export function TradeLane({
                   onPress={() => onAddChipPress('pick')}
                   accessibilityLabel={`Add pick from ${team.team_name}`}
                 />
-                {pickConditionsEnabled && partnerTeams.length > 0 && (
+                {pickSwapsEnabled && partnerTeams.length > 0 && (
                   <BrandButton
                     label="Swap"
                     icon="add"

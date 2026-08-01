@@ -22,6 +22,7 @@ import { useColors } from '@/hooks/useColors';
 import { useLeague } from '@/hooks/useLeague';
 import { useWeekScores } from '@/hooks/useWeekScores';
 import { supabase } from '@/lib/supabase';
+import { betweenSeasonsCopy, isBetweenSeasons } from '@/utils/league/offseasonState';
 import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
 import { getSportToday } from '@/utils/leagueTime';
 import { s } from '@/utils/scale';
@@ -296,14 +297,19 @@ export default function ScoreboardScreen() {
   };
 
   if (isOffseason) {
+    // A between-seasons league is asleep, not mid-offseason — say so in the
+    // same words every other dormant surface uses.
+    const dormant = isBetweenSeasons(league?.offseason_step)
+      ? betweenSeasonsCopy(league!.season)
+      : {
+          title: 'Offseason.',
+          subtitle: 'GAMES RETURN NEXT SEASON',
+          accessibilityLabel: "It's the offseason. Games will return next season.",
+        };
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <PageHeader title="Scoreboard" />
-        <OffseasonEmptyState
-          title="Offseason."
-          subtitle="GAMES RETURN NEXT SEASON"
-          accessibilityLabel="It's the offseason. Games will return next season."
-        />
+        <OffseasonEmptyState {...dormant} />
       </SafeAreaView>
     );
   }

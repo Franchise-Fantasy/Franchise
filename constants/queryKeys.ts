@@ -125,7 +125,13 @@ export const queryKeys = {
     ["matchupTickerEvents", playerIdsKey] as const,
 
   // ── Playoffs ─────────────────────────────────────────────
-  playoffBracket: (leagueId: string, season: number) =>
+  // Season is the STRING label ("2026-27" / "2027"), not a number. It used to
+  // be typed number and callers passed `Number(season)`, which is NaN for every
+  // NBA season — so two different seasons in one league produced the same cache
+  // key. Harmless while only the current season was ever fetched; a live
+  // mix-up now that a between-seasons league reads back the previous season's
+  // finished bracket.
+  playoffBracket: (leagueId: string, season: string) =>
     ["playoffBracket", leagueId, season] as const,
   playoffSeeds: (
     leagueId: string,
@@ -134,14 +140,14 @@ export const queryKeys = {
   ) => ["playoffSeeds", leagueId, season, round] as const,
   seedPicks: (
     leagueId: string,
-    season: number,
+    season: string,
     round: number | undefined
   ) => ["seedPicks", leagueId, season, round] as const,
-  pendingSeedPick: (leagueId: string, teamId: string, season: number) =>
+  pendingSeedPick: (leagueId: string, teamId: string, season: string) =>
     ["pendingSeedPick", leagueId, teamId, season] as const,
   bracketTeamData: (leagueId: string) =>
     ["bracketTeamData", leagueId] as const,
-  playoffLiveScores: (leagueId: string, season: number, scheduleIds: string[]) =>
+  playoffLiveScores: (leagueId: string, season: string, scheduleIds: string[]) =>
     ["playoffLiveScores", leagueId, season, scheduleIds] as const,
 
   // ── Player ───────────────────────────────────────────────
@@ -212,6 +218,8 @@ export const queryKeys = {
   draftHub: (leagueId: string) => ["draftHub", leagueId] as const,
   offseasonLotteryOrder: (leagueId: string, step: string, season: string) =>
     ["offseasonLotteryOrder", leagueId, step, season] as const,
+  offseasonFinalStandings: (leagueId: string) =>
+    ["offseasonFinalStandings", leagueId] as const,
   lotteryResolution: (leagueId: string, season: string) =>
     ["lotteryResolution", leagueId, season] as const,
   draftRecentGameLogs: (leagueId: string) =>
@@ -222,6 +230,10 @@ export const queryKeys = {
     ["freeAgentHistoricalStats", leagueId] as const,
   prevSeasonFpts: (leagueId: string, season: string, inputsDigest: string) =>
     ["prevSeasonFpts", leagueId, season, inputsDigest] as const,
+  // Categories twin of prevSeasonFpts. No weights in the key — the composite
+  // cat contribution is scoring-settings independent, so only the id set varies.
+  prevSeasonCatProduction: (leagueId: string, season: string, inputsDigest: string) =>
+    ["prevSeasonCatProduction", leagueId, season, inputsDigest] as const,
   // Season is part of the key because the queryFn pins it — without it a
   // mid-session season_config flip serves the OLD season's cached map for up
   // to staleTime (audit 2026-07-27).
@@ -373,6 +385,9 @@ export const queryKeys = {
   // Consensus board rank keyed by players.id, per sport + draft class.
   prospectConsensus: (sport: string, draftYear: number) =>
     ["prospectConsensus", sport, draftYear] as const,
+  // Contentful scouting-photo URLs keyed by players.id, per sport + draft class.
+  prospectPhotos: (sport: string, draftYear: number) =>
+    ["prospectPhotos", sport, draftYear] as const,
 
   // ── NBA Playoff Archive (beta) ───────────────────────────
   archiveSeasons: () => ["archiveSeasons"] as const,

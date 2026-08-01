@@ -43,42 +43,44 @@ export default function Footer() {
         <Image
           src={patch}
           alt="Franchise"
-          width={480}
-          height={160}
+          width={540}
+          height={360}
           className="h-16 w-auto sm:h-20"
         />
 
+        {/* min-h-11 on each link keeps the footer targets at the 44px minimum
+            without changing the type size. */}
         <nav
-          className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2 text-[11px]"
+          className="flex flex-wrap items-center justify-center gap-x-5 text-[11px]"
           aria-label="Footer"
         >
           <a
             href="/faq"
-            className="varsity text-t-muted transition-colors hover:text-[var(--heading)]"
+            className="varsity inline-flex min-h-11 items-center px-1 text-t-muted transition-colors hover:text-[var(--heading)]"
           >
             FAQ
           </a>
           <a
             href="/glossary"
-            className="varsity text-t-muted transition-colors hover:text-[var(--heading)]"
+            className="varsity inline-flex min-h-11 items-center px-1 text-t-muted transition-colors hover:text-[var(--heading)]"
           >
             Glossary
           </a>
           <a
             href="/privacy"
-            className="varsity text-t-muted transition-colors hover:text-[var(--heading)]"
+            className="varsity inline-flex min-h-11 items-center px-1 text-t-muted transition-colors hover:text-[var(--heading)]"
           >
             Privacy
           </a>
           <a
             href="/terms"
-            className="varsity text-t-muted transition-colors hover:text-[var(--heading)]"
+            className="varsity inline-flex min-h-11 items-center px-1 text-t-muted transition-colors hover:text-[var(--heading)]"
           >
             Terms
           </a>
         </nav>
 
-        <nav className="flex items-center gap-5" aria-label="Social media">
+        <nav className="flex items-center gap-1" aria-label="Social media">
           {SOCIALS.map((s) => (
             <a
               key={s.label}
@@ -86,7 +88,7 @@ export default function Footer() {
               target="_blank"
               rel="noopener noreferrer"
               aria-label={s.label}
-              className="text-t-muted transition-colors hover:text-[var(--heading)]"
+              className="flex h-11 w-11 items-center justify-center text-t-muted transition-colors hover:text-[var(--heading)]"
             >
               <svg
                 viewBox="0 0 24 24"

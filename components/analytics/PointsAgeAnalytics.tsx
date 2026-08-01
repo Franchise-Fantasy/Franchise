@@ -1109,6 +1109,7 @@ export function PointsAgeAnalytics({
         scoringType={scoringType}
         teamId={teamId}
         leagueId={leagueId}
+        prevSeasonFptsMap={prevSeasonFptsMap}
       />
 
       {/* ── Info Modal ── */}

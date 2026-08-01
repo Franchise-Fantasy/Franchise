@@ -80,6 +80,15 @@ export const freeAgentListStyles = StyleSheet.create({
     letterSpacing: 1,
     textAlign: "right" as const,
   },
+  // Projection-range tag. `marginRight: auto` parks it at the row's left edge,
+  // outside the width-locked stat column, so it can't squeeze the slash-line
+  // key onto a second line; `flexShrink` lets it clip rather than push.
+  colKeyProjTag: {
+    fontSize: ms(11),
+    letterSpacing: 1,
+    marginRight: "auto",
+    flexShrink: 1,
+  },
   // Width-matched spacer for the row's round add-button column (28pt button + 0pt gap-equivalent).
   colKeyAddSpacer: {
     width: s(28),

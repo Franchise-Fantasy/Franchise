@@ -105,12 +105,30 @@ async function handleTradeProposed(
   );
 }
 
+// Renders the push body for a chat message. Image/GIF messages have no useful
+// text, so they get a glyph label instead of an empty line.
+function chatPreview(type: string | undefined, content: string | undefined): string {
+  if (type === 'image') return '📷 Photo';
+  if (type === 'gif') return 'GIF';
+  const text = (content ?? '').trim();
+  if (!text) return 'New message';
+  return text.length > 100 ? `${text.slice(0, 100)}…` : text;
+}
+
 async function handleChatMessage(
   supabase: any,
-  record: { id: string; conversation_id: string; team_id: string; league_id: string; type?: string },
+  record: {
+    id: string;
+    conversation_id: string;
+    team_id: string;
+    league_id: string;
+    type?: string;
+    content?: string;
+  },
 ) {
-  // Poll and trade messages are notified by their own edge functions — skip to avoid duplicates
-  if (record.type === 'poll' || record.type === 'trade') return;
+  // Poll, trade, and announcement messages are notified by their own edge
+  // functions — skip to avoid duplicates
+  if (record.type === 'poll' || record.type === 'trade' || record.type === 'announcement') return;
 
   const { conversation_id, team_id, league_id } = record;
 
@@ -139,12 +157,16 @@ async function handleChatMessage(
 
   const teamIds = offlineMembers.map((m: any) => m.team_id);
 
+  // DMs and league chat are separate categories: a direct message is addressed
+  // to one person and defaults ON, while league chat is a room anyone can fill
+  // and defaults OFF. Routing both through 'chat' meant muting the room also
+  // muted every DM.
   await notifyTeams(
     supabase,
     teamIds,
-    'chat',
-    `${leagueName} — ${isDm ? 'New Message' : 'League Chat'}`,
-    `${senderName}: New message`,
+    isDm ? 'direct_messages' : 'chat',
+    isDm ? `${senderName} — ${leagueName}` : `${leagueName} — League Chat`,
+    isDm ? chatPreview(record.type, record.content) : `${senderName}: ${chatPreview(record.type, record.content)}`,
     { screen: `chat/${conversation_id}`, league_id },
   );
 }

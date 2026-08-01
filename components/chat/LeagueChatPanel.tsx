@@ -1,11 +1,14 @@
 import { useQueryClient, useQuery } from '@tanstack/react-query';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, StyleSheet, View } from 'react-native';
-import { useSharedValue } from 'react-native-reanimated';
+import { useSharedValue, type SharedValue } from 'react-native-reanimated';
 
 import { ChatInput } from '@/components/chat/ChatInput';
 import { GifPicker } from '@/components/chat/GifPicker';
-import { MessageActionMenu } from '@/components/chat/MessageActionMenu';
+import {
+  MessageActionMenu,
+  type FocusedMessage,
+} from '@/components/chat/MessageActionMenu';
 import { MessageBubble } from '@/components/chat/MessageBubble';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
@@ -99,6 +102,102 @@ function computeMessageMeta(messages: ChatMessage[]): Map<string, MessageMeta> {
 
 // Stable empty array — a fresh [] each render would re-trigger MessageBubble memo.
 const emptyReactions: ReactionGroup[] = [];
+
+interface PanelItemProps {
+  item: ChatMessage;
+  meta: MessageMeta;
+  isOwn: boolean;
+  isSelected: boolean;
+  isCommissioner: boolean;
+  reactions: ReactionGroup[];
+  teamId: string;
+  teamLogoKey: string | null;
+  swipeReveal: SharedValue<number>;
+  secondaryTextColor: string;
+  onLongPress: (messageId: string, focused: FocusedMessage | null) => void;
+  onReactionPress: (messageId: string, emoji: string) => void;
+}
+
+/**
+ * One row of the panel. Extracted from an inline renderItem so each message
+ * owns a ref the action menu can measure — see `handleLongPress`.
+ */
+const PanelItem = memo(function PanelItem({
+  item,
+  meta,
+  isOwn,
+  isSelected,
+  isCommissioner,
+  reactions,
+  teamId,
+  teamLogoKey,
+  swipeReveal,
+  secondaryTextColor,
+  onLongPress,
+  onReactionPress,
+}: PanelItemProps) {
+  const bubbleRef = useRef<View>(null);
+
+  const handleReactionPress = useCallback(
+    (emoji: string) => onReactionPress(item.id, emoji),
+    [onReactionPress, item.id],
+  );
+
+  // The action menu draws a copy of this bubble above its scrim so the message
+  // you pressed stays visible and in place. The copy passes `selected: false`
+  // because the menu applies the lift itself.
+  const renderBubble = (selected: boolean) => (
+    <MessageBubble
+      message={item}
+      isOwnMessage={isOwn}
+      showSender={meta.showSender}
+      isFirstInGroup={meta.isFirstInGroup}
+      isLastInGroup={meta.isLastInGroup}
+      reactions={reactions}
+      onLongPress={handleLongPress}
+      onReactionPress={handleReactionPress}
+      teamId={teamId}
+      teamLogoKey={teamLogoKey}
+      isCommissioner={isCommissioner}
+      swipeReveal={swipeReveal}
+      showSwipeTime={meta.showSwipeTime}
+      isSelected={selected}
+    />
+  );
+
+  const handleLongPress = () => {
+    const node = bubbleRef.current;
+    if (!node) {
+      onLongPress(item.id, null);
+      return;
+    }
+    node.measureInWindow((x, y, width, height) => {
+      onLongPress(
+        item.id,
+        Number.isFinite(x) && width > 0 && height > 0
+          ? { rect: { x, y, width, height }, isOwn, render: () => renderBubble(false) }
+          : null,
+      );
+    });
+  };
+
+  return (
+    <View>
+      {meta.showTimeHeader && (
+        <View style={styles.dateHeader}>
+          <ThemedText style={[styles.dateHeaderText, { color: secondaryTextColor }]}>
+            {meta.timeHeader}
+          </ThemedText>
+        </View>
+      )}
+      {/* collapsable={false} keeps this a real native view on Android so
+          measureInWindow has something to measure. */}
+      <View ref={bubbleRef} collapsable={false}>
+        {renderBubble(isSelected)}
+      </View>
+    </View>
+  );
+});
 
 interface LeagueChatPanelProps {
   leagueId: string;
@@ -251,6 +350,8 @@ export function LeagueChatPanel({
   );
 
   const [reactionTargetId, setReactionTargetId] = useState<string | null>(null);
+  // Where the pressed bubble sits on screen, so the menu can hold it in focus.
+  const [focusedMessage, setFocusedMessage] = useState<FocusedMessage | null>(null);
   const swipeReveal = useSharedValue(0);
 
   const handleSend = useCallback(
@@ -258,7 +359,8 @@ export function LeagueChatPanel({
     [sendMessage],
   );
 
-  const handleLongPress = useCallback((messageId: string) => {
+  const handleLongPress = useCallback((messageId: string, focused: FocusedMessage | null) => {
+    setFocusedMessage(focused);
     setReactionTargetId(messageId);
   }, []);
 
@@ -293,31 +395,20 @@ export function LeagueChatPanel({
       const isOwn = item.team_id === teamId;
 
       return (
-        <View>
-          {meta.showTimeHeader && (
-            <View style={styles.dateHeader}>
-              <ThemedText style={[styles.dateHeaderText, { color: secondaryTextColor }]}>
-                {meta.timeHeader}
-              </ThemedText>
-            </View>
-          )}
-          <MessageBubble
-            message={item}
-            isOwnMessage={isOwn}
-            showSender={meta.showSender}
-            isFirstInGroup={meta.isFirstInGroup}
-            isLastInGroup={meta.isLastInGroup}
-            reactions={reactionsMap?.[item.id] ?? emptyReactions}
-            onLongPress={() => handleLongPress(item.id)}
-            onReactionPress={(emoji: string) => handleItemReactionPress(item.id, emoji)}
-            teamId={teamId}
-            teamLogoKey={teamLogoMap?.[item.team_id] ?? null}
-            isCommissioner={isCommissioner}
-            swipeReveal={swipeReveal}
-            showSwipeTime={meta.showSwipeTime}
-            isSelected={reactionTargetId === item.id}
-          />
-        </View>
+        <PanelItem
+          item={item}
+          meta={meta}
+          isOwn={isOwn}
+          isSelected={reactionTargetId === item.id}
+          isCommissioner={isCommissioner}
+          reactions={reactionsMap?.[item.id] ?? emptyReactions}
+          teamId={teamId}
+          teamLogoKey={teamLogoMap?.[item.team_id] ?? null}
+          swipeReveal={swipeReveal}
+          secondaryTextColor={secondaryTextColor}
+          onLongPress={handleLongPress}
+          onReactionPress={handleItemReactionPress}
+        />
       );
     },
     [teamId, teamLogoMap, messageMeta, isCommissioner, reactionsMap, reactionTargetId, swipeReveal, secondaryTextColor, handleLongPress, handleItemReactionPress],
@@ -375,9 +466,13 @@ export function LeagueChatPanel({
         <MessageActionMenu
           visible
           onReactionSelect={handleReactionSelect}
-          onClose={() => setReactionTargetId(null)}
+          onClose={() => {
+            setReactionTargetId(null);
+            setFocusedMessage(null);
+          }}
           actions={[]}
           existingReactions={reactionsMap?.[reactionTargetId]}
+          focused={focusedMessage}
         />
       )}
 

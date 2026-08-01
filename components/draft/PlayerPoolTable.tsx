@@ -143,6 +143,9 @@ interface PlayerPoolTableProps {
    *  the player. One ranking at a time, so a rank number never means two things
    *  at once and the numbers ascend down the list. */
   rankFor: (playerId: string) => ProspectRank | undefined;
+  /** Contentful scouting-photo URL for a prospect — the headshot fallback for
+   *  rookie-draft rows, whose players have no external_id_nba yet. */
+  photoFor?: (playerId: string) => string | undefined;
   /** Pool has no pro stat line (rookie-draft prospects) — drops the stat
    *  columns instead of rendering a wall of zeros with sortable headers. */
   hideStats?: boolean;
@@ -165,6 +168,7 @@ export function PlayerPoolTable({
   fptsFor,
   isProjected,
   rankFor,
+  photoFor,
   hideStats,
   draftBlockFor,
   canDraft,
@@ -232,6 +236,7 @@ export function PlayerPoolTable({
                     sport={sport}
                     style={styles.headshotImg}
                     accessible={false}
+                    fallbackUri={photoFor?.(item.player_id)}
                   />
                 </View>
                 {prospectRank && (
@@ -372,7 +377,7 @@ export function PlayerPoolTable({
         </Pressable>
       );
     },
-    [c, cols, sport, sortBy, fptsFor, isProjected, rankFor, draftBlockFor, canDraft, queuedPlayerIds, addToQueue, onDraft, onSelectPlayer],
+    [c, cols, sport, sortBy, fptsFor, isProjected, rankFor, photoFor, draftBlockFor, canDraft, queuedPlayerIds, addToQueue, onDraft, onSelectPlayer],
   );
 
   return (

@@ -14,15 +14,17 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Badge } from '@/components/ui/Badge';
 import { ListRow } from '@/components/ui/ListRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
+import { OffseasonEmptyState } from '@/components/ui/OffseasonEmptyState';
 import { PageHeader } from '@/components/ui/PageHeader';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { Brand, Colors, Fonts } from '@/constants/Colors';
+import { Brand, Colors } from '@/constants/Colors';
 import { queryKeys } from '@/constants/queryKeys';
 import { useAppState } from '@/context/AppStateProvider';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeague } from '@/hooks/useLeague';
 import { supabase } from '@/lib/supabase';
 import { parseLocalDate } from '@/utils/dates';
+import { betweenSeasonsCopy, isBetweenSeasons } from '@/utils/league/offseasonState';
 import { calcRounds, getPlayoffRoundLabel } from '@/utils/league/playoff';
 import { getSportToday } from '@/utils/leagueTime';
 import { ms, s } from '@/utils/scale';
@@ -362,35 +364,21 @@ export default function ScheduleScreen() {
   const isLoading = weeksLoading || matchupsLoading;
 
   if (isOffseason) {
+    // Was a hand-rolled copy of OffseasonEmptyState; sharing the component
+    // keeps every dormant surface saying the same thing in the same chrome.
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: c.background }]}>
         <PageHeader title="Schedule" />
-        <View
-          style={styles.offseason}
-          accessible
-          accessibilityRole="text"
-          accessibilityLabel="It's the offseason. The schedule will return next season."
-        >
-          <View style={[styles.offseasonRule, { backgroundColor: c.gold }]} />
-          <Ionicons
-            name="sunny-outline"
-            size={ms(40)}
-            color={c.secondaryText}
-            accessible={false}
-          />
-          <ThemedText
-            type="display"
-            style={[styles.offseasonTitle, { color: c.text }]}
-          >
-            Offseason.
-          </ThemedText>
-          <ThemedText
-            type="varsitySmall"
-            style={[styles.offseasonSub, { color: c.secondaryText }]}
-          >
-            SCHEDULE RETURNS NEXT SEASON
-          </ThemedText>
-        </View>
+        <OffseasonEmptyState
+          {...(isBetweenSeasons(league?.offseason_step)
+            ? betweenSeasonsCopy(league!.season)
+            : {
+                title: 'Offseason.',
+                subtitle: 'SCHEDULE RETURNS NEXT SEASON',
+                accessibilityLabel:
+                  "It's the offseason. The schedule will return next season.",
+              })}
+        />
       </SafeAreaView>
     );
   }
@@ -632,30 +620,6 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     paddingTop: s(40),
-  },
-  offseason: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: s(32),
-    gap: s(10),
-  },
-  offseasonRule: {
-    height: 2,
-    width: s(48),
-    marginBottom: s(8),
-  },
-  offseasonTitle: {
-    fontFamily: Fonts.display,
-    fontSize: ms(22),
-    lineHeight: ms(26),
-    letterSpacing: -0.2,
-    textAlign: 'center',
-  },
-  offseasonSub: {
-    fontSize: ms(11),
-    letterSpacing: 1.3,
-    textAlign: 'center',
   },
   // Modal
   modalOverlay: {

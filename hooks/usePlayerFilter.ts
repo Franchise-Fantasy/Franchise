@@ -10,10 +10,11 @@ import { shootingPct } from '@/utils/scoring/shootingPct';
 
 export type SortKey = 'FPTS' | 'PPG' | 'RPG' | 'APG' | 'SPG' | 'BPG' | 'MPG' | 'FG%' | 'FT%' | 'TO';
 // Game-based windows (L5/L10/L15), not day-based — the same `GameWindow` the
-// roster pages, Insights card, and analytics use, plus a `lastSeason` view.
+// roster pages, Insights card, and analytics use, plus a `lastSeason` view and
+// a forward-looking `projected` one (the upcoming season's projection engine).
 // Day windows biased comparisons because schedule density varies (a team with
 // 12 games in 14 days vs. one with 8 isn't apples-to-apples). See GameWindow.
-export type TimeRange = GameWindow | 'lastSeason';
+export type TimeRange = GameWindow | 'lastSeason' | 'projected';
 
 /** Injury-status visibility filter */
 export type InjuryFilter = 'all' | 'healthy' | 'injured';
@@ -86,6 +87,13 @@ export function usePlayerFilter(
    *  the user may not have "active" — the global active league's sport would be
    *  wrong there). Omitted = global active league, correct for the roster tab. */
   leagueId?: string,
+  /** Rank by TOTAL production (per-game × games_played) instead of per-game.
+   *  The projected view sets this: its rows carry games_played =
+   *  projected_games, the engine's availability estimate, and a per-game sort
+   *  would rank a 47-projected-game flier level with a 74-game starter —
+   *  discarding the one uncertainty signal the model outputs. Display is
+   *  untouched (rows still show per-game numbers); FG%/FT% stay rate sorts. */
+  sortByTotalProduction?: boolean,
 ) {
   // Categories leagues can't sort by FPTS (it doesn't exist), so they default
   // to PPG. Points leagues keep FPTS as the default.
@@ -207,10 +215,15 @@ export function usePlayerFilter(
 
     // Sort — pre-compute FPTS once (N calculations) instead of inside
     // the comparator (N×log(N) calculations)
+    const gamesWeight = (p: PlayerSeasonStats) =>
+      sortByTotalProduction ? p.games_played || 0 : 1;
     if (sortBy === 'FPTS' && scoringWeights) {
       const fptsMap = new Map<string, number>();
       for (const p of result) {
-        fptsMap.set(p.player_id, calculateAvgFantasyPoints(p, scoringWeights, sport));
+        fptsMap.set(
+          p.player_id,
+          calculateAvgFantasyPoints(p, scoringWeights, sport) * gamesWeight(p),
+        );
       }
       result = [...result].sort((a, b) =>
         (fptsMap.get(b.player_id) ?? 0) - (fptsMap.get(a.player_id) ?? 0),
@@ -228,11 +241,14 @@ export function usePlayerFilter(
       );
     } else if (sortBy !== 'FPTS') {
       const field = SORT_FIELD[sortBy];
-      result = [...result].sort((a, b) => (b[field] as number) - (a[field] as number));
+      result = [...result].sort(
+        (a, b) =>
+          (b[field] as number) * gamesWeight(b) - (a[field] as number) * gamesWeight(a),
+      );
     }
 
     return result;
-  }, [players, deferredSearchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
+  }, [players, deferredSearchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter, sortByTotalProduction]);
 
   const filterBarProps = {
     searchText,

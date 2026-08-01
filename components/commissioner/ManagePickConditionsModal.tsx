@@ -31,9 +31,10 @@ interface Props {
   leagueId: string;
   teams: { id: string; name: string }[];
   onClose: () => void;
-  /** Protection + swap options only apply when pick conditions are enabled;
-   *  "Fix a Pick" (reassign owner / correct round) is always available. */
-  pickConditionsEnabled?: boolean;
+  /** Each option only appears when its league setting is on; "Fix a Pick"
+   *  (reassign owner / correct round) is always available. */
+  pickProtectionsEnabled?: boolean;
+  pickSwapsEnabled?: boolean;
 }
 
 type Step =
@@ -44,7 +45,14 @@ type Step =
   | 'reassign_pick'
   | 'reassign_edit';
 
-export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, pickConditionsEnabled = true }: Props) {
+export function ManagePickConditionsModal({
+  visible,
+  leagueId,
+  teams,
+  onClose,
+  pickProtectionsEnabled = true,
+  pickSwapsEnabled = true,
+}: Props) {
   const c = useColors();
   const confirm = useConfirm();
   const queryClient = useQueryClient();
@@ -335,33 +343,33 @@ export function ManagePickConditionsModal({ visible, leagueId, teams, onClose, p
       {/* Step: Choose */}
       {step === 'choose' && (
         <View style={styles.chooseContainer}>
-          {pickConditionsEnabled && (
-            <>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Manage Protection. Add or remove top-N protections on draft picks"
-            style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
-            onPress={() => setStep('protection_pick')}
-          >
-            <Ionicons name="shield-checkmark-outline" size={24} color={c.accent} />
-            <ThemedText type="defaultSemiBold">Manage Protection</ThemedText>
-            <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
-              Add or remove top-N protections on draft picks
-            </ThemedText>
-          </TouchableOpacity>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Manage Swaps. Create or delete pick swap agreements"
-            style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
-            onPress={() => { setStep('swap_edit'); setSwapSeason(validSeasons[0]); }}
-          >
-            <Ionicons name="swap-horizontal-outline" size={24} color={c.accent} />
-            <ThemedText type="defaultSemiBold">Manage Swaps</ThemedText>
-            <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
-              Create or delete pick swap agreements
-            </ThemedText>
-          </TouchableOpacity>
-            </>
+          {pickProtectionsEnabled && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Manage Protection. Add or remove top-N protections on draft picks"
+              style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
+              onPress={() => setStep('protection_pick')}
+            >
+              <Ionicons name="shield-checkmark-outline" size={24} color={c.accent} />
+              <ThemedText type="defaultSemiBold">Manage Protection</ThemedText>
+              <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
+                Add or remove top-N protections on draft picks
+              </ThemedText>
+            </TouchableOpacity>
+          )}
+          {pickSwapsEnabled && (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Manage Swaps. Create or delete pick swap agreements"
+              style={[styles.chooseBtn, { backgroundColor: c.card, borderColor: c.border }]}
+              onPress={() => { setStep('swap_edit'); setSwapSeason(validSeasons[0]); }}
+            >
+              <Ionicons name="swap-horizontal-outline" size={24} color={c.accent} />
+              <ThemedText type="defaultSemiBold">Manage Swaps</ThemedText>
+              <ThemedText style={[styles.chooseDesc, { color: c.secondaryText }]}>
+                Create or delete pick swap agreements
+              </ThemedText>
+            </TouchableOpacity>
           )}
           <TouchableOpacity
             accessibilityRole="button"

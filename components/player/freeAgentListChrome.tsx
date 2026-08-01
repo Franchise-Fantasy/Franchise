@@ -15,22 +15,44 @@ import { freeAgentListStyles as styles } from './freeAgentListStyles';
  * empty-results state.
  */
 
-/** Stat-key labels above the slash-line column. */
-export function FreeAgentColumnKey({ isCategories }: { isCategories: boolean }) {
+/** Stat-key labels above the slash-line column. When the list is showing the
+ *  projection range, the key names it — the numbers below are a forecast and
+ *  must never read as this season's production. */
+export function FreeAgentColumnKey({
+  isCategories,
+  projectedLabel,
+}: {
+  isCategories: boolean;
+  /** Season being projected ("'26-'27"), or null when showing real stats. */
+  projectedLabel?: string | null;
+}) {
   const c = useColors();
+  const stats = isCategories ? 'PTS · REB · AST · STL · BLK' : 'PTS · REB · AST';
+  const statsA11y = isCategories
+    ? 'points, rebounds, assists, steals, blocks'
+    : 'points, rebounds, assists';
   return (
     <>
+      {/* Left-aligned in the key row's free space, NOT inside the stat column —
+          that column is width-locked to the slash line, so a label appended to
+          it wraps to a second line. */}
+      {projectedLabel && (
+        <ThemedText
+          type="varsitySmall"
+          style={[styles.colKeyProjTag, { color: c.gold }]}
+          numberOfLines={1}
+          accessibilityLabel={`Showing ${projectedLabel} projections, ranked by projected season total`}
+        >
+          {`PROJ ${projectedLabel} · BY TOTAL`}
+        </ThemedText>
+      )}
       <View style={[styles.colKeyStats, isCategories ? styles.statsCategories : styles.statsPoints]}>
         <ThemedText
           type="varsitySmall"
           style={[styles.colKeyText, { color: c.secondaryText }]}
-          accessibilityLabel={
-            isCategories
-              ? 'Stat columns: points, rebounds, assists, steals, blocks'
-              : 'Stat columns: points, rebounds, assists'
-          }
+          accessibilityLabel={`Stat columns: ${statsA11y}`}
         >
-          {isCategories ? 'PTS · REB · AST · STL · BLK' : 'PTS · REB · AST'}
+          {stats}
         </ThemedText>
       </View>
       <View style={styles.colKeyAddSpacer} />
