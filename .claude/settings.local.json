@@ -954,7 +954,9 @@
       "Bash(sed -e 's|1785616839874|1785617121273|' measure_bias.py)",
       "Bash(/private/tmp/claude-501/-Users-joe-Desktop-Franchise/48b64ebc-b9b6-4bcf-9304-e879cd603ec5/scratchpad/projvenv/bin/python measure_bias2.py)",
       "Bash(/private/tmp/claude-501/-Users-joe-Desktop-Franchise/48b64ebc-b9b6-4bcf-9304-e879cd603ec5/scratchpad/projvenv/bin/python /private/tmp/claude-501/-Users-joe-Desktop-Franchise/48b64ebc-b9b6-4bcf-9304-e879cd603ec5/scratchpad/backtest.py)",
-      "Bash(./projvenv/bin/python measure_bias2.py)"
+      "Bash(./projvenv/bin/python measure_bias2.py)",
+      "Bash(awk '{print $6,$7,$8,$9}')",
+      "Bash(node -e \"const a=require\\('./app.json'\\);console.log\\('version:',a.expo.version\\);console.log\\('ios.buildNumber:',a.expo.ios?.buildNumber\\);console.log\\('runtimeVersion:',JSON.stringify\\(a.expo.runtimeVersion\\)\\);console.log\\('ios.bundleId:',a.expo.ios?.bundleIdentifier\\);\")"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
