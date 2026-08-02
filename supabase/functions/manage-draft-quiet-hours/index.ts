@@ -5,6 +5,7 @@ import { hasUnresolvedDeadLetter, recordDeadLetter } from '../_shared/adminAlert
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 import { notifyOnClockAfterResume, rearmPausedDraft } from '../_shared/draftResume.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { isSlowClock, pickDeadlineMs } from '../../../utils/draft/pickClock.ts';
 import { isQuietNow } from '../../../utils/draft/quietHours.ts';
 import type { Database } from '../../../types/database.types.ts';
@@ -108,9 +109,21 @@ Deno.serve(async (req) => {
               functionName: 'manage-draft-quiet-hours',
               reason: `Draft stuck paused (quiet_hours) for over ${Math.round(RESUME_GIVE_UP_MS / 3_600_000)}h; giving up automatic resume`,
               payload: { draft_id: d.id, league_id: d.league_id },
-              pushTitle: 'Draft stuck paused — needs attention',
-              pushBody: `Draft has been paused for quiet hours far longer than expected. Automatic resume gave up.`,
             });
+
+            // League-scoped, not recordDeadLetter's admin push — see the note in
+            // _shared/adminAlerts.ts. Only this league's members are affected,
+            // and only its commissioner can resume the draft.
+            const { data: stuckLeague } = await supabaseAdmin
+              .from('leagues')
+              .select('name')
+              .eq('id', d.league_id)
+              .single();
+            await notifyLeague(supabaseAdmin, d.league_id, 'draft',
+              `${stuckLeague?.name ?? 'Your League'} — Draft still paused`,
+              "Quiet hours ended but the draft didn't restart on its own. The commissioner can resume it from the draft room.",
+              { screen: 'draft-room', draft_id: d.id },
+            );
             continue;
           }
 

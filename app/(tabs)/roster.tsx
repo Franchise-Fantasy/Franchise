@@ -141,6 +141,14 @@ import { isWeeklyLineupSport } from "@/utils/sports/registry";
 
 // ─── Main screen ──────────────────────────────────────────────────────────────
 
+/**
+ * Beat to wait between tearing one native `<Modal>` down and presenting the
+ * next. iOS refuses to present while a dismissal is in flight and leaves the
+ * app behind a stuck, touch-swallowing window — i.e. frozen. Covers the slide
+ * dismissal (~0.35s) with a little slack.
+ */
+const MODAL_HANDOFF_MS = 350;
+
 // RosterPlayer extends PlayerSeasonStats, so the row carries the full season
 // row — pass it straight through as the compare snapshot.
 function toCompareCandidate(p: RosterPlayer): CompareCandidate {
@@ -2374,10 +2382,14 @@ export default function RosterScreen() {
               ).length ?? 0;
               const maxActive = league?.roster_size ?? 13;
               if (activeCount >= maxActive) {
-                // Open drop picker directly via PlayerDetailModal
+                // Open the drop picker (hosted by PlayerDetailModal). This is
+                // the one place on the page that closes one native modal and
+                // opens another, so the slot picker's modal has to be fully
+                // dismissed FIRST — presenting into a dismissal wedges iOS and
+                // the whole app stops taking touches.
                 setActiveSlot(null);
                 setActivateFromIRPlayer(true);
-                setSelectedPlayer(player);
+                setTimeout(() => setSelectedPlayer(player), MODAL_HANDOFF_MS);
                 return;
               }
               handleRosterMove(player, src, "BE", null);

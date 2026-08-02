@@ -16,11 +16,14 @@ Two horizons:
               breakouts stay accurate.
   season    — pre-season / draft snapshot (run on a schedule through the
               offseason so it absorbs injuries & trades). Recency-weighted prior
-              seasons + experience curve + games-played model + small-sample
-              shrinkage. Prior seasons come from player_games where we still
-              retain them and from player_historical_stats where we don't (NBA
-              keeps one season of logs), so a returning starter's injury year
-              isn't mistaken for a player with no career.
+              seasons + small-sample shrinkage + a sport-gated experience curve
+              + a league-blended games-played model. Prior seasons come from
+              player_games where we still retain them and from
+              player_historical_stats where we don't (NBA keeps one season of
+              logs), so a returning starter's injury year isn't mistaken for a
+              player with no career. The two sport-dependent pieces are set in
+              SPORT_SEASON_PARAMS below and both were fixed by backtest, not by
+              symmetry — see that block and season_project.GAMES_LEAGUE_BLEND.
 
 USAGE
 -----
@@ -49,14 +52,23 @@ from season_windows import experience_seasons
 # model (an 82-game season has a materially lower league GP% than a 44-game
 # one). LEAGUE_AVG_GP_PCT derivation matches season_project.py's: league-wide
 # avg of games/schedule-length for qualifying players (NBA 2025-26: 532 players,
-# computed 2026-07-27). INJURY_PENALTY stays WNBA-derived for NBA until there
-# are ≥2 NBA seasons of Franchise game logs to fit it from — one season can't
-# express "injured LAST season" (documented approximation, not an oversight).
-# `default_len` is the fallback schedule length when game_schedule has no rows
-# for a season.
+# computed 2026-07-27). `default_len` is the fallback schedule length when
+# game_schedule has no rows for a season.
+#
+# `experience_curve` (2026-08-02) gates season_project.experience_curve per
+# sport. Because experience_seasons clamps career length to 5, that curve has
+# exactly two reachable outcomes — +10% for a player with ≤2 seasons, and 1.00
+# for everyone else — so this flag is really "apply the young-player boost".
+# Backtesting on 4 held-out WNBA seasons says the boost is NBA-shaped and costs
+# WNBA accuracy: turning it off improved per-game fantasy RMSE on 4/4 pairs
+# (mean -0.175, pooled paired Wilcoxon p=0.004 over 418 players) and season
+# totals on 4/4. The same change on NBA 2025-26 was WORSE (+0.127), which is
+# consistent with its origin — NBA rookies arrive on a steeper development
+# curve than WNBA rookies, who enter a smaller league at an older draft age.
+# Enable per sport only with backtest evidence, not by symmetry.
 SPORT_SEASON_PARAMS = {
-    "wnba": {"league_avg_gp_pct": 0.727, "injury_penalty": 0.148, "default_len": 40},
-    "nba":  {"league_avg_gp_pct": 0.587, "injury_penalty": 0.148, "default_len": 82},
+    "wnba": {"league_avg_gp_pct": 0.727, "default_len": 40, "experience_curve": False},
+    "nba":  {"league_avg_gp_pct": 0.587, "default_len": 82, "experience_curve": True},
 }
 
 # Liveness floor: a healthy run writes hundreds of rows for either sport. A
@@ -223,7 +235,6 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
                                     for s in prior_seasons + [season]}
         sea_model.PROJECT_GAMES = project_games
         sea_model.LEAGUE_AVG_GP_PCT = params["league_avg_gp_pct"]
-        sea_model.INJURY_PENALTY = params["injury_penalty"]
 
         print(f"[season] {hist['player_id'].nunique()} players w/ history, "
               f"{len(active)} candidates, projecting {project_games} games")
@@ -256,13 +267,16 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
             if proj.get("sample_games", 0) < project_games * sea_model.MPG_FULL_CONF_FRAC:
                 n_shrunk += 1
             proj = sea_model.shrink_to_priors(proj, priors, project_games)
-            proj = sea_model.experience_curve(
-                proj, experience_seasons(season, draft_years.get(str(pid)), len(phist)))
+            if params["experience_curve"]:
+                proj = sea_model.experience_curve(
+                    proj, experience_seasons(season, draft_years.get(str(pid)),
+                                             len(phist)))
             pg = sea_model.to_per_game(proj)
-            proj_games, _ = sea_model.project_games_played(phist, proj["gp_pct"])
+            proj_games, _ = sea_model.project_games_blended(proj["gp_pct"])
             rows.append({"player_id": pid, "projected_games": proj_games, **pg})
         print(f"[season] small-sample shrinkage applied to {n_shrunk} players "
-              f"(< {project_games * sea_model.MPG_FULL_CONF_FRAC:.0f} evidence games)")
+              f"(< {project_games * sea_model.MPG_FULL_CONF_FRAC:.0f} evidence games); "
+              f"experience curve {'on' if params['experience_curve'] else 'off'}")
 
         result = pd.DataFrame(rows)
         n = fdb.write_projections(conn, result, sport, season, "season")

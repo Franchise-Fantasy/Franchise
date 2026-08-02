@@ -132,6 +132,19 @@ export function PlayerDetailModal({
   const [activateFromIR, setActivateFromIR] = useState(false);
   const [insightsWindow, setInsightsWindow] = useState(10);
 
+  // Callers that open STRAIGHT into the drop picker (roster IR activate, drop
+  // for a claim) are derived, not seeded from an effect. An effect only runs
+  // after the first commit, so the detail sheet's native Modal would mount for
+  // a frame and then be torn down as the picker's Modal presents — iOS won't
+  // present into a dismissal and the app freezes behind a dead window. Both
+  // flags stay latched by the prop, which is correct: for these entry points
+  // the picker's only exit is `onClose`.
+  const openedInDropPicker =
+    !!player && (!!startInDropPicker || !!startInActivateFromIR);
+  const dropPickerVisible = showDropPicker || openedInDropPicker;
+  const isActivateFromIR =
+    activateFromIR || (!!player && !!startInActivateFromIR);
+
   const [gameLogExpanded, setGameLogExpanded] = useState(false);
 
   // Local in-modal toast - the global ToastProvider renders beneath the Modal
@@ -149,16 +162,11 @@ export function PlayerDetailModal({
   }, []);
 
   useEffect(() => {
-    if (player && startInDropPicker) setShowDropPicker(true);
-    if (player && startInActivateFromIR) {
-      setActivateFromIR(true);
-      setShowDropPicker(true);
-    }
     setGameLogExpanded(false);
     if (player) {
       capture('player_detail_viewed', { player_name: player.name, position: player.position });
     }
-  }, [player, startInDropPicker, startInActivateFromIR]);
+  }, [player]);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
   const { data: gameLog, isLoading: isLoadingGameLog } = usePlayerGameLog(
     player?.player_id ?? "",
@@ -278,7 +286,7 @@ export function PlayerDetailModal({
       if (error) throw error;
       return data as PlayerSeasonStats[];
     },
-    enabled: !!teamId && !!leagueId && showDropPicker,
+    enabled: !!teamId && !!leagueId && dropPickerVisible,
   });
 
   // Check for active draft
@@ -438,8 +446,8 @@ export function PlayerDetailModal({
   // Swipe-to-dismiss gesture
   const translateY = useRef(new Animated.Value(0)).current;
   const dismissRef = useRef<() => void>(handleClose);
-  dismissRef.current = showDropPicker
-    ? (startInDropPicker || startInActivateFromIR)
+  dismissRef.current = dropPickerVisible
+    ? openedInDropPicker
       ? handleClose
       : () => { setShowDropPicker(false); setActivateFromIR(false); }
     : handleClose;
@@ -475,7 +483,7 @@ export function PlayerDetailModal({
   // Reset translate when switching between sub-modals
   useEffect(() => {
     translateY.setValue(0);
-  }, [showDropPicker]);
+  }, [dropPickerVisible]);
 
   // Check if this free agent player is on waivers
   const { data: playerOnWaivers } = useQuery({
@@ -1440,13 +1448,13 @@ export function PlayerDetailModal({
     }
   };
 
-  if (showDropPicker && player) {
+  if (dropPickerVisible && player) {
     return (
       <DropPickerModal
         player={player}
         rosterPlayers={rosterPlayers}
         isProcessing={isProcessing}
-        activateFromIR={activateFromIR}
+        activateFromIR={isActivateFromIR}
         startInDropPicker={startInDropPicker}
         startInActivateFromIR={startInActivateFromIR}
         needsWaiverClaim={needsWaiverClaim}

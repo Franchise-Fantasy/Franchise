@@ -9,6 +9,7 @@ import { Colors } from '@/constants/Colors';
 import { getLimitablePositions, LeagueWizardState, SPORT_DISPLAY } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { formatIsoDate } from '@/utils/dates';
+import { initialDraftLabel } from '@/utils/draft/draftLabels';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 import { ms, s } from '@/utils/scale';
@@ -118,27 +119,25 @@ export function StepReview({
         )}
       </Section>
 
-      {(isDynasty || !hideStartupDraft) && (
-        <Section title="Draft Settings" action={editAction('draft', 'Draft Settings')}>
-          {!hideStartupDraft && (
-            <>
-              <Row label="Type" value={state.draftType} c={c} />
-              <Row label="Draft Order" value={state.initialDraftOrder} c={c} />
-              <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
-            </>
-          )}
+      {/* One section per draft — a dynasty league configures two, and a shared
+          "Draft Settings" block leaves rows like "Draft Order" ambiguous. */}
+      {!hideStartupDraft && (
+        <Section title={initialDraftLabel(state.leagueType)} action={editAction('draft', initialDraftLabel(state.leagueType))}>
+          <Row label="Draft Type" value={state.draftType} c={c} />
+          <Row label="Draft Order" value={state.initialDraftOrder} c={c} />
+          <Row label="Time Per Pick" value={`${state.timePerPick}s`} c={c} />
           {isDynasty && (
-            <>
-              <Row label="Future Draft Years" value={String(state.maxDraftYears)} c={c} />
-              <Row label="Rookie Draft Rounds" value={String(state.rookieDraftRounds)} c={c} />
-              <Row label="Rookie Draft Order" value={state.rookieDraftOrder} c={c} />
-              {state.rookieDraftOrder === 'Lottery' && (
-                <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
-              )}
-              {!hideStartupDraft && (
-                <Row label="Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
-              )}
-            </>
+            <Row label="Pick Trading" value={state.draftPickTradingEnabled ? 'Enabled' : 'Disabled'} c={c} />
+          )}
+        </Section>
+      )}
+
+      {isDynasty && (
+        <Section title="Rookie Draft" action={editAction('draft', 'Rookie Draft')}>
+          <Row label="Rounds" value={String(state.rookieDraftRounds)} c={c} />
+          <Row label="Draft Order" value={state.rookieDraftOrder} c={c} />
+          {state.rookieDraftOrder === 'Lottery' && (
+            <Row label="Lottery Draws" value={String(state.lotteryDraws)} c={c} />
           )}
         </Section>
       )}
@@ -153,6 +152,7 @@ export function StepReview({
         )}
         {isDynasty && (
           <>
+            <Row label="Future Rookie Draft Years" value={String(state.maxDraftYears)} c={c} />
             <Row label="Pick Protections" value={state.pickProtectionsEnabled ? 'Enabled' : 'Disabled'} c={c} />
             <Row label="Pick Swaps" value={state.pickSwapsEnabled ? 'Enabled' : 'Disabled'} c={c} />
           </>

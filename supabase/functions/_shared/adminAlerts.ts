@@ -1,8 +1,17 @@
-// Shared admin-alert path: a dead_letter_alerts audit row + an Expo push to
-// every admin profile. Originally built for queue-worker's pgmq dead-letter
-// path; reused by any cron that needs to give up on an unrecoverable retry
-// loop (sweep-stalled-drafts, manage-draft-quiet-hours) instead of retrying
-// forever and silently burning downstream resources (QStash quota, etc).
+// Shared dead-letter path: a dead_letter_alerts audit row, optionally plus an
+// Expo push to every admin profile. Originally built for queue-worker's pgmq
+// dead-letter path; reused by any cron that needs to give up on an
+// unrecoverable retry loop (sweep-stalled-drafts, manage-draft-quiet-hours)
+// instead of retrying forever and silently burning downstream resources
+// (QStash quota, etc).
+//
+// The admin push is for GLOBAL infrastructure failures only. A failure scoped
+// to one league must NOT use it: pushAdmins fans out to every is_admin profile
+// regardless of league membership and bypasses per-user notification
+// preferences, so a single league's stalled draft paged admins who weren't in
+// that league — while the league's own commissioner, the only person who could
+// act, got nothing. Those callers omit pushTitle/pushBody (audit row only) and
+// send their own league-scoped notifyLeague/notifyTeams push instead.
 
 import type { SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
@@ -42,12 +51,15 @@ export async function pushAdmins(supabase: SupabaseClient, title: string, body: 
 }
 
 /**
- * Records a dead_letter_alerts audit row + pages admins. Used both for real
- * pgmq dead-letters (originalMsgId is the pgmq message id) and for crons that
- * give up on an unrecoverable retry loop (originalMsgId is a synthetic
- * number — the identifying context belongs in `payload` instead, e.g.
- * `{ draft_id }`). Failures here must never block the caller's own recovery
- * path, so both calls are independently try/catch'd.
+ * Records a dead_letter_alerts audit row, and pages admins when pushTitle and
+ * pushBody are supplied. Used both for real pgmq dead-letters (originalMsgId is
+ * the pgmq message id) and for crons that give up on an unrecoverable retry
+ * loop (originalMsgId is a synthetic number — the identifying context belongs
+ * in `payload` instead, e.g. `{ draft_id }`). Failures here must never block the
+ * caller's own recovery path, so both calls are independently try/catch'd.
+ *
+ * Omit pushTitle/pushBody for a league-scoped failure and notify that league
+ * yourself — see the header note.
  */
 export async function recordDeadLetter(
   supabase: SupabaseClient,
@@ -57,8 +69,8 @@ export async function recordDeadLetter(
     functionName?: string | null;
     reason: string;
     payload?: unknown;
-    pushTitle: string;
-    pushBody: string;
+    pushTitle?: string;
+    pushBody?: string;
   },
 ): Promise<void> {
   try {
@@ -73,6 +85,7 @@ export async function recordDeadLetter(
     console.warn('dead_letter_alerts insert failed:', e instanceof Error ? e.message : e);
   }
 
+  if (!params.pushTitle || !params.pushBody) return;
   try {
     await pushAdmins(supabase, params.pushTitle, params.pushBody);
   } catch (e) {

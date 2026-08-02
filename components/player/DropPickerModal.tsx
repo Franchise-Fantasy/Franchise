@@ -422,7 +422,10 @@ export function DropPickerModal({
             </View>
           </View>
 
-          {isProcessing ? (
+          {/* The roster query only starts when the picker opens, so an
+              undefined list means "still loading" — not "nobody is droppable",
+              which is what the empty state would otherwise claim. */}
+          {isProcessing || rosterPlayers === undefined ? (
             <View style={sheetStyles.loading}>
               <LogoSpinner />
             </View>

@@ -24,6 +24,7 @@ import { DRAFT_TYPE_OPTIONS, getMaxRookieDraftRounds, INITIAL_DRAFT_ORDER_DISPLA
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { TablesUpdate } from '@/types/database.types';
+import { initialDraftLabel } from '@/utils/draft/draftLabels';
 import { isSlowClock } from '@/utils/draft/pickClock';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ms, s } from '@/utils/scale';
@@ -69,9 +70,12 @@ export function EditDraftSettingsModal({
   const queryClient = useQueryClient();
 
   const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
-  // Imported leagues skip the startup draft (rosters come from the import), so
-  // the startup-pick-trading setting is meaningless — hide it and don't persist it.
-  const isImported = !!league?.imported_from;
+  // Imported leagues never run their `type='initial'` draft — the import seeds
+  // rosters and marks that draft complete — so every setting on it (and the
+  // startup-pick-trading flag) describes a draft that can't happen. Hide the
+  // whole group and don't persist it; dynasty imports still get a rookie draft.
+  const showInitialDraft = !league?.imported_from;
+  const initialLabel = initialDraftLabel(league?.league_type);
 
   const [draftType, setDraftType] = useState('Snake');
   const [initialOrder, setInitialOrder] = useState('Random');
@@ -79,7 +83,6 @@ export function EditDraftSettingsModal({
   const [accelEnabled, setAccelEnabled] = useState(false);
   const [accelAfterRound, setAccelAfterRound] = useState(5);
   const [accelTime, setAccelTime] = useState(30);
-  const [maxYears, setMaxYears] = useState(3);
   const [rookiePickTime, setRookiePickTime] = useState(120);
   const [rookieRounds, setRookieRounds] = useState(2);
   const [rookieOrder, setRookieOrder] = useState('Reverse Record');
@@ -118,7 +121,6 @@ export function EditDraftSettingsModal({
     setAccelEnabled(enabled);
     setAccelAfterRound(draft.accelerate_after_round ?? 5);
     setAccelTime(draft.accelerated_time_limit ?? 30);
-    setMaxYears(league.max_future_seasons ?? 3);
     setRookiePickTime(league.rookie_pick_time_limit ?? 120);
     setRookieRounds(league.rookie_draft_rounds ?? 2);
     setRookieOrder(ORDER_DISPLAY[league.rookie_draft_order] ?? 'Reverse Record');
@@ -148,17 +150,18 @@ export function EditDraftSettingsModal({
     if (!draft) return;
     setSaving(true);
 
-    const leagueUpdate: TablesUpdate<'leagues'> = {
-      initial_draft_order: INITIAL_DRAFT_ORDER_TO_DB[initialOrder as keyof typeof INITIAL_DRAFT_ORDER_TO_DB] ?? 'random',
-    };
+    const leagueUpdate: TablesUpdate<'leagues'> = {};
+    if (showInitialDraft) {
+      leagueUpdate.initial_draft_order =
+        INITIAL_DRAFT_ORDER_TO_DB[initialOrder as keyof typeof INITIAL_DRAFT_ORDER_TO_DB] ?? 'random';
+    }
     if (isDynasty) {
-      leagueUpdate.max_future_seasons = maxYears;
       leagueUpdate.rookie_pick_time_limit = rookiePickTime;
       leagueUpdate.rookie_draft_rounds = rookieRounds;
       leagueUpdate.rookie_draft_order = ORDER_TO_DB[rookieOrder] ?? 'reverse_record';
       leagueUpdate.lottery_draws = lotteryDraws;
       leagueUpdate.lottery_odds = lotteryOdds;
-      if (!isImported) leagueUpdate.draft_pick_trading_enabled = draftPickTrading;
+      if (showInitialDraft) leagueUpdate.draft_pick_trading_enabled = draftPickTrading;
     }
 
     const { error: leagueErr } = Object.keys(leagueUpdate).length > 0
@@ -176,18 +179,22 @@ export function EditDraftSettingsModal({
     // Quiet hours only apply to slow (async) drafts — force off on a live clock.
     const quietActive = quiet.enabled && isSlowClock(timePick);
 
-    const { error: draftErr } = await supabase
-      .from('drafts')
-      .update({
-        draft_type: draftType.toLowerCase(),
-        time_limit: timePick,
-        accelerate_after_round: accelActive ? accelAfterRound : null,
-        accelerated_time_limit: accelActive ? Math.min(accelTime, timePick) : null,
-        quiet_hours_enabled: quietActive,
-        quiet_hours_start_min: quiet.startMin,
-        quiet_hours_end_min: quiet.endMin,
-      })
-      .eq('id', draft.id);
+    // Imported leagues show no initial-draft group, so there's nothing to write
+    // to their (already-complete) draft row.
+    const { error: draftErr } = showInitialDraft
+      ? await supabase
+          .from('drafts')
+          .update({
+            draft_type: draftType.toLowerCase(),
+            time_limit: timePick,
+            accelerate_after_round: accelActive ? accelAfterRound : null,
+            accelerated_time_limit: accelActive ? Math.min(accelTime, timePick) : null,
+            quiet_hours_enabled: quietActive,
+            quiet_hours_start_min: quiet.startMin,
+            quiet_hours_end_min: quiet.endMin,
+          })
+          .eq('id', draft.id)
+      : { error: null };
 
     // Keep an already-created (but not started) rookie draft row in sync —
     // create-rookie-draft snapshots the league's rookie clock at creation
@@ -253,93 +260,120 @@ export function EditDraftSettingsModal({
         </View>
       }
     >
-      {/* Draft Type */}
-      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-        <ThemedText style={styles.rowLabel}>Type</ThemedText>
-      </View>
-      <View style={{ paddingVertical: s(8) }}>
-        <SegmentedControl
-          options={DRAFT_TYPE_OPTIONS}
-          selectedIndex={draftTypeIndex >= 0 ? draftTypeIndex : 0}
-          onSelect={(i) => setDraftType(DRAFT_TYPE_OPTIONS[i])}
-        />
-      </View>
-
-      {/* Time Per Pick */}
-      <PickClockControl value={timePick} onValueChange={setTimePick} />
-
-      {/* Overnight quiet hours — slow (async) drafts only */}
-      {isSlowClock(timePick) && <QuietHoursControl value={quiet} onChange={setQuiet} />}
-
-      {/* Speed up later rounds — never offered for slow (async) drafts */}
-      {canAccelerate && !isSlowClock(timePick) && (
+      {showInitialDraft && (
         <>
-          <ToggleRow
-            icon="flash-outline"
-            label="Speed Up Later Rounds"
-            description={
-              accelEnabled
-                ? `Rounds after ${Math.min(accelAfterRound, accelRoundMax)} drop to ${Math.min(accelTime, timePick)}s per pick.`
-                : 'Tighten the pick clock for the back half of the draft.'
-            }
-            value={accelEnabled}
-            onToggle={setAccelEnabled}
-            c={c}
-          />
-          {accelEnabled && (
+          <GroupLabel c={c}>{initialLabel}</GroupLabel>
+          <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(4) }]}>
+            {isDynasty
+              ? 'The one-time draft that stocks every roster when the league starts.'
+              : 'The draft that rebuilds every roster at the start of each season.'}
+          </ThemedText>
+
+          {/* Draft Type */}
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Draft Type</ThemedText>
+          </View>
+          <View style={{ paddingVertical: s(8) }}>
+            <SegmentedControl
+              options={DRAFT_TYPE_OPTIONS}
+              selectedIndex={draftTypeIndex >= 0 ? draftTypeIndex : 0}
+              onSelect={(i) => setDraftType(DRAFT_TYPE_OPTIONS[i])}
+              accessibilityLabel={`${initialLabel} type`}
+            />
+          </View>
+
+          {/* Time Per Pick */}
+          <PickClockControl label="Time Per Pick" value={timePick} onValueChange={setTimePick} />
+
+          {/* Overnight quiet hours — slow (async) drafts only */}
+          {isSlowClock(timePick) && <QuietHoursControl value={quiet} onChange={setQuiet} />}
+
+          {/* Speed up later rounds — never offered for slow (async) drafts */}
+          {canAccelerate && !isSlowClock(timePick) && (
             <>
-              <NumberStepper
-                label="Speed Up After Round"
-                value={Math.min(accelAfterRound, accelRoundMax)}
-                onValueChange={setAccelAfterRound}
-                min={1}
-                max={accelRoundMax}
+              <ToggleRow
+                icon="flash-outline"
+                label="Speed Up Later Rounds"
+                description={
+                  accelEnabled
+                    ? `Rounds after ${Math.min(accelAfterRound, accelRoundMax)} drop to ${Math.min(accelTime, timePick)}s per pick.`
+                    : 'Tighten the pick clock for the back half of the draft.'
+                }
+                value={accelEnabled}
+                onToggle={setAccelEnabled}
+                c={c}
               />
-              <NumberStepper
-                label="Faster Pick Time"
-                value={Math.min(accelTime, timePick)}
-                onValueChange={setAccelTime}
-                min={TIME_PER_PICK_MIN}
-                max={timePick}
-                step={TIME_PER_PICK_STEP}
-                suffix="s"
-              />
+              {accelEnabled && (
+                <>
+                  <NumberStepper
+                    label="Speed Up After Round"
+                    value={Math.min(accelAfterRound, accelRoundMax)}
+                    onValueChange={setAccelAfterRound}
+                    min={1}
+                    max={accelRoundMax}
+                  />
+                  <NumberStepper
+                    label="Faster Pick Time"
+                    value={Math.min(accelTime, timePick)}
+                    onValueChange={setAccelTime}
+                    min={TIME_PER_PICK_MIN}
+                    max={timePick}
+                    step={TIME_PER_PICK_STEP}
+                    suffix="s"
+                  />
+                </>
+              )}
             </>
+          )}
+
+          {/* Draft Order */}
+          <View style={[styles.editRow, { borderBottomColor: c.border }]}>
+            <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
+          </View>
+          <View style={{ paddingVertical: s(8) }}>
+            <SegmentedControl
+              options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
+              selectedIndex={initialOrderIndex >= 0 ? initialOrderIndex : 0}
+              onSelect={(i) => setInitialOrder(INITIAL_DRAFT_ORDER_OPTIONS[i])}
+              accessibilityLabel={`${initialLabel} order`}
+            />
+          </View>
+          <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}>
+            {initialOrder === 'Random'
+              ? 'Teams are randomly assigned a draft position when all teams join.'
+              : 'The commissioner will set the draft order before the draft begins.'}
+          </ThemedText>
+
+          {/* Pick trading covers the startup board only — rookie-pick trading
+              is always on for dynasty and is bounded by the trade settings. */}
+          {isDynasty && (
+            <ToggleRow
+              icon="swap-horizontal-outline"
+              label="Pick Trading"
+              description={
+                draftPickTrading
+                  ? `Allow trading of ${initialLabel.toLowerCase()} picks before and during the draft. In-draft trades execute immediately on acceptance — no review period, no vetoes.`
+                  : `Allow trading of ${initialLabel.toLowerCase()} picks before and during the draft`
+              }
+              value={draftPickTrading}
+              onToggle={setDraftPickTrading}
+              c={c}
+            />
           )}
         </>
       )}
 
-      {/* Draft Order */}
-      <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-        <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
-      </View>
-      <View style={{ paddingVertical: s(8) }}>
-        <SegmentedControl
-          options={[...INITIAL_DRAFT_ORDER_OPTIONS]}
-          selectedIndex={initialOrderIndex >= 0 ? initialOrderIndex : 0}
-          onSelect={(i) => setInitialOrder(INITIAL_DRAFT_ORDER_OPTIONS[i])}
-        />
-      </View>
-      <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(8) }]}>
-        {initialOrder === 'Random'
-          ? 'Teams are randomly assigned a draft position when all teams join.'
-          : 'The commissioner will set the draft order before the draft begins.'}
-      </ThemedText>
-
       {isDynasty && (
         <>
-          {/* Future Draft Years */}
-          <NumberStepper
-            label="Future Draft Years"
-            value={maxYears}
-            onValueChange={setMaxYears}
-            min={1}
-            max={10}
-          />
+          <GroupLabel c={c}>Rookie Draft</GroupLabel>
+          <ThemedText style={[styles.helperText, { color: c.secondaryText, marginBottom: s(4) }]}>
+            The incoming rookie class draft, run every offseason.
+          </ThemedText>
 
           {/* Rookie Draft Rounds */}
           <NumberStepper
-            label="Rookie Draft Rounds"
+            label="Rounds"
+            accessibilityLabel="Rookie draft rounds"
             value={rookieRounds}
             onValueChange={setRookieRounds}
             min={1}
@@ -356,13 +390,14 @@ export function EditDraftSettingsModal({
 
           {/* Rookie Draft Order */}
           <View style={[styles.editRow, { borderBottomColor: c.border }]}>
-            <ThemedText style={styles.rowLabel}>Rookie Draft Order</ThemedText>
+            <ThemedText style={styles.rowLabel}>Draft Order</ThemedText>
           </View>
           <View style={{ paddingVertical: s(8) }}>
             <SegmentedControl
               options={ROOKIE_DRAFT_ORDER_OPTIONS}
               selectedIndex={orderIndex >= 0 ? orderIndex : 0}
               onSelect={(i) => setRookieOrder(ROOKIE_DRAFT_ORDER_OPTIONS[i])}
+              accessibilityLabel="Rookie draft order"
             />
           </View>
 
@@ -402,25 +437,27 @@ export function EditDraftSettingsModal({
               )}
             </>
           )}
-
-          {/* Draft Pick Trading — hidden for imports (no startup draft). */}
-          {!isImported && (
-            <ToggleRow
-              icon="swap-horizontal-outline"
-              label="Initial Draft Pick Trading"
-              description={
-                draftPickTrading
-                  ? 'Allow trading of startup draft picks before and during the draft. In-draft trades execute immediately on acceptance — no review period, no vetoes.'
-                  : 'Allow trading of startup draft picks before and during the draft'
-              }
-              value={draftPickTrading}
-              onToggle={setDraftPickTrading}
-              c={c}
-            />
-          )}
         </>
       )}
     </BottomSheet>
+  );
+}
+
+/**
+ * Which draft the fields below it configure. A dynasty league runs two, and
+ * with a flat field list "Draft Order" could mean either one.
+ */
+function GroupLabel({ c, children }: { c: any; children: string }) {
+  return (
+    <View style={styles.groupLabelRow}>
+      {/* Gold rule + label is the brand's section rhythm (see `Section`).
+          The gold stays a rule, not the text color — at 12px it wouldn't
+          clear the 4.5:1 contrast floor as type. */}
+      <View style={[styles.groupLabelRule, { backgroundColor: c.gold }]} />
+      <ThemedText style={[styles.groupLabel, { color: c.text }]} accessibilityRole="header">
+        {children}
+      </ThemedText>
+    </View>
   );
 }
 
@@ -436,4 +473,18 @@ const styles = StyleSheet.create({
   },
   rowLabel: { fontSize: ms(14) },
   helperText: { fontSize: ms(13), marginTop: s(2) },
+  groupLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: s(10),
+    marginTop: s(20),
+    marginBottom: s(2),
+  },
+  groupLabelRule: { height: 2, width: s(18) },
+  groupLabel: {
+    fontSize: ms(13),
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.8,
+  },
 });

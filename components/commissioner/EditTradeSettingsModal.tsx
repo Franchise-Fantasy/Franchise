@@ -53,9 +53,12 @@ export function EditTradeSettingsModal({
   const c = useColors();
   const queryClient = useQueryClient();
 
+  const isDynasty = (league?.league_type ?? 'dynasty') === 'dynasty';
+
   const [vetoType, setVetoType] = useState('Commissioner');
   const [reviewHours, setReviewHours] = useState(24);
   const [votesToVeto, setVotesToVeto] = useState(4);
+  const [maxFutureYears, setMaxFutureYears] = useState(3);
   const [pickProtections, setPickProtections] = useState(false);
   const [pickSwaps, setPickSwaps] = useState(false);
   const [irTrading, setIrTrading] = useState(false);
@@ -72,6 +75,7 @@ export function EditTradeSettingsModal({
     setVetoType(VETO_DISPLAY[league.trade_veto_type] ?? 'Commissioner');
     setReviewHours(league.trade_review_period_hours ?? 24);
     setVotesToVeto(league.trade_votes_to_veto ?? 4);
+    setMaxFutureYears(league.max_future_seasons ?? 3);
     setPickProtections(league.pick_protections_enabled ?? false);
     setPickSwaps(league.pick_swaps_enabled ?? false);
     setIrTrading(league.ir_trading_enabled ?? false);
@@ -114,8 +118,11 @@ export function EditTradeSettingsModal({
         trade_veto_type: vetoDb,
         trade_review_period_hours: vetoDb === 'none' ? 0 : reviewHours,
         trade_votes_to_veto: votesToVeto,
-        pick_protections_enabled: pickProtections,
-        pick_swaps_enabled: pickSwaps,
+        ...(isDynasty && {
+          max_future_seasons: maxFutureYears,
+          pick_protections_enabled: pickProtections,
+          pick_swaps_enabled: pickSwaps,
+        }),
         ir_trading_enabled: irTrading,
         auto_rumors_enabled: autoRumors,
         trade_deadline: hasStartDate ? tradeDeadlineDate : null,
@@ -202,25 +209,41 @@ export function EditTradeSettingsModal({
         />
       )}
 
-      {/* Pick Protections */}
-      <ToggleRow
-        icon="shield-checkmark-outline"
-        label="Pick Protections"
-        description="Let a traded pick revert to the sender if it lands in the top N."
-        value={pickProtections}
-        onToggle={setPickProtections}
-        c={c}
-      />
+      {/* Draft-pick trade rules — dynasty only; redraft/keeper leagues have no
+          tradable picks at all, so these three would be inert switches. */}
+      {isDynasty && (
+        <>
+          {/* How far ahead rookie-draft picks are tradable. Lives here (not in
+              Draft Settings) because it bounds a trade, not the draft itself —
+              mirrors StepTrade in the create-league wizard. */}
+          <NumberStepper
+            label="Future Rookie Draft Years"
+            value={maxFutureYears}
+            onValueChange={setMaxFutureYears}
+            min={1}
+            max={10}
+            helperText="Years ahead of the current season that rookie draft picks can be traded."
+          />
 
-      {/* Pick Swaps */}
-      <ToggleRow
-        icon="swap-horizontal-outline"
-        label="Pick Swaps"
-        description="Let teams trade the right to swap draft slots in a given round."
-        value={pickSwaps}
-        onToggle={setPickSwaps}
-        c={c}
-      />
+          <ToggleRow
+            icon="shield-checkmark-outline"
+            label="Pick Protections"
+            description="Let a traded pick revert to the sender if it lands in the top N."
+            value={pickProtections}
+            onToggle={setPickProtections}
+            c={c}
+          />
+
+          <ToggleRow
+            icon="swap-horizontal-outline"
+            label="Pick Swaps"
+            description="Let teams trade the right to swap draft slots in a given round."
+            value={pickSwaps}
+            onToggle={setPickSwaps}
+            c={c}
+          />
+        </>
+      )}
 
       {/* IR Player Trading */}
       <ToggleRow

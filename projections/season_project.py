@@ -314,9 +314,48 @@ def shrink_to_priors(proj: dict, priors: dict, project_games: int) -> dict:
     return out
 
 
+# ── Games-played model: league-blended (2026-08-02) ───────────────────────────
+# Share of the games projection that comes from the league mean rather than the
+# player's own history. A backtest over 5 held-out season pairs (WNBA 2022-2025
+# + NBA 2025-26) found the three-component model below LOSES to this one plain
+# blend on SEASON-TOTAL error — which is the draft board's view, and the single
+# largest error term in it (58% of NBA total squared error). Swapping it in
+# improved season-total RMSE on 5/5 pairs (WNBA mean -18.9, NBA -8.9) and
+# season-total rank correlation on 5/5 (WNBA +0.035), at every scoring filter
+# tested and under both scoring systems. Per-game output is untouched.
+#
+# The likely reason: `project_games_played`'s injury and trend terms fire on
+# one or two noisy seasons and compound with the shrinkage that already ran,
+# so a player who missed time once gets penalised repeatedly. Regression to the
+# league mean captures the same "expect reversion" intuition without stacking.
+#
+# 0.5 is Marcel's canonical blend and was fixed BEFORE measuring — not tuned.
+# A sensitivity sweep (0.25/0.5/0.75/1.0) is in the audit lab; 0.25 was clearly
+# worse and the rest were within noise of each other, so there is no evidence
+# for moving it and no reason to overfit the second decimal.
+GAMES_LEAGUE_BLEND = 0.5
+
+
+def project_games_blended(weighted_gp_pct: float) -> tuple:
+    """Project games played by regressing the player's recency-weighted GP%
+    toward the league average. Returns (projected_games, final_gp_pct).
+
+    `weighted_gp_pct` is `weighted_projection`'s 'gp_pct' — the recency-weighted
+    mean of each season's games/schedule-length, already clipped at 1.0.
+    """
+    blended = (GAMES_LEAGUE_BLEND * LEAGUE_AVG_GP_PCT
+               + (1.0 - GAMES_LEAGUE_BLEND) * weighted_gp_pct)
+    games = int(np.clip(round(blended * PROJECT_GAMES), 1, PROJECT_GAMES))
+    return games, float(blended)
+
+
 def project_games_played(player_hist: pd.DataFrame, weighted_gp_pct: float) -> tuple:
     """
-    Three-component games-played model:
+    Three-component games-played model. NOT on the Franchise path since
+    2026-08-02 — `franchise_project.run_season` uses `project_games_blended`
+    above, which beat this on season-total error across all 5 backtest pairs.
+    Still used by this module's own `build_projections` (the standalone WNBA
+    Excel script), which is why it and its constants remain.
 
     1. Bayesian shrinkage — pull the weighted GP% toward the league mean
        proportional to how many seasons of data we have.

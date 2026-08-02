@@ -3,6 +3,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { hasUnresolvedDeadLetter, recordDeadLetter } from '../_shared/adminAlerts.ts';
 import { getArchivedLeagueIds } from '../_shared/archivedLeagues.ts';
 import { handleError, jsonResponse, errorResponse } from '../_shared/http.ts';
+import { notifyLeague } from '../_shared/push.ts';
 import { scheduleAutodraft } from '../_shared/qstash.ts';
 import type { Database } from '../../../types/database.types.ts';
 
@@ -23,8 +24,14 @@ import type { Database } from '../../../types/database.types.ts';
  * forever would silently burn the QStash daily message quota — this is
  * exactly what a handful of abandoned test drafts did on 2026-07-25, exhausting
  * the quota and 500ing every function that arms the pick clock. Past
- * GIVE_UP_MS, stop re-arming and dead-letter instead (audit row + admin push,
- * once — hasUnresolvedDeadLetter guards against re-alerting every tick).
+ * GIVE_UP_MS, stop re-arming and dead-letter instead (audit row + a push to the
+ * affected league, once — hasUnresolvedDeadLetter guards against re-alerting
+ * every tick).
+ *
+ * The give-up push is deliberately league-scoped, NOT recordDeadLetter's admin
+ * push: one league's stalled draft is not an app-wide incident, and pushing
+ * every is_admin profile meant unrelated people were told a draft they're not
+ * in is stuck while that league's own commissioner heard nothing.
  */
 
 // Past-deadline slack before we declare the chain dead. Covers QStash's normal
@@ -81,10 +88,26 @@ Deno.serve(async (req) => {
           functionName: 'autodraft',
           reason: `Draft stalled >${Math.round(GIVE_UP_MS / 3_600_000)}h past grace at pick ${d.current_pick_number}; giving up automatic re-arm`,
           payload: { draft_id: d.id, league_id: d.league_id, pick_number: d.current_pick_number },
-          pushTitle: 'Draft stuck — needs attention',
-          pushBody: `Pick ${d.current_pick_number} has been stalled for over an hour and automatic recovery gave up.`,
         });
         deadLettered++;
+
+        // Non-fatal: the audit row above is the durable record, so a push
+        // failure must not abort the sweep for the remaining drafts.
+        try {
+          const { data: league } = await supabaseAdmin
+            .from('leagues')
+            .select('name')
+            .eq('id', d.league_id)
+            .single();
+          const ln = league?.name ?? 'Your League';
+          await notifyLeague(supabaseAdmin, d.league_id, 'draft',
+            `${ln} — Draft is stuck`,
+            `Pick ${d.current_pick_number} hasn't advanced and the clock couldn't be restarted automatically. The commissioner can pause and resume the draft to get it moving.`,
+            { screen: 'draft-room', draft_id: d.id },
+          );
+        } catch (err) {
+          console.error(`sweep-stalled-drafts: give-up notify failed for draft ${d.id}:`, err);
+        }
         continue;
       }
       try {

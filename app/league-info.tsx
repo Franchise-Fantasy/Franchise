@@ -42,7 +42,7 @@ import { PageHeader } from '@/components/ui/PageHeader';
 import { Section } from '@/components/ui/Section';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors } from '@/constants/Colors';
-import { FAAB_TIEBREAK_DISPLAY, LEAGUE_TYPE_DISPLAY, seedingDisplay, type Sport, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
+import { FAAB_TIEBREAK_DISPLAY, INITIAL_DRAFT_ORDER_DISPLAY, LEAGUE_TYPE_DISPLAY, seedingDisplay, type Sport, SPORT_OPENING_MONTH, TIEBREAKER_DISPLAY, WAIVER_PRIORITY_RESET_DISPLAY, parseSeasonStartYear, startDateBelongsToSeason } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { PAYWALL_ENABLED, TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
@@ -61,6 +61,7 @@ import { useSubscription } from '@/hooks/useSubscription';
 import { reopenOfflineDraft } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { formatIsoDate } from '@/utils/dates';
+import { initialDraftLabel } from '@/utils/draft/draftLabels';
 import { formatPickClock } from '@/utils/draft/pickClock';
 import { calcRounds } from '@/utils/league/playoff';
 import { ms, s } from '@/utils/scale';
@@ -728,27 +729,45 @@ export default function LeagueInfoScreen() {
           )}
         </SectionCard>
 
-        {/* ── Draft Settings ── */}
-        <SectionCard title="Draft Settings" c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
-          <Row label="Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
-          <Row label="Time Per Pick" value={draft ? formatPickClock(draft.time_limit ?? 90) : '-'} c={c} />
-          <Row label="Status" value={draft?.status ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'} c={c} />
-          {(league.league_type ?? 'dynasty') === 'dynasty' && (
-            <>
-              <Row label="Future Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
-              <Row label="Rookie Draft Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
-              <Row label="Rookie Pick Clock" value={formatPickClock(league.rookie_pick_time_limit ?? 120)} c={c} />
-              <Row label="Rookie Draft Order" value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'} c={c} />
-              {league.rookie_draft_order === 'lottery' && (
-                <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} />
-              )}
-              {/* Imported leagues never have a startup draft, so pick trading can't apply. */}
-              {!league.imported_from && (
-                <Row label="Initial Draft, Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
-              )}
-            </>
-          )}
-        </SectionCard>
+        {/* ── Startup / Season Draft ──
+            A dynasty league configures two separate drafts, so each gets its
+            own card rather than one flat list where "Draft Order" is ambiguous.
+            Imported leagues never run this draft (the import seeds rosters and
+            marks it complete), so the card would describe a draft that can't
+            happen. Both pencils open the same Draft Settings sheet. */}
+        {!league.imported_from && (
+          <SectionCard title={initialDraftLabel(league.league_type)} c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
+            <Row label="Draft Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
+            <Row label="Time Per Pick" value={draft ? formatPickClock(draft.time_limit ?? 90) : '-'} c={c} />
+            <Row label="Draft Order" value={INITIAL_DRAFT_ORDER_DISPLAY[league.initial_draft_order] ?? '-'} c={c} />
+            <Row
+              label="Status"
+              value={draft?.status ? (draft.status.charAt(0).toUpperCase() + draft.status.slice(1).replace('_', ' ')) : '-'}
+              c={c}
+              last={(league.league_type ?? 'dynasty') !== 'dynasty'}
+            />
+            {(league.league_type ?? 'dynasty') === 'dynasty' && (
+              <Row label="Pick Trading" value={league.draft_pick_trading_enabled ? 'Enabled' : 'Disabled'} c={c} last />
+            )}
+          </SectionCard>
+        )}
+
+        {/* ── Rookie Draft (dynasty only) ── */}
+        {(league.league_type ?? 'dynasty') === 'dynasty' && (
+          <SectionCard title="Rookie Draft" c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
+            <Row label="Rounds" value={String(league.rookie_draft_rounds ?? '-')} c={c} />
+            <Row label="Pick Clock" value={formatPickClock(league.rookie_pick_time_limit ?? 120)} c={c} />
+            <Row
+              label="Draft Order"
+              value={ORDER_DISPLAY[league.rookie_draft_order] ?? '-'}
+              c={c}
+              last={league.rookie_draft_order !== 'lottery'}
+            />
+            {league.rookie_draft_order === 'lottery' && (
+              <Row label="Lottery Draws" value={String(league.lottery_draws ?? '-')} c={c} last />
+            )}
+          </SectionCard>
+        )}
 
         {/* ── Trade Settings ── */}
         <SectionCard title="Trade Settings" c={c} editable={sectionEditable('trade', lifecycle, isCommissioner)} onEdit={() => setShowTradeModal(true)}>
@@ -761,6 +780,7 @@ export default function LeagueInfoScreen() {
           )}
           {(league.league_type ?? 'dynasty') === 'dynasty' && (
             <>
+              <Row label="Future Rookie Draft Years" value={String(league.max_future_seasons ?? '-')} c={c} />
               <Row label="Pick Protections" value={league.pick_protections_enabled ? 'Enabled' : 'Disabled'} c={c} />
               <Row label="Pick Swaps" value={league.pick_swaps_enabled ? 'Enabled' : 'Disabled'} c={c} />
             </>

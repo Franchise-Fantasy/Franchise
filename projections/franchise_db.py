@@ -82,7 +82,21 @@ PG_DSN = os.environ["PG_DSN"].strip()
 #                    logs don't retain, which for NBA restores 2024-25 as a
 #                    second prior — without it (b) alone buried injured stars
 #                    (Tatum's 16-game year shrank him to 13.1 ppg)
-MODEL_VERSION = "franchise-v1.3"
+#   franchise-v1.4 — 2026-08-02: season horizon only, both changes measured on a
+#                    5-pair held-out backtest (WNBA 2022-2025 + NBA 2025-26; the
+#                    audit lab's harness). (a) the experience curve is now
+#                    sport-gated and OFF for WNBA — its only reachable branch is
+#                    the +10% ≤2-seasons boost, which is NBA-shaped and cost
+#                    WNBA per-game fantasy RMSE on 4/4 pairs (mean -0.175 when
+#                    removed, paired Wilcoxon p=0.004); NBA keeps it (removing it
+#                    there was worse, +0.127). (b) games played now regresses the
+#                    player's recency-weighted GP% 50/50 toward the league mean
+#                    instead of the three-component shrink+injury+trend model,
+#                    which lost to that plain blend on season-TOTAL error — the
+#                    draft board's view and the biggest term in it: totals
+#                    improved on 5/5 pairs (WNBA -18.9, NBA -8.9) and total rank
+#                    correlation on 5/5. Per-game output is unchanged by (b).
+MODEL_VERSION = "franchise-v1.4"
 
 # Per-36 rate stats projected by the season snapshot (mirrors
 # season_project.RATE_STATS).

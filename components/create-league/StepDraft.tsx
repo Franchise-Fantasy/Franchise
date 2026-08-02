@@ -20,6 +20,7 @@ import {
   TIME_PER_PICK_STEP,
 } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { initialDraftLabel } from '@/utils/draft/draftLabels';
 import { isSlowClock } from '@/utils/draft/pickClock';
 import { calcLotteryPoolSize, generateDefaultOdds } from '@/utils/league/lottery';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
@@ -60,7 +61,7 @@ export function StepDraft({ state, onChange, hideStartupDraft }: StepDraftProps)
   return (
     <View style={styles.container}>
       {!hideStartupDraft && (
-      <FormSection title="Startup Draft">
+      <FormSection title={initialDraftLabel(state.leagueType)}>
         <FieldGroup label="Draft Type">
           <SegmentedControl
             options={DRAFT_TYPE_OPTIONS}
