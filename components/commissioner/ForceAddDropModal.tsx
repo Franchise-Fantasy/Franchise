@@ -101,7 +101,7 @@ export function ForceAddDropModal({ visible, leagueId, teams, onClose }: Props) 
         .select('*')
         .eq('sport', sport)
         .not('pro_team', 'is', null)
-        .order('avg_pts', { ascending: false });
+        .order('avg_pts', { ascending: false, nullsFirst: false });
 
       if (rosteredIds.length > 0) {
         query = query.not('player_id', 'in', `(${rosteredIds.join(',')})`);

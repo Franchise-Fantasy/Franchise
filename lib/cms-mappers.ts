@@ -115,14 +115,18 @@ export function mapAlertBanner(entry: any): HomeAnnouncement {
     : 'info';
   const toStringArray = (v: any): string[] =>
     Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string') : [];
+  // CMS text fields routinely carry stray edge whitespace ("My Profile "),
+  // which shows up as a lopsided gap inside the CTA pill.
+  const trimmed = (v: any): string | undefined =>
+    typeof v === 'string' && v.trim() ? v.trim() : undefined;
 
   return {
     id: entry?.sys?.id ?? '',
     type,
-    headline: f.headline ?? '',
-    subtext: f.subtext || undefined,
-    ctaLabel: f.ctaLabel || undefined,
-    ctaLink: f.ctaLink || undefined,
+    headline: trimmed(f.headline) ?? '',
+    subtext: trimmed(f.subtext),
+    ctaLabel: trimmed(f.ctaLabel),
+    ctaLink: trimmed(f.ctaLink),
     dismissible: f.dismissible === true,
     priority: typeof f.priority === 'number' ? f.priority : 0,
     audience: toStringArray(f.audience),

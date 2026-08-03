@@ -96,7 +96,45 @@ PG_DSN = os.environ["PG_DSN"].strip()
 #                    draft board's view and the biggest term in it: totals
 #                    improved on 5/5 pairs (WNBA -18.9, NBA -8.9) and total rank
 #                    correlation on 5/5. Per-game output is unchanged by (b).
-MODEL_VERSION = "franchise-v1.4"
+#                    (c) 2026-08-03: `lookback_seasons` moved into
+#                    SPORT_SEASON_PARAMS — WNBA 5, NBA 2. Backfilling NBA
+#                    2019-2024 game logs (backend/backfill_nba_game_logs.py)
+#                    took NBA from 1 prior season to 5, which made the old
+#                    blanket lookback of 5 LIVE for the first time — and
+#                    measurement says deep history helps WNBA (-0.34 RMSE at
+#                    depth 2, better on 3/3 test seasons) but hurts NBA (+0.17
+#                    at depth 4). Capping NBA at 2 is worth -0.045/-0.130 RMSE
+#                    and +0.020/+0.043 top-100 rank correlation vs leaving it
+#                    at 5 on the two NBA test seasons that support the check.
+#   franchise-v1.5 — 2026-08-03, NBA season horizon only (WNBA numerically
+#                    unchanged). Three changes validated as a STACK on 5 native
+#                    NBA backtest pairs (tuning on tests 2021-2023, holdout
+#                    2024/2025 untouched; every component improved 5/5 pairs
+#                    individually AND the stack measured holdout per-game
+#                    chewers RMSE -0.312, pooled Wilcoxon p<1e-4 on both
+#                    splits): (a) recency_decay 0.5 -> 0.3 — one-year-old NBA
+#                    data over-describes a player's current role; (b) shrink
+#                    ramps 0.40/0.25 -> 0.55/0.35 (thin samples shrink harder;
+#                    the old constants were tuned on the then-only, now-tainted
+#                    2024->2025 pair); (c) minutes_model.py — ridge over native
+#                    season->season+1 transitions with depth-chart features
+#                    (min_rank, team_min_share, usg_pct), blended 50/50 into
+#                    engine minutes; rates untouched, only opportunity moves.
+#                    Rejected on evidence in the same round (see
+#                    SPORT_SEASON_PARAMS comment): Marcel ensemble, per-stat
+#                    EB shrinkage, always-on residual regression, games-blend
+#                    changes, usage as a direct rate feature.
+#   franchise-v1.6 — 2026-08-03: rookie slot priors (rookie_priors.py), NBA
+#                    season horizon. Incoming rookies — previously absent from
+#                    the projection table entirely — are projected from their
+#                    draft-slot bucket's median rookie line across our own
+#                    2019+ classes (players.draft_number, seeded from BDL).
+#                    Leave-future-out backtest: 5.1-6.5 MAE per class vs ~16
+#                    for the old project-nothing behavior; within-class
+#                    ordering is deliberately modest (slot can't see breakouts).
+#                    Veteran rows are byte-identical to v1.5 — this only ADDS
+#                    rows.
+MODEL_VERSION = "franchise-v1.6"
 
 # Per-36 rate stats projected by the season snapshot (mirrors
 # season_project.RATE_STATS).
@@ -339,15 +377,18 @@ def get_team_games_played(conn, sport: str, window: tuple) -> dict:
     """tricode -> completed games in the season `window` (start_date, end_date).
     Feeds franchise_edge.is_phantom. Deliberately not score-based: WNBA schedule
     scores don't persist (audit 2026-07-13 — only the latest day's games carry
-    them), so `game_date < CURRENT_DATE` is the reliable completed-game test."""
+    them), so `game_date < CURRENT_DATE` is the reliable completed-game test.
+    DISTINCT game_date for the same reason as team_games_per_season: duplicate
+    schedule rows (two id-namespace sync passes over 2025-26) double-counted
+    every team's games, and here that inflates the phantom gate's denominator."""
     sd, ed = window
     q = """
-        SELECT team, COUNT(*) AS games FROM (
-            SELECT home_team AS team FROM game_schedule
+        SELECT team, COUNT(DISTINCT game_date) AS games FROM (
+            SELECT home_team AS team, game_date FROM game_schedule
             WHERE sport = %s AND game_date BETWEEN %s AND %s
               AND game_date < CURRENT_DATE
             UNION ALL
-            SELECT away_team FROM game_schedule
+            SELECT away_team, game_date FROM game_schedule
             WHERE sport = %s AND game_date BETWEEN %s AND %s
               AND game_date < CURRENT_DATE
         ) t GROUP BY team
@@ -596,6 +637,136 @@ def fetch_historical_season_rates(conn, sport: str, start_years: list,
     return df
 
 
+def fetch_minutes_frame(conn, sport: str, first_season: int,
+                        last_season: int) -> pd.DataFrame:
+    """Per-player-season rows for the minutes model (minutes_model.py):
+    modal own team, mpg, games, the per-36 rates its features need, plus each
+    (team, season)'s minute/possession totals merged on (tmin/tfga/tfta/ttov).
+
+    Seasons are keyed by game_schedule.season LABELS (parsed to start-year
+    ints), NOT date windows — the 2019-20 bubble restart falls outside every
+    calendar window, and the backfill wrote schedule rows for all historical
+    games, so the label join is both simpler and more complete here. Own team
+    comes from the immutable matchup prefix + the game's two tricodes (never
+    players.pro_team, which is mutated to the current team).
+    """
+    labels = [season_label(sport, y) for y in range(first_season, last_season + 1)]
+    q = """
+        WITH own AS (
+            SELECT pg.player_id,
+                   gs.season                             AS season_label,
+                   pg.game_id,
+                   pg.min::float                         AS m,
+                   CASE WHEN pg.matchup LIKE 'vs%%' THEN gs.home_team
+                        ELSE gs.away_team END            AS team,
+                   COALESCE(pg.pts, 0)::float            AS pts,
+                   COALESCE(pg.reb, 0)::float            AS reb,
+                   COALESCE(pg.ast, 0)::float            AS ast,
+                   COALESCE(pg.stl, 0)::float            AS stl,
+                   COALESCE(pg.blk, 0)::float            AS blk,
+                   COALESCE(pg.tov, 0)::float            AS tov,
+                   COALESCE(pg."3pm", 0)::float          AS fg3m,
+                   COALESCE(pg."3pa", 0)::float          AS fg3a,
+                   COALESCE(pg.fgm, 0)::float            AS fgm,
+                   COALESCE(pg.fga, 0)::float            AS fga,
+                   COALESCE(pg.ftm, 0)::float            AS ftm,
+                   COALESCE(pg.fta, 0)::float            AS fta
+            FROM player_games pg
+            JOIN game_schedule gs
+              ON gs.game_id = pg.game_id AND gs.sport = pg.sport
+            WHERE pg.sport = %s AND pg.min >= 3 AND gs.season = ANY(%s)
+        ),
+        per_player AS (
+            SELECT player_id, season_label,
+                   COUNT(DISTINCT game_id)                     AS games_played,
+                   MODE() WITHIN GROUP (ORDER BY team)         AS team,
+                   SUM(m) / COUNT(DISTINCT game_id)            AS mpg,
+                   SUM(pts) / NULLIF(SUM(m), 0) * 36           AS pts_per36,
+                   SUM(reb) / NULLIF(SUM(m), 0) * 36           AS reb_per36,
+                   SUM(ast) / NULLIF(SUM(m), 0) * 36           AS ast_per36,
+                   SUM(stl) / NULLIF(SUM(m), 0) * 36           AS stl_per36,
+                   SUM(blk) / NULLIF(SUM(m), 0) * 36           AS blk_per36,
+                   SUM(tov) / NULLIF(SUM(m), 0) * 36           AS tov_per36,
+                   SUM(fg3m) / NULLIF(SUM(m), 0) * 36          AS fg3m_per36,
+                   SUM(fg3a) / NULLIF(SUM(m), 0) * 36          AS fg3a_per36,
+                   SUM(fgm) / NULLIF(SUM(m), 0) * 36           AS fgm_per36,
+                   SUM(fga) / NULLIF(SUM(m), 0) * 36           AS fga_per36,
+                   SUM(ftm) / NULLIF(SUM(m), 0) * 36           AS ftm_per36,
+                   SUM(fta) / NULLIF(SUM(m), 0) * 36           AS fta_per36
+            FROM own GROUP BY 1, 2
+            HAVING COUNT(DISTINCT game_id) >= 5 AND SUM(m) > 0
+        ),
+        per_team AS (
+            SELECT team, season_label,
+                   SUM(m) AS tmin, SUM(fga) AS tfga,
+                   SUM(fta) AS tfta, SUM(tov) AS ttov
+            FROM own WHERE team IS NOT NULL GROUP BY 1, 2
+        )
+        SELECT pp.*, pt.tmin, pt.tfga, pt.tfta, pt.ttov
+        FROM per_player pp
+        LEFT JOIN per_team pt
+          ON pt.team = pp.team AND pt.season_label = pp.season_label
+    """
+    df = pd.read_sql(q, conn, params=(sport, labels))
+    if df.empty:
+        return df
+    df["season"] = df["season_label"].map(parse_start_year)
+    df = df.drop(columns=["season_label"])
+    df["player_id"] = df["player_id"].astype(str)
+    for col in df.columns:
+        if col not in ("player_id", "team", "season"):
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype(float)
+    return df
+
+
+def get_birth_years(conn, sport: str) -> dict:
+    """player_id (uuid str) -> birth YEAR, for players with a birthdate.
+    Age feature for the minutes model (draft_year+22 is the fallback)."""
+    df = pd.read_sql(
+        "SELECT id, EXTRACT(YEAR FROM birthdate)::int AS by FROM players "
+        "WHERE sport = %s AND birthdate IS NOT NULL",
+        conn, params=(sport,))
+    return {str(r["id"]): int(r["by"]) for _, r in df.iterrows()}
+
+
+def get_draft_slots(conn, sport: str) -> dict:
+    """player_id (uuid str) -> overall draft pick, where known. Feeds the
+    rookie slot-prior buckets; NULL (absent) means undrafted-or-unseeded."""
+    df = pd.read_sql(
+        "SELECT id, draft_number FROM players "
+        "WHERE sport = %s AND draft_number IS NOT NULL",
+        conn, params=(sport,))
+    return {str(r["id"]): int(r["draft_number"]) for _, r in df.iterrows()}
+
+
+def get_rookie_candidates(conn, sport: str, target_season: int) -> pd.DataFrame:
+    """Incoming rookies for the target season: draft_year == target season's
+    start year AND signed to a real roster — being rostered is what makes the
+    slot prior's appearance base rate applicable; a drafted player who never
+    signs stays unprojected.
+
+    "Signed" = pro_team set AND external_id_bdl set (present on BDL's active
+    roster list, which is what stamps both via sync-players). Deliberately NOT
+    gated on is_prospect/status='prospect': the Contentful prospect pipeline
+    creates the class's rows pre-draft with is_prospect=true and nothing
+    graduates the flag when they sign — 63 of the 65 signed 2026 rookies still
+    carried it on ship day. The app's own prospect surfaces learned the same
+    lesson (see useProspects.ts: keying on the flag "silently dropped the
+    playerId" for drafted players); the flag means "in the prospect news
+    pool", not "not yet a pro". Returns id, draft_number, name."""
+    q = """
+        SELECT id AS player_id, draft_number, name
+        FROM players
+        WHERE sport = %s
+          AND draft_year = %s
+          AND pro_team IS NOT NULL
+          AND external_id_bdl IS NOT NULL
+    """
+    df = pd.read_sql(q, conn, params=(sport, target_season))
+    df["player_id"] = df["player_id"].astype(str)
+    return df
+
+
 def get_draft_years(conn, sport: str) -> dict:
     """player_id (uuid str) -> draft_year, for players where it's known.
     Feeds season_windows.experience_seasons: true career length for the season
@@ -644,7 +815,17 @@ def team_games_per_season(conn, sport: str, windows: dict,
             FROM game_schedule WHERE sport = %s
         ),
         per_team AS (
-            SELECT sw.season, a.team, COUNT(*) AS games
+            -- DISTINCT game_date, not COUNT(*): game_schedule holds the same
+            -- real game under TWO id namespaces for stretches of 2025-26 (an
+            -- NBA.com-id sync pass 2026-02-22 and a BDL-id pass 2026-04-28,
+            -- 1,232 duplicated games), and both copies are load-bearing for
+            -- player_games joins so they can't simply be deleted. A team
+            -- plays at most one game per date, so date-counting is immune —
+            -- COUNT(*) made every 2025-26 team look like it played ~166 games,
+            -- which became PROJECT_GAMES for the 2026-27 snapshot (no target
+            -- schedule yet -> recent-season fallback) and shipped players
+            -- projected for 98-109 games (2026-08-03).
+            SELECT sw.season, a.team, COUNT(DISTINCT a.game_date) AS games
             FROM appearances a
             JOIN (VALUES {frag}) AS sw(season, sd, ed)
               ON a.game_date BETWEEN sw.sd AND sw.ed

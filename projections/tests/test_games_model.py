@@ -119,3 +119,9 @@ def test_sport_params_gate_the_curve_per_sport():
     assert params["nba"]["experience_curve"] is True
     for sport in params.values():
         assert "league_avg_gp_pct" in sport and "default_len" in sport
+
+    # Deep history helps WNBA and hurts NBA (roster churn) — backfilling NBA
+    # 2019-2024 made the old blanket lookback of 5 live, and it measured
+    # +0.17 RMSE worse. 3+ prior NBA seasons must not come back untested.
+    assert params["nba"]["lookback_seasons"] == 2
+    assert params["wnba"]["lookback_seasons"] == 5

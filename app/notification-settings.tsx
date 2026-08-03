@@ -409,7 +409,8 @@ const styles = StyleSheet.create({
   leagueName: {
     fontFamily: Fonts.display,
     fontSize: ms(15),
-    lineHeight: ms(18),
+    // 1.4x — emoji in league names clip at the tighter 1.2x display-font line height
+    lineHeight: ms(21),
     letterSpacing: -0.1,
   },
   leagueSub: {

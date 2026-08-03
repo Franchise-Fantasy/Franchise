@@ -44,6 +44,8 @@ import pandas as pd
 
 import franchise_db as fdb
 import franchise_edge as fedge
+import minutes_model as mmodel
+import rookie_priors as rprior
 import season_project as sea_model
 from season_windows import experience_seasons
 
@@ -66,10 +68,69 @@ from season_windows import experience_seasons
 # consistent with its origin — NBA rookies arrive on a steeper development
 # curve than WNBA rookies, who enter a smaller league at an older draft age.
 # Enable per sport only with backtest evidence, not by symmetry.
+# `lookback_seasons` (2026-08-03) is ALSO sport-specific, and the asymmetry is
+# the surprise of the NBA history backfill. Deeper history helps WNBA a lot and
+# HURTS NBA. Measured on the same code path, per-game fantasy RMSE vs training
+# on last season alone:
+#     depth   WNBA (3 test seasons)      NBA (3 test seasons)
+#       2       -0.340 (better 3/3)        +0.015 (worse 2/3)
+#       3       -0.433 (better 3/3)        +0.053 (worse 2/2)
+#       4       -0.377 (better 2/2)        +0.166 (worse 1/1)
+# The likely cause is roster churn: a WNBA player's role three years ago still
+# describes them (12-woman rosters, stable careers), while an NBA role from
+# three years ago is stale and dilutes last season's signal through the 0.5^age
+# recency weights. NBA depth 1 vs 2 is a wash (well inside the ±0.4 noise bar),
+# so 2 is kept for the extra sample_games evidence the shrinkage uses; 3+ is
+# monotonically worse and must not be re-enabled without a fresh backtest.
+# This mattered immediately: before the backfill NBA simply HAD no prior
+# seasons, so the old blanket lookback of 5 was inert. Backfilling 2019-2024
+# made it live, and leaving it at 5 would have silently degraded every NBA
+# projection by ~+0.17 RMSE — the backfill paying for itself in reverse.
+# 2026-08-03 accuracy round (5 native NBA backtest pairs, tests 2021-2023 for
+# tuning, 2024/2025 strictly held out; lab: stack_final.py). Three more NBA
+# settings became sport-specific, all improving 5/5 pairs with holdout-
+# significant pooled tests; the shipped stack measured -0.31 holdout per-game
+# RMSE (~5% of baseline) as a unit:
+#   recency_decay    weight of season t-1-k is decay^k. NBA 0.3 (was the
+#                    generic 0.5): even one-year-old NBA data over-describes a
+#                    player's current role. WNBA keeps 0.5.
+#   mpg/rate_conf_frac  small-sample shrinkage ramps (season_project). NBA
+#                    0.55/0.35 — thin samples shrink HARDER than the 0.40/0.25
+#                    the earlier (in-sample-tainted) tune chose; WNBA keeps
+#                    0.40/0.25 untouched since the refit was NBA-only.
+#   minutes_model    dedicated ridge next-season-MPG model (minutes_model.py),
+#                    blended 50/50 with engine minutes. NBA-only: it trains on
+#                    native season->season+1 transitions (the 2026-08-03
+#                    backfill created ~2k), and the WNBA pairs never validated
+#                    it. The biggest single win of the round (-0.27 holdout).
+# Rejected with evidence, do not re-add casually: Marcel ensemble (tune-era
+# gain was decaying calibration bias; holdout WORSE than this stack), per-stat
+# EB shrinkage (the linear ramp already equals the EB weight to within noise),
+# always-on residual regression, games-blend weight changes, usage as a direct
+# rate feature (its information lives in the minutes model).
 SPORT_SEASON_PARAMS = {
-    "wnba": {"league_avg_gp_pct": 0.727, "default_len": 40, "experience_curve": False},
-    "nba":  {"league_avg_gp_pct": 0.587, "default_len": 82, "experience_curve": True},
+    "wnba": {"league_avg_gp_pct": 0.727, "default_len": 40,
+             "experience_curve": False, "lookback_seasons": 5,
+             "recency_decay": 0.5, "mpg_conf_frac": 0.40,
+             "rate_conf_frac": 0.25, "minutes_model": False,
+             "rookie_priors": False},
+    "nba":  {"league_avg_gp_pct": 0.587, "default_len": 82,
+             "experience_curve": True, "lookback_seasons": 2,
+             "recency_decay": 0.3, "mpg_conf_frac": 0.55,
+             "rate_conf_frac": 0.35, "minutes_model": True,
+             "rookie_priors": True},
 }
+# `rookie_priors` (2026-08-03, franchise-v1.6): incoming rookies — previously
+# ABSENT from the projection table entirely, since candidates = played-last-
+# season — are projected from draft-slot bucket medians of our own past rookie
+# classes (rookie_priors.py). WNBA stays off only because BDL carries no WNBA
+# draft fields; seed players.draft_number for WNBA and flip the flag.
+
+# How far back fetch_minutes_frame reaches for transition training data. NOT
+# the projection lookback: stale seasons are bad PRIORS but fine TRAINING
+# EXAMPLES (a 2019->2020 transition teaches how minutes move year-over-year
+# regardless of who the players were). Bounded by our own retention.
+MINUTES_MODEL_HISTORY = 7
 
 # Liveness floor: a healthy run writes hundreds of rows for either sport. A
 # tiny write means a broken loader/filter, and a green Action with 5 rows is
@@ -176,20 +237,23 @@ def run_next_game(sport: str, season: int):
 # Season snapshot horizon (pre-season, scheduled through offseason)
 # ================================================================
 
-def _recency_weights(prior_seasons: list) -> dict:
-    """Halving recency weights by offset from the most recent prior season
-    (most recent -> 1.0, one before -> 0.5, ...). Normalized downstream."""
+def _recency_weights(prior_seasons: list, decay: float = 0.5) -> dict:
+    """Geometric recency weights by offset from the most recent prior season
+    (most recent -> 1.0, one before -> decay, ...). Normalized downstream.
+    Decay is per-sport (SPORT_SEASON_PARAMS.recency_decay): NBA roles go stale
+    fast, so its older season carries 0.3, not the generic 0.5."""
     newest = max(prior_seasons)
-    return {s: 0.5 ** (newest - s) for s in prior_seasons}
+    return {s: decay ** (newest - s) for s in prior_seasons}
 
 
-def run_season(sport: str, season: int, lookback_seasons: int = 5):
+def run_season(sport: str, season: int, lookback_seasons: int = None):
     conn = fdb.get_conn()
     try:
+        params = SPORT_SEASON_PARAMS[sport]
+        if lookback_seasons is None:
+            lookback_seasons = params["lookback_seasons"]
         recent_season = season - 1   # most recent prior season (may be in progress)
         prior_seasons = list(range(season - lookback_seasons, season))  # < target
-
-        params = SPORT_SEASON_PARAMS[sport]
         windows = fdb.get_season_windows(conn, sport, prior_seasons + [season])
 
         print(f"[season] loading prior-season aggregates {prior_seasons}...")
@@ -230,11 +294,14 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
                   f"denominators {[completed.get(s) for s in in_progress]}")
 
         # Monkeypatch the season model's global constants for this run.
-        sea_model.SEASON_WEIGHTS = _recency_weights(prior_seasons)
+        sea_model.SEASON_WEIGHTS = _recency_weights(prior_seasons,
+                                                    params["recency_decay"])
         sea_model.MAX_TEAM_GAMES = {s: team_games.get(s, default_len)
                                     for s in prior_seasons + [season]}
         sea_model.PROJECT_GAMES = project_games
         sea_model.LEAGUE_AVG_GP_PCT = params["league_avg_gp_pct"]
+        sea_model.MPG_FULL_CONF_FRAC = params["mpg_conf_frac"]
+        sea_model.RATE_FULL_CONF_FRAC = params["rate_conf_frac"]
 
         print(f"[season] {hist['player_id'].nunique()} players w/ history, "
               f"{len(active)} candidates, projecting {project_games} games")
@@ -252,8 +319,37 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
         # projected from. Computed once — identical for every player in the run.
         priors = sea_model.league_rate_priors(hist)
 
+        # Dedicated minutes model (minutes_model.py): ridge over native
+        # season->season+1 transitions, predictions blended 50/50 with the
+        # engine's own minutes. Trains on deeper history than the projection
+        # lookback (stale seasons are bad priors but fine training examples).
+        # Falls back to engine minutes wherever a prediction is missing —
+        # a candidate with no team, thin features, or too few transitions.
+        min_preds = {}
+        mframe = pd.DataFrame()
+        if params["minutes_model"] or params["rookie_priors"]:
+            mframe = fdb.fetch_minutes_frame(
+                conn, sport, recent_season - MINUTES_MODEL_HISTORY + 1,
+                recent_season)
+        if params["minutes_model"]:
+            if not mframe.empty:
+                feats = mmodel.build_features(
+                    mframe, fdb.get_birth_years(conn, sport), draft_years)
+                fitted = mmodel.fit(feats, recent_season)
+                if fitted is not None:
+                    preds = mmodel.predict(
+                        fitted, feats[feats.season == recent_season])
+                    min_preds = dict(zip(preds.player_id, preds.pred_mpg))
+                    print(f"[season] minutes model: "
+                          f"{fitted['n_transitions']} transitions, "
+                          f"{len(min_preds)} predictions")
+                else:
+                    print("[season] minutes model: too few transitions — "
+                          "falling back to engine minutes")
+
         rows = []
         n_shrunk = 0
+        n_blended = 0
         for pid in active:
             phist = hist[hist["player_id"] == pid].sort_values("season")
             if phist.empty:
@@ -272,11 +368,40 @@ def run_season(sport: str, season: int, lookback_seasons: int = 5):
                     proj, experience_seasons(season, draft_years.get(str(pid)),
                                              len(phist)))
             pg = sea_model.to_per_game(proj)
+            pred = min_preds.get(str(pid))
+            if pred is not None:
+                pg = mmodel.blend_into_projection(pg, pred)
+                n_blended += 1
             proj_games, _ = sea_model.project_games_blended(proj["gp_pct"])
             rows.append({"player_id": pid, "projected_games": proj_games, **pg})
         print(f"[season] small-sample shrinkage applied to {n_shrunk} players "
               f"(< {project_games * sea_model.MPG_FULL_CONF_FRAC:.0f} evidence games); "
-              f"experience curve {'on' if params['experience_curve'] else 'off'}")
+              f"experience curve {'on' if params['experience_curve'] else 'off'}; "
+              f"minutes blended for {n_blended}")
+
+        # Rookie slot priors (rookie_priors.py): the incoming class has no
+        # game logs, so it can't come from `active` — append rookies projected
+        # from their draft-slot bucket's historical median. Anyone already
+        # projected above (edge case: a "rookie" with real prior-season games)
+        # keeps the evidence-based row.
+        if params["rookie_priors"] and not mframe.empty:
+            priors = rprior.fit_priors(mframe, fdb.get_draft_years(conn, sport),
+                                       fdb.get_draft_slots(conn, sport))
+            candidates = fdb.get_rookie_candidates(conn, sport, season)
+            projected = {str(r["player_id"]) for r in rows}
+            n_rookies = 0
+            for r in candidates.itertuples():
+                if r.player_id in projected:
+                    continue
+                row = rprior.project_rookie(priors, r.draft_number,
+                                            project_games)
+                if row is None:
+                    continue
+                rows.append({"player_id": r.player_id, **row})
+                n_rookies += 1
+            print(f"[season] rookie slot priors: {len(candidates)} candidates, "
+                  f"{n_rookies} projected "
+                  f"(buckets: {list(priors.index) if not priors.empty else '—'})")
 
         result = pd.DataFrame(rows)
         n = fdb.write_projections(conn, result, sport, season, "season")

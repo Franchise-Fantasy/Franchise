@@ -37,7 +37,10 @@ export async function fetchSeasonPool(sport: string): Promise<PlayerSeasonStats[
     .select(seasonPoolColumns(sport))
     .eq("sport", sport)
     .not("pro_team", "is", null)
-    .order("avg_pts", { ascending: false })
+    // nullsFirst matters: without it Postgres puts NULLS FIRST on a desc
+    // order, so statless players (fresh signings, pre-tipoff rows) sort to
+    // the TOP and eat this limit before anyone with actual stats.
+    .order("avg_pts", { ascending: false, nullsFirst: false })
     // PostgREST caps responses at max-rows (1000) anyway; make the cap
     // explicit so the pool size is a documented choice, not a surprise.
     .limit(1000);

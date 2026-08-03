@@ -193,7 +193,21 @@ def fetch_box_scores(year: int) -> list:
 
 
 def ensure_players(stats: list, bdl_to_uuid: dict, dry_run: bool) -> int:
-    """Create any BDL player missing from `players`. Mutates bdl_to_uuid."""
+    """Create any BDL player missing from `players`. Mutates bdl_to_uuid.
+
+    Created rows carry NO pro_team and status='retired' (2026-08-03). These are
+    historical records — someone whose last game was in 2012 must not surface as
+    an addable player — and `pro_team IS NOT NULL` is the ONLY server-side gate
+    on every free-agent / draft-board / commissioner-add / rankings query in the
+    app (nothing filters on `status`). Worse, those queries order by
+    `avg_pts desc` without `nullsFirst: false`, so Postgres sorts NULLS FIRST
+    and a statless row would land at the TOP of the list and eat the 200-1000
+    row cap — the failure autodraft already documents.
+    Historically this function set the player's LAST HISTORICAL TEAM plus
+    status='active', i.e. exactly that shape; the daily `sync-players` sweep
+    (which NULLs pro_team for any external_id_bdl absent from BDL's active
+    list) is what kept it from being visible.
+    """
     new_rows, seen = [], set()
     for s in stats:
         p = s.get("player") or {}
@@ -209,9 +223,8 @@ def ensure_players(stats: list, bdl_to_uuid: dict, dry_run: bool) -> int:
             "name": name,
             "sport": "wnba",
             "position": p.get("position") or None,
-            "pro_team": (s.get("team") or {}).get("abbreviation"),
             "external_id_bdl": pid,
-            "status": "active",
+            "status": "retired",
         })
     if new_rows and not dry_run:
         for i in range(0, len(new_rows), BATCH):

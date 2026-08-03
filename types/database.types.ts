@@ -4325,6 +4325,8 @@ export type Database = {
         Row: {
           birthdate: string | null
           contentful_entry_id: string | null
+          draft_number: number | null
+          draft_round: number | null
           draft_year: number | null
           dynasty_value_score: number | null
           external_id_bdl: number | null
@@ -4346,6 +4348,8 @@ export type Database = {
         Insert: {
           birthdate?: string | null
           contentful_entry_id?: string | null
+          draft_number?: number | null
+          draft_round?: number | null
           draft_year?: number | null
           dynasty_value_score?: number | null
           external_id_bdl?: number | null
@@ -4367,6 +4371,8 @@ export type Database = {
         Update: {
           birthdate?: string | null
           contentful_entry_id?: string | null
+          draft_number?: number | null
+          draft_round?: number | null
           draft_year?: number | null
           dynasty_value_score?: number | null
           external_id_bdl?: number | null

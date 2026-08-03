@@ -195,7 +195,7 @@ export function AvailablePlayers({
         .from("player_season_stats")
         .select("*")
         .eq("sport", sport)
-        .order("avg_pts", { ascending: false });
+        .order("avg_pts", { ascending: false, nullsFirst: false });
 
       // Rookie drafts: only THIS draft's class. `draft_year` is the class
       // filter, not the `rookie` boolean — that column is only set on rows the

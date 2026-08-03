@@ -213,6 +213,8 @@ Deno.serve(async (req: Request) => {
       pro_team: string;
       bdl_position: string | null;
       draft_year: number | null;
+      draft_round: number | null;
+      draft_number: number | null;
     }> = [];
 
     for (const bp of bdlPlayers) {
@@ -245,6 +247,18 @@ Deno.serve(async (req: Request) => {
             ? bp.draft_year
             : null;
 
+      // Draft slot feeds the rookie slot-prior projections (rookie_priors.py).
+      // NBA-only in practice: BDL's WNBA player objects carry no draft fields
+      // and NFL has none either, so both fall through to null.
+      const draftRound =
+        typeof bp.draft_round === 'number' && bp.draft_round >= 1 && bp.draft_round <= 10
+          ? bp.draft_round
+          : null;
+      const draftNumber =
+        typeof bp.draft_number === 'number' && bp.draft_number >= 1 && bp.draft_number <= 300
+          ? bp.draft_number
+          : null;
+
       activePlayers.push({
         bdl_id: bp.id,
         name,
@@ -252,6 +266,8 @@ Deno.serve(async (req: Request) => {
         pro_team: team,
         bdl_position: coercedPosition,
         draft_year: draftYear,
+        draft_round: draftRound,
+        draft_number: draftNumber,
       });
     }
 
@@ -318,12 +334,13 @@ Deno.serve(async (req: Request) => {
       external_id_nba: number | null;
       birthdate: string | null;
       draft_year: number | null;
+      draft_number: number | null;
     }> = [];
     const PLAYER_PAGE = 1000;
     for (let from = 0; ; from += PLAYER_PAGE) {
       const { data, error: fetchErr } = await supabase
         .from('players')
-        .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate, draft_year')
+        .select('id, name, position, pro_team, external_id_bdl, external_id_nba, birthdate, draft_year, draft_number')
         .eq('sport', sport)
         .order('id')
         .range(from, from + PLAYER_PAGE - 1);
@@ -341,6 +358,7 @@ Deno.serve(async (req: Request) => {
       external_id_nba: number | null;
       birthdate: string | null;
       draft_year: number | null;
+      draft_number: number | null;
     };
 
     const existingByBdlId = new Map<number, ExistingRec>();
@@ -355,6 +373,7 @@ Deno.serve(async (req: Request) => {
         external_id_nba: p.external_id_nba ? Number(p.external_id_nba) : null,
         birthdate: (p as { birthdate?: string | null }).birthdate ?? null,
         draft_year: (p as { draft_year?: number | null }).draft_year ?? null,
+        draft_number: (p as { draft_number?: number | null }).draft_number ?? null,
       };
       if (p.external_id_bdl) existingByBdlId.set(Number(p.external_id_bdl), rec);
       existingByName.set(normalizeName(p.name), rec);
@@ -377,6 +396,8 @@ Deno.serve(async (req: Request) => {
       external_id_nba?: number;
       birthdate?: string;
       draft_year?: number;
+      draft_round?: number;
+      draft_number?: number;
     }> = [];
 
     for (const bp of activePlayers) {
@@ -433,6 +454,14 @@ Deno.serve(async (req: Request) => {
         update.draft_year = derivedDraftYear;
         hasChange = true;
       }
+      // Back-fill draft slot when currently NULL (rookie slot-prior
+      // projections). Never overwrites a non-null slot — a draft pick is
+      // immutable history, and the seeder is the authoritative first pass.
+      if (match.draft_number == null && bp.draft_number != null) {
+        update.draft_number = bp.draft_number;
+        if (bp.draft_round != null) update.draft_round = bp.draft_round;
+        hasChange = true;
+      }
 
       if (hasChange) updates.push(update);
     }
@@ -465,6 +494,10 @@ Deno.serve(async (req: Request) => {
         if (dob) row.birthdate = dob;
         const draftYear = p.draft_year ?? lookupDraftYear(p.normName, p.pro_team);
         if (draftYear) row.draft_year = draftYear;
+        if (p.draft_number != null) {
+          row.draft_number = p.draft_number;
+          if (p.draft_round != null) row.draft_round = p.draft_round;
+        }
         return row;
       });
       // sport-scope: toInsert rows carry sport explicitly (built above)

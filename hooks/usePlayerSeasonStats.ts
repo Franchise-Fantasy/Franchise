@@ -18,7 +18,7 @@ export function usePlayerSeasonStats(excludePlayerIds?: string[]) {
         .select('*')
         .eq('sport', sport)
         .not('pro_team', 'is', null)
-        .order('avg_pts', { ascending: false })
+        .order('avg_pts', { ascending: false, nullsFirst: false })
         .limit(600);
 
       if (excludePlayerIds && excludePlayerIds.length > 0) {
