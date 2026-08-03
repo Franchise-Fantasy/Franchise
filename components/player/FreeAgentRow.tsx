@@ -113,9 +113,6 @@ export const FreeAgentRow = memo(function FreeAgentRow({
     (fpts !== undefined
       ? `, ${fpts} ${isProjected ? 'projected ' : ''}fantasy points`
       : '') +
-    (isProjected && player.games_played > 1
-      ? `, over ${player.games_played} projected games`
-      : '') +
     (projFpts != null && projFpts > 0
       ? `, ${projFpts.toFixed(1)} projected next game`
       : '') +
@@ -263,13 +260,6 @@ export const FreeAgentRow = memo(function FreeAgentRow({
                   style={[styles.fptsValue, { color: c.gold }]}
                 >
                   {fpts.toFixed(1)}
-                </ThemedText>
-              )}
-              {/* The "×" is load-bearing: the list ranks on per-game × games,
-                  so without it a 40.6 sitting above a 52.8 reads as a bug. */}
-              {isProjected && player.games_played > 1 && (
-                <ThemedText style={[styles.catLine, { color: c.secondaryText }]}>
-                  ×{player.games_played} gm
                 </ThemedText>
               )}
             </>

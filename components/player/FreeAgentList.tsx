@@ -568,11 +568,6 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
     setPlayingOnDate,
     leagueId,
     isCategories,
-    undefined,
-    // Projected rows carry games_played = projected_games (the engine's
-    // availability estimate) — rank on total projected production so a
-    // 47-game flier lands below a 74-game starter with the same per-game line.
-    isProjectedView,
   );
 
   // Look up original season stats for PlayerDetailModal (avoid passing time-range-adjusted stats)

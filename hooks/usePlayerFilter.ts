@@ -87,13 +87,6 @@ export function usePlayerFilter(
    *  the user may not have "active" — the global active league's sport would be
    *  wrong there). Omitted = global active league, correct for the roster tab. */
   leagueId?: string,
-  /** Rank by TOTAL production (per-game × games_played) instead of per-game.
-   *  The projected view sets this: its rows carry games_played =
-   *  projected_games, the engine's availability estimate, and a per-game sort
-   *  would rank a 47-projected-game flier level with a 74-game starter —
-   *  discarding the one uncertainty signal the model outputs. Display is
-   *  untouched (rows still show per-game numbers); FG%/FT% stay rate sorts. */
-  sortByTotalProduction?: boolean,
 ) {
   // Categories leagues can't sort by FPTS (it doesn't exist), so they default
   // to PPG. Points leagues keep FPTS as the default.
@@ -214,15 +207,16 @@ export function usePlayerFilter(
     }
 
     // Sort — pre-compute FPTS once (N calculations) instead of inside
-    // the comparator (N×log(N) calculations)
-    const gamesWeight = (p: PlayerSeasonStats) =>
-      sortByTotalProduction ? p.games_played || 0 : 1;
+    // the comparator (N×log(N) calculations). All sorts are PER-GAME by
+    // design, projected rows included: projections speak per-game production
+    // everywhere in the app, and availability (injuries, load management) is
+    // the user's judgment to layer on, not the sort's.
     if (sortBy === 'FPTS' && scoringWeights) {
       const fptsMap = new Map<string, number>();
       for (const p of result) {
         fptsMap.set(
           p.player_id,
-          calculateAvgFantasyPoints(p, scoringWeights, sport) * gamesWeight(p),
+          calculateAvgFantasyPoints(p, scoringWeights, sport),
         );
       }
       result = [...result].sort((a, b) =>
@@ -242,13 +236,12 @@ export function usePlayerFilter(
     } else if (sortBy !== 'FPTS') {
       const field = SORT_FIELD[sortBy];
       result = [...result].sort(
-        (a, b) =>
-          (b[field] as number) * gamesWeight(b) - (a[field] as number) * gamesWeight(a),
+        (a, b) => (b[field] as number) - (a[field] as number),
       );
     }
 
     return result;
-  }, [players, deferredSearchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter, sortByTotalProduction]);
+  }, [players, deferredSearchText, selectedPosition, selectedProTeam, sortBy, scoringWeights, sport, showMinutesUp, minutesUpPlayerIds, playingOnDate, scheduleMap, showWatchlistOnly, watchlistedIds, showRookiesOnly, rookieDraftYear, showFreeAgentsOnly, rosteredPlayerIds, injuryFilter]);
 
   const filterBarProps = {
     searchText,

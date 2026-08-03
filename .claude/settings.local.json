@@ -1046,7 +1046,12 @@
       "Bash(../projvenv/bin/python rookie_slot_analysis.py)",
       "Bash(command -v deno || ls ~/.deno/bin 2>/dev/null || echo \"no deno\"; grep -n \"typecheck:edge\" package.json | cut -c1-120)",
       "Read(//Users/joe/.deno/**)",
-      "Bash(/private/tmp/claude-501/-Users-joe-Desktop-Franchise/48b64ebc-b9b6-4bcf-9304-e879cd603ec5/scratchpad/projvenv/bin/python -m py_compile franchise_db.py)"
+      "Bash(/private/tmp/claude-501/-Users-joe-Desktop-Franchise/48b64ebc-b9b6-4bcf-9304-e879cd603ec5/scratchpad/projvenv/bin/python -m py_compile franchise_db.py)",
+      "Bash(python3 -c \"import pandas as pd; d=pd.read_csv\\('data/nba_seasons_v2.csv'\\); print\\(d.columns.tolist\\(\\)\\); print\\(len\\(d\\)\\)\")",
+      "Bash(ls /Users/joe/Desktop/Franchise/projections/ | head; ls -d /Users/joe/Desktop/Franchise/*venv* /Users/joe/Desktop/Franchise/projections/*venv* /Users/joe/Desktop/Franchise/backend/*venv* 2>/dev/null; which python3.11 python3.12 2>/dev/null; ls ~/.venvs 2>/dev/null)",
+      "Bash(/opt/homebrew/bin/python3 -c \"import pandas\")",
+      "Bash(./projvenv/bin/python -c \"import pandas, scipy, sklearn; print\\('venv ok'\\)\")",
+      "Bash(../projvenv/bin/python proto_games_v2.py)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",
