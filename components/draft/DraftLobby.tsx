@@ -1,8 +1,8 @@
 import { useMemo } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
+import { LobbyDraftOrder } from '@/components/draft/LobbyDraftOrder';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { ThemedView } from '@/components/ui/ThemedView';
 import { Fonts } from '@/constants/Colors';
 import { formatDraftType } from '@/constants/LeagueDefaults';
 import { useColors } from '@/hooks/useColors';
@@ -17,6 +17,9 @@ type Colors = ReturnType<typeof useColors>;
 interface DraftLobbyProps {
   draft: DraftState;
   draftId: string;
+  leagueId: string;
+  /** The viewing member's team, badged in the draft order list. */
+  myTeamId: string | undefined;
   isRookieDraft: boolean;
   draftPickTradingEnabled: boolean;
 }
@@ -67,7 +70,14 @@ function SettingRow({ label, value, colors }: { label: string; value: string; co
  * the live board automatically once `start-draft` flips the status (the shared
  * countdown hook owns that transition).
  */
-export function DraftLobby({ draft, draftId, isRookieDraft, draftPickTradingEnabled }: DraftLobbyProps) {
+export function DraftLobby({
+  draft,
+  draftId,
+  leagueId,
+  myTeamId,
+  isRookieDraft,
+  draftPickTradingEnabled,
+}: DraftLobbyProps) {
   const colors = useColors();
   const scheduled = draft.status === 'pending' && !!draft.draft_date;
 
@@ -103,7 +113,11 @@ export function DraftLobby({ draft, draftId, isRookieDraft, draftPickTradingEnab
   ]);
 
   return (
-    <ThemedView style={styles.container}>
+    <ScrollView
+      style={styles.container}
+      contentContainerStyle={styles.content}
+      showsVerticalScrollIndicator={false}
+    >
       <View
         style={[styles.hero, { backgroundColor: colors.card, borderColor: colors.border }]}
         accessibilityRole="summary"
@@ -140,17 +154,27 @@ export function DraftLobby({ draft, draftId, isRookieDraft, draftPickTradingEnab
         ))}
       </View>
 
+      <LobbyDraftOrder
+        draftId={draftId}
+        leagueId={leagueId}
+        myTeamId={myTeamId}
+        isRookieDraft={isRookieDraft}
+        isSnake={draft.draft_type !== 'linear'}
+      />
+
       <ThemedText style={[styles.footnote, { color: colors.secondaryText }]}>
         The board opens automatically when the draft begins. You can leave and come back — your spot
         is saved.
       </ThemedText>
-    </ThemedView>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  content: {
     padding: s(20),
     gap: s(16),
   },

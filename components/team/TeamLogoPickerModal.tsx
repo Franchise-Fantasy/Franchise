@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import {
   Alert,
   Image,
@@ -12,6 +12,7 @@ import {
 
 import { TeamLogo } from '@/components/team/TeamLogo';
 import { BottomSheet } from '@/components/ui/BottomSheet';
+import { CircleCropModal } from '@/components/ui/CircleCropModal';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { cardShadow, Fonts } from '@/constants/Colors';
@@ -39,6 +40,8 @@ export function TeamLogoPickerModal({
   const c = useColors();
   const [uploading, setUploading] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
+  // Picked but not yet framed — held while the circular cropper is open.
+  const [pendingUri, setPendingUri] = useState<string | null>(null);
 
   const pickImage = async (source: 'camera' | 'gallery') => {
     const permFn = source === 'camera'
@@ -53,12 +56,11 @@ export function TeamLogoPickerModal({
       return;
     }
 
+    // No `allowsEditing` — the OS editor crops to a square, which doesn't
+    // match the circle the logo actually renders in. CircleCropModal handles
+    // framing (and the downscale + JPEG encode the upload needs) instead.
     const options: ImagePicker.ImagePickerOptions = {
       mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.4,
-      base64: true,
       exif: false,
     };
 
@@ -66,12 +68,20 @@ export function TeamLogoPickerModal({
       ? await ImagePicker.launchCameraAsync(options)
       : await ImagePicker.launchImageLibraryAsync(options);
 
-    if (result.canceled || !result.assets?.[0]?.base64) return;
+    if (result.canceled || !result.assets?.[0]?.uri) return;
 
-    const asset = result.assets[0];
-    setPreview(asset.uri);
-    uploadImage(asset.base64!);
+    setPendingUri(result.assets[0].uri);
   };
+
+  const handleCropped = ({ uri, base64 }: { uri: string; base64: string }) => {
+    setPendingUri(null);
+    setPreview(uri);
+    uploadImage(base64);
+  };
+
+  // Stable so the cropper's image-measuring effect doesn't re-run on every
+  // render of this sheet.
+  const cancelCrop = useCallback(() => setPendingUri(null), []);
 
   const uploadImage = async (base64: string) => {
     setUploading(true);
@@ -253,6 +263,14 @@ export function TeamLogoPickerModal({
           </TouchableOpacity>
         )}
       </View>
+
+      <CircleCropModal
+        visible={!!pendingUri}
+        uri={pendingUri}
+        onCancel={cancelCrop}
+        onConfirm={handleCropped}
+        title="Position Logo"
+      />
     </BottomSheet>
   );
 }

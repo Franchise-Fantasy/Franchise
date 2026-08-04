@@ -26,6 +26,7 @@ import { ForceAddDropModal } from '@/components/commissioner/ForceAddDropModal';
 import { ForceRosterMoveModal } from '@/components/commissioner/ForceRosterMoveModal';
 import { ImportTeamRosterModal } from '@/components/commissioner/ImportTeamRosterModal';
 import { InviteMembersSheet } from '@/components/commissioner/InviteMembersSheet';
+import { LeagueMemberRow } from '@/components/commissioner/LeagueMemberRow';
 import { ManagePickConditionsModal } from '@/components/commissioner/ManagePickConditionsModal';
 import { ManualDraftOrderModal } from '@/components/commissioner/ManualDraftOrderModal';
 import { OfflineDraftEntryModal } from '@/components/commissioner/OfflineDraftEntryModal';
@@ -34,8 +35,6 @@ import { ReverseTradeModal } from '@/components/commissioner/ReverseTradeModal';
 import { SendAnnouncementModal } from '@/components/commissioner/SendAnnouncementModal';
 import { ScoringSummary } from '@/components/create-league/ScoringSummary';
 import { TeamAssigner } from '@/components/import/TeamAssigner';
-import { TeamLogo } from '@/components/team/TeamLogo';
-import { Badge } from '@/components/ui/Badge';
 import { ListRow } from '@/components/ui/ListRow';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { PageHeader } from '@/components/ui/PageHeader';
@@ -47,7 +46,7 @@ import { queryKeys } from '@/constants/queryKeys';
 import { PAYWALL_ENABLED, TIER_LABELS } from '@/constants/Subscriptions';
 import { useAppState } from '@/context/AppStateProvider';
 import { useSession } from '@/context/AuthProvider';
-import { useActionPicker, useConfirm, useTextPrompt } from '@/context/ConfirmProvider';
+import { useActionPicker, useConfirm } from '@/context/ConfirmProvider';
 import { useAnnouncements } from '@/hooks/useAnnouncements';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { useLeagueWithPrivate } from '@/hooks/useLeague';
@@ -62,8 +61,10 @@ import { reopenOfflineDraft } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { formatIsoDate } from '@/utils/dates';
 import { initialDraftLabel } from '@/utils/draft/draftLabels';
-import { formatPickClock } from '@/utils/draft/pickClock';
+import { formatPickClock, isSlowClock } from '@/utils/draft/pickClock';
+import { formatQuietWindow } from '@/utils/draft/quietHours';
 import { calcRounds } from '@/utils/league/playoff';
+import { taxiExperienceLabel } from '@/utils/roster/taxiEligibility';
 import { ms, s } from '@/utils/scale';
 
 // ── Lifecycle helpers ──────────────────────────────────────────────
@@ -110,7 +111,6 @@ export default function LeagueInfoScreen() {
   const scheme = useColorScheme() ?? 'light';
   const c = Colors[scheme];
   const queryClient = useQueryClient();
-  const promptInput = useTextPrompt();
   const confirm = useConfirm();
   const pickAction = useActionPicker();
   const router = useRouter();
@@ -677,6 +677,13 @@ export default function LeagueInfoScreen() {
               ? rosterConfig.map((r) => `${r.position}: ${r.slot_count}`).join('  |  ')
               : 'Loading...'}
           </ThemedText>
+          {/* Taxi eligibility gates the "send to taxi" action on the roster
+              page but is set only in the create-league wizard — without this
+              row it's an enforced rule nobody, commissioner included, can
+              read back. */}
+          {(league.taxi_slots ?? 0) > 0 && (
+            <Row label="Taxi Eligibility" value={taxiExperienceLabel(league.taxi_max_experience ?? null)} c={c} />
+          )}
           <Row
             label="Position Limits"
             value={(() => {
@@ -739,6 +746,24 @@ export default function LeagueInfoScreen() {
           <SectionCard title={initialDraftLabel(league.league_type)} c={c} editable={sectionEditable('draft', lifecycle, isCommissioner)} onEdit={() => setShowDraftModal(true)}>
             <Row label="Draft Type" value={draft ? DRAFT_TYPE_DISPLAY(draft.draft_type ?? 'snake') : '-'} c={c} />
             <Row label="Time Per Pick" value={draft ? formatPickClock(draft.time_limit ?? 90) : '-'} c={c} />
+            {/* The clock's two modifiers are mutually exclusive by pace — the
+                editor offers quiet hours only on a slow (async) clock and
+                acceleration only on a live one — so exactly one row shows. */}
+            {draft && (
+              isSlowClock(draft.time_limit)
+                ? <Row label="Quiet Hours" value={formatQuietWindow(draft) ?? 'Off'} c={c} />
+                : (
+                  <Row
+                    label="Speed Up Later Rounds"
+                    value={
+                      draft.accelerate_after_round != null && draft.accelerated_time_limit != null
+                        ? `After round ${draft.accelerate_after_round} · ${formatPickClock(draft.accelerated_time_limit)}`
+                        : 'Off'
+                    }
+                    c={c}
+                  />
+                )
+            )}
             <Row label="Draft Order" value={INITIAL_DRAFT_ORDER_DISPLAY[league.initial_draft_order] ?? '-'} c={c} />
             <Row
               label="Status"
@@ -786,6 +811,7 @@ export default function LeagueInfoScreen() {
             </>
           )}
           <Row label="IR Player Trading" value={league.ir_trading_enabled ? 'Enabled' : 'Disabled'} c={c} />
+          <Row label="League Intel" value={league.auto_rumors_enabled ? 'Enabled' : 'Disabled'} c={c} />
           <Row
             label="Trade Deadline"
             value={league.trade_deadline ? `After ${formatIsoDate(league.trade_deadline)}` : 'None'}
@@ -797,8 +823,13 @@ export default function LeagueInfoScreen() {
         {/* ── Waiver Settings ── */}
         <SectionCard title="Waiver Settings" c={c} editable={sectionEditable('waivers', lifecycle, isCommissioner)} onEdit={() => setShowWaiverModal(true)}>
           <Row label="Waiver Type" value={WAIVER_DISPLAY[league.waiver_type] ?? '-'} c={c} />
+          {/* NFL runs one fixed weekly clear (Wed 5am ET) and ignores
+              waiver_period_days — showing the stored day count there would
+              describe a cadence the league doesn't run. Mirrors the editor. */}
           {league.waiver_type !== 'none' && (
-            <Row label="Waiver Period" value={`${league.waiver_period_days ?? 0} days`} c={c} />
+            league.sport === 'nfl'
+              ? <Row label="Waiver Run" value="Weekly · Wed 5:00 AM ET" c={c} />
+              : <Row label="Waiver Period" value={`${league.waiver_period_days ?? 0} days`} c={c} />
           )}
           {league.waiver_type === 'faab' && (
             <Row label="FAAB Budget" value={`$${league.faab_budget ?? 100}`} c={c} />
@@ -819,6 +850,9 @@ export default function LeagueInfoScreen() {
           <Row label="Start Date" value={startDateDisplay} c={c} />
           <Row label="Regular Season" value={`${league.regular_season_weeks ?? '-'} weeks`} c={c} />
           <Row label="Playoffs" value={`${league.playoff_weeks ?? '-'} weeks`} c={c} />
+          {league.sport === 'nba' && (
+            <Row label="NBA Cup Week" value={league.combine_cup_week ? 'Double week' : 'Separate weeks'} c={c} />
+          )}
           <Row label="Playoff Teams" value={String(league.playoff_teams ?? '-')} c={c} />
           <Row label="Seeding Format" value={seedingDisplay(league.playoff_seeding_format, league.reseed_each_round ?? false)} c={c} />
           <Row
@@ -854,104 +888,17 @@ export default function LeagueInfoScreen() {
 
         {/* ── Members ── */}
         <Section title="Members" cardStyle={styles.membersCard}>
-          {(league.league_teams ?? []).map((team: any, idx: number) => {
-            const isMine = team.id === teamId;
-            const total = league.league_teams?.length ?? 0;
-            return (
-              <ListRow
-                key={team.id}
-                index={idx}
-                total={total}
-                style={styles.memberRow}
-              >
-                <View style={styles.memberLeft}>
-                  <TeamLogo logoKey={team.logo_key} teamName={team.name} tricode={team.tricode} size="medium" />
-                  <TouchableOpacity
-                    disabled={!isMine}
-                    activeOpacity={isMine ? 0.6 : 1}
-                    accessibilityRole="button"
-                    accessibilityLabel={`Team name: ${team.name}${isMine ? ', tap to edit' : ''}`}
-                    onPress={() => {
-                      if (!isMine) return;
-                      promptInput({
-                        title: 'Edit Team Name',
-                        message: 'Enter your new team name',
-                        defaultValue: team.name ?? '',
-                        maxLength: 30,
-                        action: {
-                          label: 'Save',
-                          onSubmit: async (value) => {
-                            const name = value.trim();
-                            if (!name) return;
-                            if (name.length > 30) { Alert.alert('Too long', 'Team name must be 30 characters or fewer.'); return; }
-                            const { error } = await supabase.from('teams').update({ name }).eq('id', team.id);
-                            if (error) { Alert.alert('Error', error.message); return; }
-                            queryClient.invalidateQueries({ queryKey: ['league'] });
-                          },
-                        },
-                      });
-                    }}
-                  >
-                    <View style={styles.memberNameRow}>
-                      <ThemedText>{team.name}</ThemedText>
-                      {isMine && <Ionicons name="pencil" size={10} color={c.secondaryText} />}
-                    </View>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    accessibilityRole="button"
-                    accessibilityLabel={`Tricode: ${team.tricode ?? 'not set'}${isMine ? ', tap to edit' : ''}`}
-                    onPress={() => {
-                      if (!isMine) return;
-                      promptInput({
-                        title: 'Edit Tricode',
-                        message: '2-3 characters (letters/numbers)',
-                        defaultValue: team.tricode ?? '',
-                        maxLength: 3,
-                        autoCapitalize: 'characters',
-                        action: {
-                          label: 'Save',
-                          onSubmit: async (value) => {
-                            const code = value.trim().toUpperCase();
-                            if (!code || code.length < 2 || code.length > 3 || !/^[A-Z0-9]+$/.test(code)) {
-                              Alert.alert('Invalid tricode', 'Must be 2-3 letters/numbers.');
-                              return;
-                            }
-                            const { error } = await supabase.from('teams').update({ tricode: code }).eq('id', team.id);
-                            if (error) { Alert.alert('Error', error.message); return; }
-                            queryClient.invalidateQueries({ queryKey: ['league'] });
-                          },
-                        },
-                      });
-                    }}
-                    disabled={!isMine}
-                    activeOpacity={isMine ? 0.6 : 1}
-                  >
-                    <View style={[styles.tricodeBadge, { backgroundColor: c.cardAlt }]}>
-                      <ThemedText style={[styles.tricodeText, { color: c.secondaryText }]}>
-                        {team.tricode ?? '—'}
-                      </ThemedText>
-                      {isMine && <Ionicons name="pencil" size={10} color={c.secondaryText} />}
-                    </View>
-                  </TouchableOpacity>
-                </View>
-                <View style={styles.memberRight}>
-                  {isCommissioner && (team.league_players?.[0]?.count ?? 0) === 0 && (
-                    <TouchableOpacity
-                      onPress={() => setImportRosterTeam({ id: team.id, name: team.name })}
-                      accessibilityRole="button"
-                      accessibilityLabel={`Import roster for ${team.name}`}
-                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      style={styles.importRosterBtn}
-                    >
-                      <Ionicons name="cloud-upload-outline" size={16} color={c.heritageGold} accessible={false} />
-                      <ThemedText style={[styles.importRosterText, { color: c.heritageGold }]}>Import Roster</ThemedText>
-                    </TouchableOpacity>
-                  )}
-                  {team.is_commissioner && <Badge label="Commish" variant="turf" />}
-                </View>
-              </ListRow>
-            );
-          })}
+          {(league.league_teams ?? []).map((team: any, idx: number) => (
+            <LeagueMemberRow
+              key={team.id}
+              team={team}
+              isMine={team.id === teamId}
+              isCommissioner={isCommissioner}
+              index={idx}
+              total={league.league_teams?.length ?? 0}
+              onImportRoster={setImportRosterTeam}
+            />
+          ))}
         </Section>
 
         {/* ── League Notification Preferences ── */}
@@ -1073,6 +1020,7 @@ export default function LeagueInfoScreen() {
             sport={(league?.sport as Sport) ?? 'nba'}
             rosterConfig={rosterConfig}
             positionLimits={league?.position_limits as Record<string, number> | null}
+            taxiMaxExperience={league?.taxi_max_experience ?? null}
           />
           <EditRosterCutsModal
             visible={showRosterCutsModal}
@@ -1421,50 +1369,6 @@ const styles = StyleSheet.create({
     fontSize: ms(13),
     lineHeight: ms(20),
     paddingVertical: s(10),
-  },
-
-  // Members — ListRow supplies the divider + pressability. We just
-  // override to keep the commish Badge pushed to the right edge.
-  memberRow: {
-    justifyContent: 'space-between',
-  },
-  memberLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  memberNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  memberRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(8),
-  },
-  importRosterBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(4),
-  },
-  importRosterText: {
-    fontSize: ms(12),
-    fontWeight: '600',
-  },
-  tricodeBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: s(3),
-    paddingHorizontal: s(7),
-    paddingVertical: s(3),
-    borderRadius: 4,
-  },
-  tricodeText: {
-    fontSize: ms(11),
-    fontWeight: '700',
-    letterSpacing: 0.5,
   },
 
   // Commissioner actions

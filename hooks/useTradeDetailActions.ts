@@ -10,7 +10,11 @@ import { sendNotification } from '@/lib/notifications';
 import { capture } from '@/lib/posthog';
 import { DB_REGION_HEADERS, supabase } from '@/lib/supabase';
 import { isOnline } from '@/utils/network';
-import { fetchActiveRosterCount, fetchInactiveSlotPlayerIds } from '@/utils/roster/rosterCounts';
+import {
+  fetchActiveRosterCount,
+  fetchInactiveSlotPlayerIds,
+  invalidateRosterCounts,
+} from '@/utils/roster/rosterCounts';
 
 /**
  * Pull the real reason out of a FunctionsHttpError body (e.g. execute-trade's
@@ -81,6 +85,11 @@ export function useTradeDetailActions({
     queryClient.invalidateQueries({ queryKey: ['pendingTradeCount'] });
     queryClient.invalidateQueries({ queryKey: queryKeys.tradeVotes(proposal.id) });
     queryClient.invalidateQueries({ queryKey: queryKeys.tradeBlock(leagueId) });
+    // Three of these handlers can execute the trade and move players between
+    // rosters. Expiring the count caches unconditionally rather than only on
+    // the execution branches keeps a future handler from silently missing it —
+    // for the ones that change nothing this only marks inactive queries stale.
+    invalidateRosterCounts(queryClient, leagueId);
   };
 
   const handleAccept = async (onNeedDrop: () => void) => {

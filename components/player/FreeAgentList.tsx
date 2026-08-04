@@ -65,7 +65,10 @@ import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
 import { checkPositionLimits } from "@/utils/roster/positionLimits";
-import { fetchActiveRosterCount } from "@/utils/roster/rosterCounts";
+import {
+  fetchActiveRosterCount,
+  invalidateRosterCounts,
+} from "@/utils/roster/rosterCounts";
 import { countWeeklyAdds } from "@/utils/roster/weeklyAdds";
 import { calculateAvgFantasyPoints, projAvgRowToFpts } from "@/utils/scoring/fantasyPoints";
 
@@ -623,9 +626,7 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       ]);
       const maxSize = leagueRes.data?.roster_size ?? 13;
       if (activeCount >= maxSize) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId),
-        });
+        invalidateRosterCounts(queryClient, leagueId);
         setOpenAsDropPicker(true);
         setSelectedPlayer(player);
         setAddingPlayerId(null);
@@ -730,16 +731,8 @@ export function FreeAgentList({ leagueId, teamId }: FreeAgentListProps) {
       }
 
       queryClient.invalidateQueries({ queryKey: queryKeys.allPlayers(leagueId) });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.leagueOwnership(leagueId),
-      });
       queryClient.invalidateQueries({ queryKey: queryKeys.teamRoster(teamId) });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId),
-      });
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.rosterInfo(leagueId, teamId),
-      });
+      invalidateRosterCounts(queryClient, leagueId);
       queryClient.invalidateQueries({
         queryKey: queryKeys.leagueRosterStats(leagueId),
       });

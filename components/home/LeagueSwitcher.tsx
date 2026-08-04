@@ -255,13 +255,25 @@ export function LeagueSwitcher({
 
   // Sport filter pills — each one wears its own sport's brand fill when on,
   // the same color as that sport's SportBadge, so the pill and the rows it
-  // keeps read as the same thing. Pointless with a single sport.
+  // keeps read as the same thing. Off, it's an outline in that sport's chrome
+  // tint. Pointless with a single sport.
   const sportFilters =
     availableSports.length > 1 ? (
       <View style={styles.filterRow}>
         {availableSports.map((sp) => {
           const on = activeSport === sp;
-          const tint = SPORT_THEMES[sp]?.[scheme]?.primary ?? c.primary;
+          // `primary` is a FILL token — it only ever carries white
+          // (`statusText`) on top. Used as the unselected pill's border AND
+          // label it was unreadable in dark mode, where WNBA merlot (~1.1:1)
+          // and NFL navy (~1.05:1) all but vanish against the panel. The
+          // outline moves to `tint`, the theme's dark-corrected chrome
+          // relative (SportSelector uses the same token), and the unselected
+          // label to `c.text` — the on/off treatment SegmentedControl uses.
+          // In light mode `tint === primary` for every sport, so nothing
+          // there changes but the label ink.
+          const theme = SPORT_THEMES[sp]?.[scheme];
+          const fill = theme?.primary ?? c.primary;
+          const outline = theme?.tint ?? c.tint;
           return (
             <TouchableOpacity
               key={sp}
@@ -272,7 +284,7 @@ export function LeagueSwitcher({
               hitSlop={{ top: 12, bottom: 12, left: 3, right: 3 }}
               style={[
                 styles.filterPill,
-                { borderColor: tint, backgroundColor: on ? tint : "transparent" },
+                { borderColor: outline, backgroundColor: on ? fill : "transparent" },
               ]}
               accessibilityRole="button"
               accessibilityState={{ selected: on }}
@@ -282,7 +294,7 @@ export function LeagueSwitcher({
                 type="varsitySmall"
                 style={[
                   styles.filterPillText,
-                  { color: on ? c.statusText : tint },
+                  { color: on ? c.statusText : c.text },
                 ]}
               >
                 {SPORT_DISPLAY[sp]}

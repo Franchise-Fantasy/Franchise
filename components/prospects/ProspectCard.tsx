@@ -103,12 +103,8 @@ function ProspectCardBase({
         </View>
       </View>
 
-      {/* Weekly movement (▲/▼/NEW) — only for prospects on the consensus board */}
-      {prospect.displayRank != null && (
-        <ProspectMovementBadge rankChange={prospect.rankChange} />
-      )}
-
-      {/* Add to board */}
+      {/* Add to board — sits left of the movement slot so it never shifts with
+          the badge variant (NEW pill vs ▲/▼ vs steady dash). */}
       {showAdd && (
         <TouchableOpacity
           onPress={e => {
@@ -123,6 +119,15 @@ function ProspectCardBase({
           <Ionicons name="add" size={16} color={c.gold} />
         </TouchableOpacity>
       )}
+
+      {/* Weekly movement (▲/▼/NEW) — only for prospects on the consensus board.
+          The slot is always rendered at a fixed width so the badge column and
+          the add button stay aligned down the list. */}
+      <View style={styles.movementSlot}>
+        {prospect.displayRank != null && (
+          <ProspectMovementBadge rankChange={prospect.rankChange} />
+        )}
+      </View>
 
       {/* Chevron */}
       <Ionicons
@@ -225,6 +230,11 @@ const styles = StyleSheet.create({
   metaTail: {
     fontSize: ms(11),
     flexShrink: 1,
+  },
+  movementSlot: {
+    minWidth: s(36),
+    alignItems: 'flex-end',
+    justifyContent: 'center',
   },
   addBtn: {
     width: s(28),

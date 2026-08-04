@@ -1,6 +1,7 @@
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 import { PositionLimitsEditor } from '@/components/create-league/PositionLimitsEditor';
+import { TaxiEligibilityPicker } from '@/components/roster/TaxiEligibilityPicker';
 import { AnimatedSection } from '@/components/ui/AnimatedSection';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { FormSection } from '@/components/ui/FormSection';
@@ -8,7 +9,7 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Colors, Fonts } from '@/constants/Colors';
-import { LeagueWizardState, TAXI_EXPERIENCE_OPTIONS } from '@/constants/LeagueDefaults';
+import { LeagueWizardState } from '@/constants/LeagueDefaults';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { ROSTER_SLOT } from '@/utils/roster/rosterSlotsShared';
 import { ms, s } from '@/utils/scale';
@@ -106,33 +107,10 @@ export function StepRoster({ state, onSlotChange, onChange, onResetRoster }: Ste
               max={10}
             />
             <AnimatedSection visible={taxiSlot.count > 0}>
-              <View style={styles.experienceRow}>
-                <ThemedText style={[styles.extraNote, { color: c.secondaryText, marginBottom: s(6) }]}>
-                  Max player experience for taxi eligibility:
-                </ThemedText>
-                <View style={styles.experienceOptions}>
-                  {TAXI_EXPERIENCE_OPTIONS.map((opt) => {
-                    const isSelected = state.taxiMaxExperience === opt.value;
-                    return (
-                      <TouchableOpacity
-                        key={opt.label}
-                        onPress={() => onChange('taxiMaxExperience', opt.value)}
-                        style={[
-                          styles.experienceChip,
-                          { borderColor: isSelected ? c.accent : c.border, backgroundColor: isSelected ? c.accent + '18' : 'transparent' },
-                        ]}
-                        accessibilityRole="button"
-                        accessibilityLabel={`Taxi eligibility: ${opt.label}`}
-                        accessibilityState={{ selected: isSelected }}
-                      >
-                        <ThemedText style={[styles.experienceChipText, isSelected && { color: c.accent, fontWeight: '600' }]}>
-                          {opt.label}
-                        </ThemedText>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              </View>
+              <TaxiEligibilityPicker
+                value={state.taxiMaxExperience}
+                onChange={(v) => onChange('taxiMaxExperience', v)}
+              />
             </AnimatedSection>
           </View>
         )}
@@ -238,22 +216,5 @@ const styles = StyleSheet.create({
   extraNote: {
     fontSize: ms(13),
     marginBottom: s(8),
-  },
-  experienceRow: {
-    marginTop: s(8),
-  },
-  experienceOptions: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: s(8),
-  },
-  experienceChip: {
-    paddingHorizontal: s(12),
-    paddingVertical: s(6),
-    borderRadius: 16,
-    borderWidth: 1,
-  },
-  experienceChipText: {
-    fontSize: ms(13),
   },
 });

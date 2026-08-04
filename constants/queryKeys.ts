@@ -213,6 +213,10 @@ export const queryKeys = {
     ["draftAutopickStatuses", draftId] as const,
   draftOrder: (draftId: string, ...rest: (number | undefined)[]) =>
     ["draftOrder", draftId, ...rest] as const,
+  // Round-1 slot order shown in the pre-draft lobby. Separate from
+  // `draftOrder` (the full board) — the lobby only needs one round and
+  // refetches on a slow poll while the order is still being assigned.
+  draftLobbyOrder: (draftId: string) => ["draftLobbyOrder", draftId] as const,
   draftQueue: (draftId: string, teamId: string) =>
     ["draftQueue", draftId, teamId] as const,
   draftHub: (leagueId: string) => ["draftHub", leagueId] as const,

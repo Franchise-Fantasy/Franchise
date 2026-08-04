@@ -3,6 +3,7 @@ import { useEffect } from 'react';
 
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase, uniqueChannelTopic } from '@/lib/supabase';
+import { invalidateRosterCounts } from '@/utils/roster/rosterCounts';
 
 const COALESCE_MS = 250;
 
@@ -29,6 +30,11 @@ function createRosterSubscription(leagueId: string, queryClient: QueryClient): (
     queryClient.invalidateQueries({ queryKey: ['teamRoster'] });
     queryClient.invalidateQueries({ queryKey: ['teamRosterStats'] });
     queryClient.invalidateQueries({ queryKey: ['leagueRosterStats'] });
+    // ...and so do the active-roster counts derived from those same rows. This
+    // is the only path that reaches a change made on ANOTHER device (the other
+    // side of a trade, a processed waiver, a commissioner action), so without
+    // it those clients gate adds on a stale count for the full staleTime.
+    invalidateRosterCounts(queryClient, leagueId);
 
     // Available pool only changes when players move in/out of league_players
     if (kinds.has('add') || kinds.has('drop')) {

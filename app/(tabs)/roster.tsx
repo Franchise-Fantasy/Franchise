@@ -123,6 +123,7 @@ import { buildAutoLineupCatRanks } from "@/utils/roster/autoLineupCatRank";
 import { fetchTeamData } from "@/utils/roster/fetchTeamData";
 import { guardIllegalIR, isIrEligibleStatus } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
+import { invalidateRosterCounts } from "@/utils/roster/rosterCounts";
 import {
   baseSlotName,
   isEligibleForSlot,
@@ -1058,9 +1059,9 @@ export default function RosterScreen() {
         queryClient.invalidateQueries({
           queryKey: ["over-cap", leagueId, teamId],
         });
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.rosterInfo(leagueId, teamId),
-        });
+        // An IR/TAXI move frees (or consumes) an active seat, so every cached
+        // active-roster count has to expire — not just `rosterInfo`.
+        invalidateRosterCounts(queryClient, leagueId);
         queryClient.invalidateQueries({
           queryKey: ["teamRoster", teamId],
         });
@@ -1523,6 +1524,7 @@ export default function RosterScreen() {
   };
 
   const swipeDay = (delta: -1 | 1) => {
+    if (heroIsOffseason) return;
     if (isWeekly) {
       navigateWeek(delta);
       return;
@@ -1550,7 +1552,13 @@ export default function RosterScreen() {
   // stays a week identity rather than a single day.
   const weekLabel =
     isWeekly && currentWeek ? `Week ${currentWeek.week_number}` : undefined;
+  // Disabled in the dead offseason — there's no schedule to walk through, and
+  // RosterHero hides BOTH arrows on the same condition (`!hasWeek &&
+  // !isUpcoming`), so a live swipe was the one way left to move a day the hero
+  // no longer displays. Pre-tip-off (`seasonOpensLabel`) is NOT offseason:
+  // nav stays live there so the user can reach opening night.
   const dayPan = Gesture.Pan()
+    .enabled(!heroIsOffseason)
     .activeOffsetX([-15, 15])
     .failOffsetY([-12, 12])
     .onEnd((e) => {

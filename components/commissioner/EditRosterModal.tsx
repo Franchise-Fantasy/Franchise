@@ -7,6 +7,7 @@ import {
 } from 'react-native';
 
 import { PositionLimitsEditor } from '@/components/create-league/PositionLimitsEditor';
+import { TaxiEligibilityPicker } from '@/components/roster/TaxiEligibilityPicker';
 import { BottomSheet } from '@/components/ui/BottomSheet';
 import { BrandButton } from '@/components/ui/BrandButton';
 import { NumberStepper } from '@/components/ui/NumberStepper';
@@ -31,14 +32,18 @@ interface EditRosterModalProps {
   sport: Sport;
   rosterConfig: { position: string; slot_count: number }[] | undefined;
   positionLimits: Record<string, number> | null | undefined;
+  /** Max pro experience for taxi eligibility (`null` = No Max). Sourced from
+   *  `leagues`, which league-info page-gates, so it's loaded before we render. */
+  taxiMaxExperience: number | null | undefined;
 }
 
-export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfig, positionLimits }: EditRosterModalProps) {
+export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfig, positionLimits, taxiMaxExperience }: EditRosterModalProps) {
   const c = useColors();
   const queryClient = useQueryClient();
 
   const [editRoster, setEditRoster] = useState<{ position: string; slot_count: number }[]>([]);
   const [editPosLimits, setEditPosLimits] = useState<PositionLimits>({});
+  const [editTaxiMaxExp, setEditTaxiMaxExp] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Guards against re-hydrating over in-progress edits on a background refetch,
@@ -64,7 +69,12 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
     });
     setEditRoster(merged);
     setEditPosLimits(positionLimits && typeof positionLimits === 'object' ? { ...positionLimits } : {});
-  }, [visible, sport, rosterConfig, positionLimits]);
+    setEditTaxiMaxExp(taxiMaxExperience ?? null);
+  }, [visible, sport, rosterConfig, positionLimits, taxiMaxExperience]);
+
+  // Read from the in-progress edits, not the saved config, so dropping the taxi
+  // stepper to 0 hides the eligibility picker immediately.
+  const taxiSlotCount = editRoster.find((r) => r.position === ROSTER_SLOT.TAXI)?.slot_count ?? 0;
 
   async function handleSave() {
     // Never persist un-hydrated state: an empty save wipes the roster config.
@@ -87,6 +97,28 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
         Object.keys(editPosLimits).length > 0 ? (editPosLimits as unknown as Json) : undefined,
     });
     if (error) { setSaving(false); Alert.alert('Error', error.message); return; }
+
+    // Taxi settings are plain `leagues` scalars, so they ride outside the
+    // roster-config RPC. Unlike that RPC's delete-and-reinsert, a failure here
+    // is benign — the slot rows are already saved and the old taxi settings
+    // still apply — so it's reported and retried by saving again rather than
+    // needing the two to be one transaction.
+    //
+    // `taxi_slots` is written here because replace_roster_config updates only
+    // roster_size and position_limits: without this, changing the TAXI stepper
+    // moved league_roster_config but left leagues.taxi_slots stale, and the
+    // consumers that read the column rather than the config — advance-season's
+    // aged-out sweep, the roster-cuts planner, useTeamRosterInfo — would keep
+    // acting on the old count. Eligibility clears to NULL at zero slots,
+    // matching create-league.
+    const { error: taxiError } = await supabase
+      .from('leagues')
+      .update({
+        taxi_slots: taxiSlotCount,
+        taxi_max_experience: taxiSlotCount > 0 ? editTaxiMaxExp : null,
+      })
+      .eq('id', leagueId);
+    if (taxiError) { setSaving(false); Alert.alert('Error', taxiError.message); return; }
 
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['leagueRosterConfig', leagueId] });
@@ -137,6 +169,17 @@ export function EditRosterModal({ visible, onClose, leagueId, sport, rosterConfi
           max={slot.position === 'IR' ? 5 : slot.position === 'BE' ? 15 : 10}
         />
       ))}
+
+      {taxiSlotCount > 0 && (
+        <View style={[styles.posLimitSection, { borderTopColor: c.border }]}>
+          <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.posLimitTitle}>Taxi Squad</ThemedText>
+          <TaxiEligibilityPicker
+            value={editTaxiMaxExp}
+            onChange={setEditTaxiMaxExp}
+            footnote="Players already on a taxi squad keep their spot — a tighter rule moves them to the bench when they age out at the next season rollover."
+          />
+        </View>
+      )}
 
       <View style={[styles.posLimitSection, { borderTopColor: c.border }]}>
         <ThemedText accessibilityRole="header" type="defaultSemiBold" style={styles.posLimitTitle}>Position Limits</ThemedText>

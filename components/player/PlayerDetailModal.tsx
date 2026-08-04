@@ -60,6 +60,7 @@ import { isOnline } from "@/utils/network";
 import { addFreeAgent } from "@/utils/roster/addFreeAgent";
 import { guardIllegalIR } from "@/utils/roster/illegalIR";
 import { guardOverCap } from "@/utils/roster/overCap";
+import { invalidateRosterCounts } from "@/utils/roster/rosterCounts";
 import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { rosterAddDrop } from "@/utils/roster/rosterTransaction";
@@ -530,14 +531,8 @@ export function PlayerDetailModal({
 
   const invalidateRosterQueries = () => {
     queryClient.invalidateQueries({ queryKey: queryKeys.allPlayers(leagueId) });
-    queryClient.invalidateQueries({ queryKey: queryKeys.leagueOwnership(leagueId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.teamRoster(teamId!) });
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.rosterInfo(leagueId, teamId!),
-    });
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.freeAgentRosterInfo(leagueId, teamId!),
-    });
+    invalidateRosterCounts(queryClient, leagueId);
     queryClient.invalidateQueries({
       queryKey: ["playerOwnership", leagueId, teamId],
     });
@@ -681,9 +676,7 @@ export function PlayerDetailModal({
       const activeCount = (allRes.count ?? 0) - (irRes.count ?? 0) - (taxiRes.count ?? 0);
       const maxSize = leagueRes.data?.roster_size ?? 13;
       if (activeCount >= maxSize) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.rosterInfo(leagueId, teamId!),
-        });
+        invalidateRosterCounts(queryClient, leagueId);
         setShowDropPicker(true);
         setIsProcessing(false);
         return;
@@ -980,9 +973,7 @@ export function PlayerDetailModal({
       const maxSize = leagueRes.data?.roster_size ?? 13;
 
       if (freshActiveCount >= maxSize) {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.rosterInfo(leagueId, teamId!),
-        });
+        invalidateRosterCounts(queryClient, leagueId);
         setIsProcessing(false);
         setActivateFromIR(true);
         setShowDropPicker(true);

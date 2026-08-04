@@ -775,6 +775,8 @@ export default function DraftRoomScreen() {
             <DraftLobby
               draft={draftState}
               draftId={draftId}
+              leagueId={draftState.league_id}
+              myTeamId={teamData?.id}
               isRookieDraft={isRookieDraft}
               draftPickTradingEnabled={draftPickTradingEnabled}
             />
