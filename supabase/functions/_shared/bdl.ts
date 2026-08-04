@@ -149,61 +149,10 @@ export function toIsoDuration(time: string): string {
 /**
  * Coerce BDL position strings to a normalized form per sport.
  *
- * NBA: BDL mostly returns granular tokens (PG/SG/SF/PF/C, G-F, F-C, …)
- * that already match the app spectrum. The few bare-letter tokens
- * ("G"/"F") get nudged into the spectrum so Sleeper-spectrum-aware
- * roster logic keeps working — Sleeper enrichment in `sync-players`
- * almost always overrides these anyway.
- *
- * WNBA: BDL returns mostly bare-letter tokens ("G", "F", "C") plus a
- * few hyphenated combos. Pass them through verbatim — WNBA leagues use
- * G/F/C roster slots (no PG/SG/SF/PF), and `getEligiblePositions`
- * expands "G" → PG-SG and "F" → SF-PF so slot eligibility still works.
- * Hyphen direction is normalized so "F-G"/"C-F" don't create duplicate
- * spelling variants alongside "G-F"/"F-C".
- *
- * NFL: BDL's `position_abbreviation` tokens map to the app's disjoint set
- * (QB/RB/WR/TE/K). "PK" → "K"; fullbacks roster as RBs. Returns null for
- * any other token (OL/IDP/UNK) — sync-players drops those players, which
- * is also what keeps BDL's offensive-line "G"/"C" tokens from colliding
- * with the basketball spectrum.
+ * The logic is pure and lives in utils/sports/bdlPositions.ts so the client
+ * test runner can cover it (same treatment as mapGameStatus above). See that
+ * file for the per-sport rules — the load-bearing one: basketball tokens are
+ * COARSE ("G"/"F"/"C") and pass through verbatim, never inflated to granular
+ * PG/SG/SF/PF (Sleeper owns granular NBA positions).
  */
-export function coerceBdlPosition(
-  raw: string | null | undefined,
-  sport: Sport = "nba",
-): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim().toUpperCase();
-  if (!trimmed) return null;
-
-  if (sport === "nfl") {
-    const nflMap: Record<string, string> = {
-      QB: "QB",
-      RB: "RB",
-      FB: "RB",
-      WR: "WR",
-      TE: "TE",
-      PK: "K",
-      K: "K",
-    };
-    return nflMap[trimmed] ?? null;
-  }
-
-  if (sport === "wnba") {
-    const wnbaMap: Record<string, string> = {
-      "F-G": "G-F",
-      "C-F": "F-C",
-    };
-    return wnbaMap[trimmed] ?? trimmed;
-  }
-
-  const nbaMap: Record<string, string> = {
-    "G": "SG",
-    "F": "SF",
-    "G-F": "SG-SF",
-    "F-G": "SG-SF",
-    "F-C": "PF-C",
-    "C-F": "PF-C",
-  };
-  return nbaMap[trimmed] ?? trimmed;
-}
+export { coerceBdlPosition } from "../../../utils/sports/bdlPositions.ts";

@@ -1051,7 +1051,9 @@
       "Bash(ls /Users/joe/Desktop/Franchise/projections/ | head; ls -d /Users/joe/Desktop/Franchise/*venv* /Users/joe/Desktop/Franchise/projections/*venv* /Users/joe/Desktop/Franchise/backend/*venv* 2>/dev/null; which python3.11 python3.12 2>/dev/null; ls ~/.venvs 2>/dev/null)",
       "Bash(/opt/homebrew/bin/python3 -c \"import pandas\")",
       "Bash(./projvenv/bin/python -c \"import pandas, scipy, sklearn; print\\('venv ok'\\)\")",
-      "Bash(../projvenv/bin/python proto_games_v2.py)"
+      "Bash(../projvenv/bin/python proto_games_v2.py)",
+      "Bash(python3 repair_nba_positions.py)",
+      "Bash(python3 repair_nba_positions.py --write)"
     ],
     "additionalDirectories": [
       "c:\\Users\\jjspo\\OneDrive\\Desktop\\Franchise Wiki\\Franchise Wiki\\Pages",

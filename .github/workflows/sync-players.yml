@@ -18,10 +18,21 @@ jobs:
           python-version: '3.12'
 
       - name: Install dependencies
-        run: pip install nba_api supabase pandas
+        run: pip install nba_api supabase pandas requests
 
       - name: Sync players from NBA API
         env:
           SB_SECRET_KEY: ${{ secrets.SB_SECRET_KEY }}
           PYTHONUNBUFFERED: "1"
         run: python backend/sync_players.py
+
+      # Sleeper is the sole authority for granular NBA positions (PG/SG/…).
+      # The BDL-based sync-players edge function only sees coarse G/F/C
+      # tokens and only backfills nulls — without this step, positions
+      # would never refine past the coarse insert-time token.
+      - name: Sync NBA positions from Sleeper
+        if: always()
+        env:
+          SB_SECRET_KEY: ${{ secrets.SB_SECRET_KEY }}
+          PYTHONUNBUFFERED: "1"
+        run: python backend/sync_positions.py

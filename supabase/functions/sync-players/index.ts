@@ -274,9 +274,9 @@ Deno.serve(async (req: Request) => {
     // 3. Enrichment — runs in parallel, each can fail independently.
     //    - League Stats personId (for cdn.{nba,wnba}.com headshots): basketball
     //      only. NFL has no enrichment source (no headshots in v1); BDL
-    //      position/team data is used as-is. NBA positions also come straight
-    //      from BDL (coerceBdlPosition) — no third-party (Sleeper) position
-    //      source anymore.
+    //      position/team data is used as-is. NBA granular positions come from
+    //      Sleeper via backend/sync_positions.py (daily Action step) — here
+    //      BDL's coarse tokens only seed inserts and backfill nulls.
     //    - WNBA additionally pulls birthdates from the same ESPN endpoint.
     let statsIds: StatsLookup | null = null;
 
@@ -419,12 +419,18 @@ Deno.serve(async (req: Request) => {
         update.external_id_bdl = bp.bdl_id;
         hasChange = true;
       }
-      // Re-sync position whenever the upstream-derived value is non-null
-      // and differs from what we have. Existing rows can hold stale values
-      // from prior coercion logic (e.g. WNBA "G" players collapsed to "SG"),
-      // and the new coercion is what we want to be authoritative.
+      // Position sync is per-sport. WNBA/NFL: BDL is the authority — re-sync
+      // whenever the derived value differs. NBA: BDL's feed is coarse-only
+      // ("G"/"F"/"C" — zero granular tokens as of 2026-08), while Sleeper
+      // (backend/sync_positions.py, daily Action step) owns granular NBA
+      // positions — so BDL only BACKFILLS a null NBA position and never
+      // overwrites. The old always-overwrite rule here replaced Sleeper's
+      // "PG" with a coerced "SG" every night until the pool had 2 PGs.
       const derivedPosition = bp.bdl_position;
-      if (derivedPosition && derivedPosition !== match.position) {
+      const positionStale = sport === 'nba'
+        ? !match.position
+        : derivedPosition !== match.position;
+      if (derivedPosition && positionStale) {
         update.position = derivedPosition;
         hasChange = true;
       }
@@ -485,7 +491,8 @@ Deno.serve(async (req: Request) => {
           status: 'active',
           external_id_bdl: p.bdl_id,
         };
-        // Position comes straight from BDL (coerceBdlPosition) for all sports.
+        // Insert-time position comes from BDL for all sports (coarse for
+        // basketball — the daily Sleeper sync refines NBA rows within a day).
         const pos = p.bdl_position;
         if (pos) row.position = pos;
         const nbaId = lookupNbaId(p.normName, p.pro_team);

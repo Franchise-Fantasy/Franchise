@@ -98,10 +98,28 @@ def main():
 
     print(f'  Mapped {len(sleeper_by_name)} active players with positions', flush=True)
 
-    # 3. Fetch our players
+    # 3. Fetch our NBA players. Sport-scoped — a same-named WNBA/NFL player
+    # must never get an NBA position stamped on them — and paginated, because
+    # PostgREST silently truncates every response at max_rows (1000) and the
+    # NBA pool alone is well past that.
     print('Fetching DB players...', flush=True)
-    result = supabase.table('players').select('id, name, position, pro_team').execute()
-    db_players = result.data or []
+    db_players = []
+    page_size = 1000
+    offset = 0
+    while True:
+        result = (
+            supabase.table('players')
+            .select('id, name, position, pro_team')
+            .eq('sport', 'nba')
+            .order('id')
+            .range(offset, offset + page_size - 1)
+            .execute()
+        )
+        rows = result.data or []
+        db_players.extend(rows)
+        if len(rows) < page_size:
+            break
+        offset += page_size
     print(f'  Got {len(db_players)} DB players', flush=True)
 
     # 4. Match and collect updates
