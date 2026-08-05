@@ -318,6 +318,8 @@ export const queryKeys = {
   surveyResults: (surveyId: string) => ["surveyResults", surveyId] as const,
   surveyCompletion: (surveyId: string) =>
     ["surveyCompletion", surveyId] as const,
+  contentDrafts: (conversationId: string) =>
+    ["contentDrafts", conversationId] as const,
 
   // ── Transactions / Announcements ─────────────────────────
   transactions: (leagueId: string, typeFilter: string) =>

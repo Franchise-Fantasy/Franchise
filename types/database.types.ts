@@ -494,6 +494,54 @@ export type Database = {
           },
         ]
       }
+      commissioner_content_drafts: {
+        Row: {
+          body: Json
+          conversation_id: string
+          created_at: string
+          created_by: string
+          id: string
+          kind: string
+          league_id: string
+          updated_at: string
+        }
+        Insert: {
+          body: Json
+          conversation_id: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          kind: string
+          league_id: string
+          updated_at?: string
+        }
+        Update: {
+          body?: Json
+          conversation_id?: string
+          created_at?: string
+          created_by?: string
+          id?: string
+          kind?: string
+          league_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "commissioner_content_drafts_conversation_id_fkey"
+            columns: ["conversation_id"]
+            isOneToOne: false
+            referencedRelation: "chat_conversations"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "commissioner_content_drafts_league_id_fkey"
+            columns: ["league_id"]
+            isOneToOne: false
+            referencedRelation: "leagues"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       commissioner_polls: {
         Row: {
           closes_at: string

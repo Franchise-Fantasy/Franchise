@@ -1,6 +1,6 @@
 import { StyleSheet } from "react-native";
 
-import { ms, s } from "@/utils/scale";
+import { s } from "@/utils/scale";
 
 export const playerDetailStyles = StyleSheet.create({
   // Slide-up sheet chrome — still consumed by DropPickerModal, which keeps its
@@ -39,51 +39,12 @@ export const playerDetailStyles = StyleSheet.create({
     paddingHorizontal: s(16),
     marginBottom: s(10),
   },
-  eyebrowRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: s(8),
-  },
-  eyebrowLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: s(10),
-    flexShrink: 1,
-  },
-  goldRule: {
-    height: 2,
-    width: s(18),
+  // Sections whose only content is a SectionEyebrow — that component brings its
+  // own bottom margin, so this contributes horizontal padding alone.
+  eyebrowPad: {
+    paddingHorizontal: s(16),
   },
   txnWrap: {
     marginTop: s(14),
-  },
-
-  // Inline toast — rendered inside the sheet so it isn't hidden by the Modal
-  // on native (the global ToastProvider renders beneath it).
-  inlineToastWrap: {
-    position: "absolute",
-    top: s(8),
-    left: 0,
-    right: 0,
-    alignItems: "center",
-    zIndex: 200,
-  },
-  inlineToastPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: s(12),
-    paddingVertical: s(8),
-    borderRadius: 999,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 6,
-    maxWidth: "90%",
-  },
-  inlineToastText: {
-    fontSize: ms(13),
-    fontWeight: "600",
   },
 });

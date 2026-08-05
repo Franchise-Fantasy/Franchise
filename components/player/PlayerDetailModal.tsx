@@ -1,4 +1,3 @@
-import { Ionicons } from "@expo/vector-icons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as Crypto from "expo-crypto";
 import { useRouter } from "expo-router";
@@ -13,6 +12,7 @@ import {
   View,
 } from "react-native";
 
+import { InlineToast, useInlineToast } from "@/components/player/InlineToast";
 import { NextGameProjStrip } from "@/components/player/NextGameProjStrip";
 import { PlayerActionBar } from "@/components/player/PlayerActionBar";
 import { PlayerDetailHeader } from "@/components/player/PlayerDetailHeader";
@@ -20,10 +20,11 @@ import { PlayerGameLog, PlayerGameLogHeader } from "@/components/player/PlayerGa
 import { PlayerHistory } from "@/components/player/PlayerHistory";
 import { PlayerInsightsCard } from "@/components/player/PlayerInsights";
 import { PlayerNewsSection } from "@/components/player/PlayerNewsSection";
+import { PlayerRankBadges } from "@/components/player/PlayerRankBadges";
 import { SeasonAverages } from "@/components/player/SeasonAverages";
+import { SectionEyebrow } from "@/components/roster/SectionEyebrow";
 import { Badge } from "@/components/ui/Badge";
 import { BottomSheet } from "@/components/ui/BottomSheet";
-import { ThemedText } from "@/components/ui/ThemedText";
 import { getCurrentSeason, getSeasonEnd, isSeasonStarted } from "@/constants/LeagueDefaults";
 import { queryKeys } from "@/constants/queryKeys";
 import { useConfirm, useTextPrompt } from "@/context/ConfirmProvider";
@@ -65,7 +66,6 @@ import { isEligibleForSlot } from "@/utils/roster/rosterSlots";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { rosterAddDrop } from "@/utils/roster/rosterTransaction";
 import { isTaxiEligible } from "@/utils/roster/taxiEligibility";
-import { s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
 
 import { DropPickerModal } from "./DropPickerModal";
@@ -148,19 +148,7 @@ export function PlayerDetailModal({
 
   const [gameLogExpanded, setGameLogExpanded] = useState(false);
 
-  // Local in-modal toast - the global ToastProvider renders beneath the Modal
-  // on native, so confirmations triggered inside the modal (e.g. watchlist
-  // toggle) get hidden. This inline pill sits inside the sheet itself.
-  const [inlineToast, setInlineToast] = useState<string | null>(null);
-  const inlineToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const showInlineToast = (message: string) => {
-    if (inlineToastTimer.current) clearTimeout(inlineToastTimer.current);
-    setInlineToast(message);
-    inlineToastTimer.current = setTimeout(() => setInlineToast(null), 1800);
-  };
-  useEffect(() => () => {
-    if (inlineToastTimer.current) clearTimeout(inlineToastTimer.current);
-  }, []);
+  const { message: inlineToast, show: showInlineToast } = useInlineToast();
 
   useEffect(() => {
     setGameLogExpanded(false);
@@ -187,7 +175,7 @@ export function PlayerDetailModal({
   // Fetch scoring type for insights branching
   const { scoringType: leagueScoringType, isCategories } =
     useLeagueScoringType(leagueId);
-  const rankings = usePlayerRankings(player?.player_id, player?.position, scoringWeights);
+  const rankings = usePlayerRankings(player?.player_id, scoringWeights, leagueId);
 
   // Check if this player is on the user's team and get their current slot
   const { data: ownershipInfo } = useQuery({
@@ -1628,15 +1616,7 @@ export function PlayerDetailModal({
           onTrade={handleTradePress}
           onClose={handleClose}
           rankBadges={
-            rankings && !isCategories ? (
-              <>
-                <Badge label={`#${rankings.overallRank} OVR`} variant="gold" />
-                <Badge
-                  label={`#${rankings.positionRank} ${rankings.primaryPosition}`}
-                  variant="neutral"
-                />
-              </>
-            ) : null
+            rankings && !isCategories ? <PlayerRankBadges ranking={rankings} /> : null
           }
         />
 
@@ -1679,14 +1659,7 @@ export function PlayerDetailModal({
           {/* 1 - Averages — windowable box-score (recent windows + seasons),
                  with the situational splits strip. Ranks sit on the eyebrow. */}
           <View style={styles.sectionPad}>
-            <View style={styles.eyebrowRow}>
-              <View style={styles.eyebrowLeft}>
-                <View style={[styles.goldRule, { backgroundColor: c.gold }]} />
-                <ThemedText type="sectionLabel" accessibilityRole="header">
-                  AVERAGES
-                </ThemedText>
-              </View>
-            </View>
+            <SectionEyebrow label="AVERAGES" size="large" />
             <SeasonAverages
               player={player}
               sport={sport}
@@ -1708,20 +1681,16 @@ export function PlayerDetailModal({
           </View>
 
           {/* 3 - Game log eyebrow */}
-          <View style={[styles.sectionPad, styles.eyebrowRow]}>
-            <View style={styles.eyebrowLeft}>
-              <View style={[styles.goldRule, { backgroundColor: c.gold }]} />
-              <ThemedText type="sectionLabel" accessibilityRole="header">
-                GAME LOG
-              </ThemedText>
-            </View>
-            {gamesThisWeek > 0 && (
-              <Badge
-                label={`${gamesThisWeek} this week`}
-                variant="neutral"
-                size="small"
-              />
-            )}
+          <View style={styles.eyebrowPad}>
+            <SectionEyebrow
+              label="GAME LOG"
+              size="large"
+              right={
+                gamesThisWeek > 0 ? (
+                  <Badge label={`${gamesThisWeek} this week`} variant="neutral" size="small" />
+                ) : null
+              }
+            />
           </View>
 
           {/* 4 - Sticky column header (pins to top of the body on scroll) */}
@@ -1756,13 +1725,8 @@ export function PlayerDetailModal({
 
           {/* 6 - Transactions (moved below the game log; no side tabs) */}
           <View style={styles.txnWrap}>
-            <View style={[styles.sectionPad, styles.eyebrowRow]}>
-              <View style={styles.eyebrowLeft}>
-                <View style={[styles.goldRule, { backgroundColor: c.gold }]} />
-                <ThemedText type="sectionLabel" accessibilityRole="header">
-                  TRANSACTIONS
-                </ThemedText>
-              </View>
+            <View style={styles.eyebrowPad}>
+              <SectionEyebrow label="TRANSACTIONS" size="large" />
             </View>
             <PlayerHistory playerId={player.player_id} leagueId={leagueId} />
           </View>
@@ -1770,27 +1734,7 @@ export function PlayerDetailModal({
       </View>
 
       {/* Inline toast - sits inside the sheet so it isn't hidden by the Modal */}
-      {inlineToast && (
-        <View
-          pointerEvents="none"
-          style={styles.inlineToastWrap}
-          accessibilityRole="alert"
-          accessibilityLiveRegion="assertive"
-          accessibilityLabel={inlineToast}
-        >
-          <View style={[styles.inlineToastPill, { backgroundColor: c.success }]}>
-            <Ionicons
-              name="checkmark-circle"
-              size={16}
-              color={c.statusText}
-              style={{ marginRight: s(6) }}
-            />
-            <ThemedText style={[styles.inlineToastText, { color: c.statusText }]}>
-              {inlineToast}
-            </ThemedText>
-          </View>
-        </View>
-      )}
+      <InlineToast message={inlineToast} />
     </BottomSheet>
   );
 }

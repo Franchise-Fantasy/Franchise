@@ -893,7 +893,7 @@ export default function LeagueInfoScreen() {
               key={team.id}
               team={team}
               isMine={team.id === teamId}
-              isCommissioner={isCommissioner}
+              canImportRoster={isCommissioner && !!league.imported_from}
               index={idx}
               total={league.league_teams?.length ?? 0}
               onImportRoster={setImportRosterTeam}
@@ -1119,18 +1119,21 @@ export default function LeagueInfoScreen() {
               sport={(league?.sport as string) ?? 'nba'}
             />
           )}
-          <ImportTeamRosterModal
-            visible={!!importRosterTeam}
-            leagueId={leagueId}
-            teamId={importRosterTeam?.id ?? ''}
-            teamName={importRosterTeam?.name ?? ''}
-            sport={(league?.sport as Sport) ?? 'nba'}
-            onClose={() => setImportRosterTeam(null)}
-            onImported={() => {
-              queryClient.invalidateQueries({ queryKey: ['league'] });
-              setImportRosterTeam(null);
-            }}
-          />
+          {/* Imported leagues only — an in-app league fills rosters by drafting. */}
+          {league?.imported_from && (
+            <ImportTeamRosterModal
+              visible={!!importRosterTeam}
+              leagueId={leagueId}
+              teamId={importRosterTeam?.id ?? ''}
+              teamName={importRosterTeam?.name ?? ''}
+              sport={(league?.sport as Sport) ?? 'nba'}
+              onClose={() => setImportRosterTeam(null)}
+              onImported={() => {
+                queryClient.invalidateQueries({ queryKey: ['league'] });
+                setImportRosterTeam(null);
+              }}
+            />
+          )}
           {league?.division_count === 2 && (
             <AssignDivisionsModal
               visible={showDivisionsModal}

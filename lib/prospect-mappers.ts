@@ -37,7 +37,7 @@ export function mapProspectCard(entry: any): ProspectCardData {
     name: f.name ?? '',
     position: f.position ?? '',
     school: f.school ?? '',
-    classYear: f.classYear ?? undefined,
+    dob: f.dob ?? undefined,
     photoUrl: assetUrl(f.photo),
     draftYear: typeof f.draftYear === 'number' ? f.draftYear : undefined,
     currentTeam: f.currentTeam ?? undefined,

@@ -7,6 +7,7 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { Colors, Fonts, cardShadow } from '@/constants/Colors';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import type { ProspectCardData } from '@/types/prospect';
+import { ageFromDob } from '@/utils/dates';
 import { ms, s } from '@/utils/scale';
 
 import { ProspectMovementBadge } from './ProspectMovementBadge';
@@ -40,13 +41,15 @@ function ProspectCardBase({
   const handleAdd = () => onAddProspectToBoard?.(prospect);
   const showAdd = !!onAddProspectToBoard && !alreadyOnBoard;
 
-  // Meta tail (school + class year) — Inter body, secondary. A prospect
-  // already on a roster in this league says so instead, since they can't be
-  // boarded or drafted here.
+  // Meta tail (school + age) — Inter body, secondary. A prospect already on a
+  // roster in this league says so instead, since they can't be boarded or
+  // drafted here. Age comes from the birthday, so an unresolved dob shows the
+  // school alone rather than a placeholder.
+  const age = ageFromDob(prospect.dob);
   const metaTail = prospect.isRostered
     ? 'Rostered in your league'
-    : prospect.classYear
-      ? `${prospect.school} · ${prospect.classYear}`
+    : age !== null
+      ? `${prospect.school} · ${age} yrs`
       : prospect.school;
 
   return (
@@ -57,6 +60,7 @@ function ProspectCardBase({
       accessibilityRole="button"
       accessibilityLabel={
         `${prospect.name}, ${prospect.position}, ${prospect.school}, rank ${rank}` +
+        (age !== null ? `, ${age} years old` : '') +
         (prospect.isRostered ? ', already rostered in your league' : '')
       }
     >
@@ -150,7 +154,7 @@ export const ProspectCard = memo(ProspectCardBase, (prev, next) => (
   prev.prospect.name === next.prospect.name &&
   prev.prospect.position === next.prospect.position &&
   prev.prospect.school === next.prospect.school &&
-  prev.prospect.classYear === next.prospect.classYear &&
+  prev.prospect.dob === next.prospect.dob &&
   prev.prospect.photoUrl === next.prospect.photoUrl &&
   prev.prospect.displayRank === next.prospect.displayRank &&
   prev.prospect.rankChange === next.prospect.rankChange &&

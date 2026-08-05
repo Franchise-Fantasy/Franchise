@@ -8,7 +8,7 @@ jest.mock('react-native', () => ({
   },
 }));
 
-import { addDays, defaultLeagueDay, formatDateTimeWithZone, formatShortDate, parseLocalDate, toDateStr } from '@/utils/dates';
+import { addDays, ageFromDob, defaultLeagueDay, formatDateTimeWithZone, formatShortDate, parseLocalDate, toDateStr } from '@/utils/dates';
 
 describe('toDateStr', () => {
   it('formats local date as YYYY-MM-DD', () => {
@@ -120,5 +120,41 @@ describe('formatDateTimeWithZone', () => {
     // " EDT" or " GMT-4"), so it starts with the plain label and is longer.
     expect(withZone.startsWith(noZone)).toBe(true);
     expect(withZone.length).toBeGreaterThan(noZone.length);
+  });
+});
+
+describe('ageFromDob', () => {
+  // Fixed "now" so the expectations don't rot: 2026-08-04, UTC.
+  const now = new Date('2026-08-04T12:00:00Z');
+
+  it('returns whole years elapsed', () => {
+    expect(ageFromDob('2007-07-18', now)).toBe(19);
+    expect(ageFromDob('2000-01-01', now)).toBe(26);
+  });
+
+  it('does not count a birthday that has not happened yet this year', () => {
+    expect(ageFromDob('2007-08-05', now)).toBe(18); // tomorrow
+    expect(ageFromDob('2007-08-04', now)).toBe(19); // today
+    expect(ageFromDob('2007-08-03', now)).toBe(19); // yesterday
+  });
+
+  it('handles a birthday earlier in the same month', () => {
+    expect(ageFromDob('2007-09-01', now)).toBe(18); // later month
+    expect(ageFromDob('2007-07-31', now)).toBe(19); // earlier month
+  });
+
+  it('returns null for a missing, malformed, or future birthday', () => {
+    expect(ageFromDob(undefined, now)).toBeNull();
+    expect(ageFromDob(null, now)).toBeNull();
+    expect(ageFromDob('', now)).toBeNull();
+    expect(ageFromDob('not-a-date', now)).toBeNull();
+    expect(ageFromDob('2030-01-01', now)).toBeNull();
+  });
+
+  it('reads the date-only string as UTC, so the age cannot flip by a day in a western zone', () => {
+    // A UTC-midnight birthday read with LOCAL getters in e.g. UTC-5 lands on the
+    // previous calendar day, which is what used to shift the age by one.
+    const justBeforeUtcMidnight = new Date('2026-08-04T04:30:00Z');
+    expect(ageFromDob('2007-08-04', justBeforeUtcMidnight)).toBe(19);
   });
 });

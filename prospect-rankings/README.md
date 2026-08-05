@@ -33,6 +33,16 @@ no Contentful publishes and no app deploys.
    rosters and cached in `player_ids`. Players without ESPN coverage
    (international, high school) simply get no rows.
 
+Not in the weekly run: `src/sync-headshots.js` fills empty `photo` fields with
+official ESPN headshot cutouts (transparent 600x436 PNGs) — NBA headshots for
+drafted players, college headshots for rostered college prospects. It only ever
+fills a *blank* photo field, so an editor's chosen image is never overwritten,
+and high-school prospects have no ESPN headshot so they're skipped. It is a
+manual tool (`npm run headshots -- --dry-run`, then `npm run headshots`)
+precisely because it re-hosts ESPN/Getty-licensed images in our own Contentful
+assets — that's a call to make deliberately, not a cron side effect. The asset
+description records the source so images can be swapped or removed later.
+
 Safety rails: a source returning < 20 rows is skipped (site redesigns can't
 wipe good data); if every source fails, nothing is written and the GitHub
 Action fails loudly (GitHub emails you).

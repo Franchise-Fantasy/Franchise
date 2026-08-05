@@ -1,5 +1,10 @@
 import { PlayerSeasonStats, ScoringWeight } from '@/types/player';
-import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { calculateAvgFantasyPoints, projAvgRowToFpts } from '@/utils/scoring/fantasyPoints';
+
+/** Which numbers a ranking was computed from. Pre-tipoff `player_season_stats`
+ *  is empty for every player (the matview is scoped to `season_config.is_current`),
+ *  so the pool is ranked on season-long projections instead of averages. */
+export type RankingBasis = 'season' | 'projected';
 
 export interface PlayerRanking {
   overallRank: number;
@@ -7,27 +12,52 @@ export interface PlayerRanking {
   positionRank: number;
   totalAtPosition: number;
   primaryPosition: string;
+  basis: RankingBasis;
 }
 
-/** Pure function — compute rankings for every player by avg fpts. */
+/**
+ * Pure function — compute rankings for every player by avg fpts.
+ *
+ * Pass `projections` (season-horizon rows keyed by player_id) to rank the pool
+ * on projected FPTS/G instead of actual season averages; a player with no
+ * projection row scores 0 and lands at the back.
+ *
+ * Returns an EMPTY map when nothing in the pool scores above zero. That's the
+ * pre-tipoff state with no projections to fall back on — every player ties, and
+ * badging all 585 of them "#1 OVR" reads as a result rather than the absence of
+ * one.
+ */
 export function computeRankings(
   players: PlayerSeasonStats[],
   scoringWeights: ScoringWeight[],
   sport?: string | null,
+  projections?: ReadonlyMap<string, Record<string, unknown>> | null,
 ): Map<string, PlayerRanking> {
   const map = new Map<string, PlayerRanking>();
   if (players.length === 0) return map;
 
+  const basis: RankingBasis = projections ? 'projected' : 'season';
+
   // Score every player. Without `sport` an NFL pool scores all-zero (the NBA
   // stat map matches none of its weights) and every player ties at rank #1.
-  const scored = players.map(p => ({
-    id: p.player_id,
-    position: p.position?.split('-')[0] ?? 'UTIL',
-    fpts: calculateAvgFantasyPoints(p, scoringWeights, sport),
-  }));
+  const scored = players.map(p => {
+    const proj = projections?.get(p.player_id);
+    return {
+      id: p.player_id,
+      position: p.position?.split('-')[0] ?? 'UTIL',
+      fpts: projections
+        ? proj
+          ? projAvgRowToFpts(proj, scoringWeights, sport)
+          : 0
+        : calculateAvgFantasyPoints(p, scoringWeights, sport),
+    };
+  });
 
   // Sort descending by fpts
   scored.sort((a, b) => b.fpts - a.fpts);
+
+  // An unranked pool, not a pool of co-leaders — see the doc comment.
+  if (scored[0].fpts <= 0) return map;
 
   // Assign overall rank (standard competition: 1, 2, 2, 4)
   const overallRank: number[] = [];
@@ -68,6 +98,7 @@ export function computeRankings(
         positionRank: posRanks[j],
         totalAtPosition: indices.length,
         primaryPosition: pos,
+        basis,
       });
     }
   }

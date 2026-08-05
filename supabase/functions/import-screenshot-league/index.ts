@@ -1383,11 +1383,16 @@ async function handleImportTeamRoster(
 
   const { data: league } = await supabaseAdmin
     .from('leagues')
-    .select('created_by')
+    .select('created_by, imported_from')
     .eq('id', league_id)
     .single();
   if (!league || league.created_by !== userId) {
     throw new HttpError('Only the commissioner can import a team roster.', 403);
+  }
+  // A league built in-app fills its rosters by drafting — an empty team there is
+  // the normal pre-draft state, so there is nothing to "finish importing".
+  if (!league.imported_from) {
+    throw new HttpError('Roster import is only available for imported leagues.', 400);
   }
 
   const { data: team } = await supabaseAdmin

@@ -79,5 +79,48 @@ describe('computeRankings', () => {
     ];
     const map = computeRankings(players, WEIGHTS);
     expect(map.get('a')!.primaryPosition).toBe('SG');
+    expect(map.get('a')!.basis).toBe('season');
+  });
+
+  // Pre-tipoff `player_season_stats` is empty for the whole pool, so every
+  // player used to score 0, tie, and render as "#1 OVR".
+  it('returns no rankings when the whole pool scores zero', () => {
+    const players = [
+      makePlayer({ player_id: 'a', position: 'PG' }),
+      makePlayer({ player_id: 'b', position: 'C' }),
+    ];
+    expect(computeRankings(players, WEIGHTS).size).toBe(0);
+  });
+
+  it('ranks on projections when a projection map is supplied', () => {
+    const players = [
+      makePlayer({ player_id: 'a', position: 'PG' }),
+      makePlayer({ player_id: 'b', position: 'PG' }),
+      makePlayer({ player_id: 'c', position: 'C' }),
+    ];
+    const projections = new Map<string, Record<string, unknown>>([
+      ['a', { proj_pts: 18 }],
+      ['b', { proj_pts: 24 }],
+      ['c', { proj_pts: 21 }],
+    ]);
+    const map = computeRankings(players, WEIGHTS, 'nba', projections);
+
+    expect(map.get('b')!.overallRank).toBe(1);
+    expect(map.get('c')!.overallRank).toBe(2);
+    expect(map.get('a')!.overallRank).toBe(3);
+    expect(map.get('a')!.positionRank).toBe(2); // #2 PG behind b
+    expect(map.get('b')!.basis).toBe('projected');
+  });
+
+  it('sorts players with no projection row to the back', () => {
+    const players = [
+      makePlayer({ player_id: 'a', position: 'PG' }),
+      makePlayer({ player_id: 'b', position: 'PG' }),
+    ];
+    const projections = new Map<string, Record<string, unknown>>([['b', { proj_pts: 12 }]]);
+    const map = computeRankings(players, WEIGHTS, 'nba', projections);
+
+    expect(map.get('b')!.overallRank).toBe(1);
+    expect(map.get('a')!.overallRank).toBe(2);
   });
 });

@@ -17,7 +17,8 @@
   | `school` | Short text | college/international team, auto-filled |
   | `currentTeam` | Short text | actual NBA team once drafted (post-trade), auto-filled |
   | `height`, `weight` | Short text | auto-filled from scouting boards |
-  | `hometown`, `classYear` | Short text | editorial |
+  | `hometown` | Short text | editorial |
+  | `dob` | Date (date-only) | auto-filled; the app renders it as current age |
   | `draftYear` | Integer | auto-filled |
   | `photo` | Media (one file) | editorial |
   | `scoutingReport` | Rich text | editorial |

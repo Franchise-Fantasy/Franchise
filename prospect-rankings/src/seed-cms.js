@@ -8,6 +8,7 @@ import { readFileSync } from "node:fs";
 import * as contentfulManagement from "contentful-management";
 import { SOURCES, MIN_ROWS } from "./sources/index.js";
 import { buildConsensus } from "./consensus.js";
+import { resolveDob } from "./lib/dob.js";
 
 const SEED_COUNT_DRAFTED = 15; // most recent (drafted) class
 const SEED_COUNT_FUTURE = 10; // next draft class (college boards)
@@ -104,6 +105,9 @@ for (const board of boards) {
     if (p.team) fields.currentTeam = f(p.team);
     if (p.height) fields.height = f(p.height);
     if (p.weight) fields.weight = f(String(p.weight));
+
+    const { dob } = await resolveDob(p, board.draftYear, null, console.log);
+    if (dob) fields.dob = f(dob);
 
     const bio = findBio(p.slug);
     if (bio) fields.scoutingReport = f(richText(bio));

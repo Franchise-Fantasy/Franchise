@@ -13,6 +13,7 @@ import { NumberStepper } from '@/components/ui/NumberStepper';
 import { SegmentedControl } from '@/components/ui/SegmentedControl';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { type Sport } from '@/constants/LeagueDefaults';
+import { queryKeys } from '@/constants/queryKeys';
 import { useColors } from '@/hooks/useColors';
 import { useLeaguePrivateInfo } from '@/hooks/useLeaguePrivateInfo';
 import { buildDraftPicks, buildFutureDraftPicks } from '@/lib/draft';
@@ -119,13 +120,18 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
     // said as much ("picks may need manual regeneration"). The picks are laid
     // out here and swapped in by replace_draft_picks in a single transaction, so
     // a failure keeps the old picks instead of destroying them.
+    let rebuiltDraftId: string | null = null;
     if (canChangeSize && maxTeams !== (league.teams ?? 12)) {
       try {
+        // Scoped to the current season: a redraft/keeper league gets a fresh
+        // `initial` draft every year, and an unscoped maybeSingle() throws once
+        // there's more than one.
         const { data: draft } = await supabase
           .from('drafts')
           .select('id, rounds, draft_type, season, type')
           .eq('league_id', leagueId)
           .eq('type', 'initial')
+          .eq('season', league.season)
           .maybeSingle();
 
         const hasInitial = !!draft && draft.rounds != null && !!draft.season;
@@ -158,6 +164,7 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
             : {}),
         });
         if (picksError) throw picksError;
+        if (hasInitial) rebuiltDraftId = draft!.id;
       } catch {
         setSaving(false);
         Alert.alert('Warning', 'League size updated but draft picks were not regenerated. Try saving again.');
@@ -170,7 +177,28 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
     setSaving(false);
     queryClient.invalidateQueries({ queryKey: ['league', leagueId] });
     queryClient.invalidateQueries({ queryKey: ['leaguePrivateInfo', leagueId] });
+
+    // The board was rebuilt from scratch, so every cached view of it is stale.
+    // `draftSlotsAssigned` is the load-bearing one: the home hero blocks
+    // scheduling a manual-order draft until slots are set, and a 5-minute stale
+    // `true` would let the commissioner schedule against a wiped board.
+    if (rebuiltDraftId) {
+      queryClient.invalidateQueries({ queryKey: queryKeys.draftSlotsAssigned(rebuiltDraftId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.draftLobbyOrder(rebuiltDraftId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.activeDraft(leagueId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.leagueDraft(leagueId) });
+    }
     onClose();
+
+    // A random order is re-drawn server-side by replace_draft_picks. A manual
+    // one can't be — only the commissioner knows it — so say so rather than
+    // letting them discover an unowned board on draft day.
+    if (rebuiltDraftId && league.initial_draft_order === 'manual') {
+      Alert.alert(
+        'Draft order cleared',
+        'Changing the league size rebuilt the draft board. Set the draft order again from the home screen before scheduling the draft.',
+      );
+    }
   }
 
   return (

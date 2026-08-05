@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { createClient, type SupabaseClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { notifyLeague, notifyTeams } from '../_shared/push.ts';
 import { effectiveTimeLimit } from '../_shared/draftClock.ts';
 import { scheduleAutodraft, schedulePickReminder } from '../_shared/qstash.ts';
@@ -13,6 +13,21 @@ import { formatPickClock, isSlowClock } from '../../../utils/draft/pickClock.ts'
 const Body = z.object({
   draft_id: z.string().uuid(),
 });
+
+/** Team that owns a given pick, or null if the slot was never drawn. */
+async function fetchPickOwner(
+  supabase: SupabaseClient,
+  draftId: string,
+  pickNumber: number,
+): Promise<string | null> {
+  const { data } = await supabase
+    .from('draft_picks')
+    .select('current_team_id')
+    .eq('draft_id', draftId)
+    .eq('pick_number', pickNumber)
+    .maybeSingle();
+  return data?.current_team_id ?? null;
+}
 
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
@@ -47,7 +62,7 @@ Deno.serve(async (req) => {
 
     const { data: draft, error: draftError } = await supabaseAdmin
       .from('drafts')
-      .select('status, draft_date, time_limit, picks_per_round, accelerate_after_round, accelerated_time_limit, current_pick_number, league_id')
+      .select('status, type, draft_date, time_limit, picks_per_round, accelerate_after_round, accelerated_time_limit, current_pick_number, league_id')
       .eq('id', draft_id)
       .single();
 
@@ -97,6 +112,25 @@ Deno.serve(async (req) => {
       if (!membership) throw new HttpError('Not a league member', 403);
     }
 
+    // Last chokepoint before the draft goes live: refuse to start a board whose
+    // picks belong to nobody. Once status flips to in_progress there's no team
+    // on the clock, autodraft has no roster to fill, and the state can't be
+    // walked back. This is reachable whenever the board is rebuilt — a league
+    // resize wipes and re-inserts every pick. replace_draft_picks re-draws a
+    // random order in the same transaction, so retry that draw here (it no-ops
+    // unless the league is full and the order isn't manual) before giving up.
+    let firstPickTeamId = await fetchPickOwner(supabaseAdmin, draft_id, draft.current_pick_number);
+    if (!firstPickTeamId && draft.type === 'initial') {
+      await supabaseAdmin.rpc('draw_initial_draft_slots', { p_league_id: draft.league_id });
+      firstPickTeamId = await fetchPickOwner(supabaseAdmin, draft_id, draft.current_pick_number);
+    }
+    if (!firstPickTeamId) {
+      throw new HttpError(
+        'No team owns the first pick — the draft order hasn\'t been set. Set the draft order, then start the draft.',
+        409,
+      );
+    }
+
     const now = new Date().toISOString();
 
     // Acceleration normally kicks in in later rounds, so pick #1 is the base
@@ -135,22 +169,13 @@ Deno.serve(async (req) => {
       );
 
       // Also notify the first picker specifically
-      const { data: firstPick } = await supabaseAdmin
-        .from('draft_picks')
-        .select('current_team_id')
-        .eq('draft_id', draft_id)
-        .eq('pick_number', draft.current_pick_number)
-        .single();
-
-      if (firstPick) {
-        await notifyTeams(supabaseAdmin, [firstPick.current_team_id], 'draft',
-          `${ln} — Your turn to pick!`,
-          isSlowClock(firstLimit)
-            ? `You're on the clock — you have ${formatPickClock(firstLimit)} to make your first pick.`
-            : 'You\'re on the clock. Make your first pick.',
-          { screen: 'draft-room', draft_id }
-        );
-      }
+      await notifyTeams(supabaseAdmin, [firstPickTeamId], 'draft',
+        `${ln} — Your turn to pick!`,
+        isSlowClock(firstLimit)
+          ? `You're on the clock — you have ${formatPickClock(firstLimit)} to make your first pick.`
+          : 'You\'re on the clock. Make your first pick.',
+        { screen: 'draft-room', draft_id }
+      );
     } catch (notifyErr) {
       console.warn('Push notification failed (non-fatal):', notifyErr);
     }

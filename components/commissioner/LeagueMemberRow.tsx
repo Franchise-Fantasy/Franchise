@@ -25,8 +25,12 @@ type Props = {
   team: LeagueMember;
   /** The signed-in user's own team — unlocks the inline name/tricode edits. */
   isMine: boolean;
-  /** Viewer is the league commissioner — unlocks the roster import. */
-  isCommissioner: boolean;
+  /**
+   * Viewer is the commissioner of an IMPORTED league — unlocks the roster
+   * import. A league built in-app fills its rosters by drafting, so an empty
+   * team there is the normal pre-draft state, not something to import into.
+   */
+  canImportRoster: boolean;
   index: number;
   total: number;
   onImportRoster: (team: { id: string; name: string }) => void;
@@ -43,14 +47,14 @@ function memberStatus(playerCount: number, isUnclaimed: boolean): string {
  * the first line on its own (truncating, so it can never collide with the
  * Commish badge), and the tricode drops to a quiet mono meta line beside
  * the roster size — which is also where it stops repeating the initials
- * already shown in the logo next to it. An empty roster gets the import
- * action as a trailing chip rather than a fourth thing competing for the
- * same line.
+ * already shown in the logo next to it. In an imported league an empty roster
+ * gets the import action as a trailing chip rather than a fourth thing
+ * competing for the same line.
  */
 export function LeagueMemberRow({
   team,
   isMine,
-  isCommissioner,
+  canImportRoster,
   index,
   total,
   onImportRoster,
@@ -159,7 +163,7 @@ export function LeagueMemberRow({
         </View>
         {team.is_commissioner && <Badge label="Commish" variant="turf" />}
       </View>
-      {isCommissioner && playerCount === 0 && (
+      {canImportRoster && playerCount === 0 && (
         <TouchableOpacity
           onPress={() => onImportRoster({ id: team.id, name: team.name })}
           accessibilityRole="button"

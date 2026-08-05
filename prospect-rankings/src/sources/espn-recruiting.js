@@ -22,8 +22,9 @@ export function espnRecruiting(classYear) {
         const rank = Number($(tds[0]).text().trim());
         const name = cleanName($(tds[1]).find(".name strong").text());
         if (!rank || !name) return;
-        // td[3] is "Hometown, ST<br>High School" — keep the school half.
+        // td[3] is "Hometown, ST<br>High School" — both halves are useful.
         const parts = ($(tds[3]).html() || "").split(/<br\s*\/?>/i);
+        const hometown = cleanName($("<div>").html(parts[0] ?? "").text()) || null;
         const school = cleanName($("<div>").html(parts[1] ?? "").text()) || null;
         const height = $(tds[4]).text().trim().replace(/(\d)'(\d+).*/, "$1-$2") || null;
         players.push({
@@ -32,6 +33,7 @@ export function espnRecruiting(classYear) {
           slug: slugify(name),
           position: $(tds[2]).text().trim() || null,
           school,
+          hometown,
           height,
           weight: $(tds[5]).text().trim() || null,
         });

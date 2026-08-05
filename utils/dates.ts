@@ -122,6 +122,27 @@ export function formatIsoDate(dateStr: string): string {
 }
 
 /**
+ * Whole years elapsed since a date-only birthday ("2007-07-18"), or null when
+ * the birthday is unknown. Store the birthday and compute the age at render
+ * time so it stays correct without ever re-syncing.
+ *
+ * Deliberately all-UTC: the input is a date-only string (Contentful `dob`),
+ * which `new Date()` parses as UTC midnight. Comparing that against LOCAL
+ * getters would flip the age by a day around midnight in western timezones.
+ */
+export function ageFromDob(dob: string | null | undefined, now: Date = new Date()): number | null {
+  if (!dob) return null;
+  const born = new Date(dob);
+  if (Number.isNaN(born.getTime())) return null;
+
+  let age = now.getUTCFullYear() - born.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - born.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < born.getUTCDate())) age--;
+  // A future or malformed birthday is bad data, not a negative age.
+  return age < 0 ? null : age;
+}
+
+/**
  * Format an instant as "Sun, Jun 8, 8:00 PM EST" — local time WITH an explicit
  * timezone label. Use for any string built on one device and read on another
  * (e.g. a push notification body sent to all league members): a bare wall-clock

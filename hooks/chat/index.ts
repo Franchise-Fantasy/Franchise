@@ -17,4 +17,9 @@ export {
   useSubmitSurvey,
   useCreateSurvey,
 } from './useSurveys';
+export {
+  useContentDrafts,
+  useSaveContentDraft,
+  useDeleteContentDraft,
+} from './useContentDrafts';
 export { usePostTradeUpdate, useGetTradeConversation } from './useTradeChat';

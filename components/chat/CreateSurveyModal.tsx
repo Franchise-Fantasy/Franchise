@@ -18,10 +18,18 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Brand, Fonts } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
+import { useDeleteContentDraft, useSaveContentDraft } from '@/hooks/chat';
 import { useCreateSurvey } from '@/hooks/chat/useSurveys';
 import { useColors } from '@/hooks/useColors';
 import { capture } from '@/lib/posthog';
 import type { SurveyQuestionType } from '@/types/survey';
+import {
+  hydrateCustomDate,
+  parseSurveyDraft,
+  presetIndexForHours,
+  type CommissionerContentDraft,
+  type SurveyDraftForm,
+} from '@/utils/chat/contentDraftBody';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
@@ -41,12 +49,8 @@ const QUESTION_TYPES: { label: string; value: SurveyQuestionType }[] = [
 
 const VISIBILITY_OPTIONS = ['Everyone', 'Commissioner Only'] as const;
 
-interface QuestionDraft {
-  type: SurveyQuestionType;
-  prompt: string;
-  options: string[];
-  required: boolean;
-}
+/** Alias for the shared draft shape — the form and the stash hold the same thing. */
+type QuestionDraft = SurveyDraftForm['questions'][number];
 
 function emptyQuestion(): QuestionDraft {
   return { type: 'multiple_choice_single', prompt: '', options: ['', ''], required: true };
@@ -61,35 +65,48 @@ interface Props {
   leagueId: string;
   conversationId: string;
   teamId: string;
+  /** Saved composer state to resume. Publishing deletes it. */
+  draft?: CommissionerContentDraft | null;
   onClose: () => void;
 }
 
+/**
+ * Note for call sites: this component seeds its state from `draft` on mount,
+ * so it must be mounted when opened (`{show && <CreateSurveyModal … />}`)
+ * rather than kept alive with `visible` toggling — otherwise a resumed draft
+ * would render the previous session's form.
+ */
 export function CreateSurveyModal({
   visible,
   leagueId,
   conversationId,
   teamId,
+  draft,
   onClose,
 }: Props) {
   const c = useColors();
   const { showToast } = useToast();
   const createSurvey = useCreateSurvey();
+  const saveDraft = useSaveContentDraft();
+  const deleteDraft = useDeleteContentDraft();
 
-  const [title, setTitle] = useState('');
-  const [description, setDescription] = useState('');
-  const [questions, setQuestions] = useState<QuestionDraft[]>([emptyQuestion()]);
-  const [visIdx, setVisIdx] = useState(1); // 0=everyone, 1=commissioner
-  const [presetIdx, setPresetIdx] = useState<number | null>(null);
-  const [customDate, setCustomDate] = useState<Date | null>(null);
+  const draftId = draft?.id ?? null;
+  const [initial] = useState(() => parseSurveyDraft(draft?.body));
+
+  const [title, setTitle] = useState(initial.title);
+  const [description, setDescription] = useState(initial.description);
+  const [questions, setQuestions] = useState<QuestionDraft[]>(initial.questions);
+  // 0=everyone, 1=commissioner
+  const [visIdx, setVisIdx] = useState(initial.resultsVisibility === 'everyone' ? 0 : 1);
+  const [presetIdx, setPresetIdx] = useState<number | null>(() =>
+    presetIndexForHours(PRESETS, initial.presetHours),
+  );
+  const [customDate, setCustomDate] = useState<Date | null>(() =>
+    hydrateCustomDate(initial.closesAt),
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   function handleClose() {
-    setTitle('');
-    setDescription('');
-    setQuestions([emptyQuestion()]);
-    setVisIdx(1);
-    setPresetIdx(null);
-    setCustomDate(null);
     setShowDatePicker(false);
     onClose();
   }
@@ -189,13 +206,52 @@ export function CreateSurveyModal({
     return true;
   });
 
+  const busy = createSurvey.isPending || saveDraft.isPending;
   const canSubmit =
     trimmedTitle.length > 0 &&
     questions.length >= 1 &&
     questionsValid &&
     closesAt != null &&
     closesAt > new Date() &&
-    !createSurvey.isPending;
+    !busy;
+
+  // A draft only needs to hold something worth coming back to — a complete
+  // question set and a closing time are the composer's job, not the stash's.
+  const canSaveDraft =
+    (trimmedTitle.length > 0 || questions.some((q) => q.prompt.trim().length > 0)) && !busy;
+
+  function currentForm(): SurveyDraftForm {
+    return {
+      title,
+      description,
+      questions,
+      resultsVisibility: visIdx === 0 ? 'everyone' : 'commissioner',
+      presetHours: presetIdx != null ? PRESETS[presetIdx].hours : null,
+      closesAt: presetIdx == null && customDate ? customDate.toISOString() : null,
+    };
+  }
+
+  function handleSaveDraft() {
+    if (!canSaveDraft) return;
+    saveDraft.mutate(
+      {
+        id: draftId,
+        league_id: leagueId,
+        conversation_id: conversationId,
+        kind: 'survey',
+        body: currentForm(),
+      },
+      {
+        onSuccess: () => {
+          showToast('success', 'Draft saved');
+          handleClose();
+        },
+        onError: (err: any) => {
+          Alert.alert('Error', err.message ?? 'Failed to save draft');
+        },
+      },
+    );
+  }
 
   async function handleCreate() {
     if (!canSubmit || !closesAt) return;
@@ -228,6 +284,12 @@ export function CreateSurveyModal({
       },
       {
         onSuccess: () => {
+          // The draft has served its purpose — the survey is live. A failed
+          // cleanup would only leave a stale row in the commissioner's own
+          // list, so it doesn't block the success path.
+          if (draftId) {
+            deleteDraft.mutate({ id: draftId, conversationId });
+          }
           capture('survey_created', { question_count: questions.length });
           showToast('success', 'Survey created');
           handleClose();
@@ -243,29 +305,57 @@ export function CreateSurveyModal({
     <BottomSheet
       visible={visible}
       onClose={handleClose}
-      title="Create Survey"
+      title={draftId ? 'Edit Draft Survey' : 'Create Survey'}
       height="92%"
       keyboardAvoiding
       footer={
-        <TouchableOpacity
-          onPress={handleCreate}
-          disabled={!canSubmit}
-          style={[
-            styles.createBtn,
-            { backgroundColor: canSubmit ? c.gold : c.buttonDisabled },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Create survey"
-          accessibilityState={{ disabled: !canSubmit }}
-        >
-          {createSurvey.isPending ? (
-            <LogoSpinner size={18} />
-          ) : (
-            <ThemedText style={[styles.createBtnText, { color: Brand.ink }]}>
-              CREATE SURVEY
-            </ThemedText>
-          )}
-        </TouchableOpacity>
+        <View style={styles.footerRow}>
+          <TouchableOpacity
+            onPress={handleSaveDraft}
+            disabled={!canSaveDraft}
+            style={[
+              styles.draftBtn,
+              { borderColor: canSaveDraft ? c.gold : c.border },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Save survey as draft"
+            accessibilityHint="Keeps this survey private so you can finish it later"
+            accessibilityState={{ disabled: !canSaveDraft }}
+          >
+            {saveDraft.isPending ? (
+              <LogoSpinner size={18} />
+            ) : (
+              <ThemedText
+                style={[
+                  styles.createBtnText,
+                  { color: canSaveDraft ? c.gold : c.secondaryText },
+                ]}
+              >
+                SAVE DRAFT
+              </ThemedText>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleCreate}
+            disabled={!canSubmit}
+            style={[
+              styles.createBtn,
+              { backgroundColor: canSubmit ? c.gold : c.buttonDisabled },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Create survey"
+            accessibilityState={{ disabled: !canSubmit }}
+          >
+            {createSurvey.isPending ? (
+              <LogoSpinner size={18} />
+            ) : (
+              <ThemedText style={[styles.createBtnText, { color: Brand.ink }]}>
+                CREATE SURVEY
+              </ThemedText>
+            )}
+          </TouchableOpacity>
+        </View>
       }
     >
       {/* Title */}
@@ -719,7 +809,20 @@ const styles = StyleSheet.create({
     letterSpacing: 0.8,
     marginBottom: s(8),
   },
+  footerRow: {
+    flexDirection: 'row',
+    gap: s(8),
+  },
+  draftBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: s(12),
+    paddingHorizontal: s(14),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   createBtn: {
+    flex: 1,
     borderRadius: 10,
     paddingVertical: s(12),
     alignItems: 'center',

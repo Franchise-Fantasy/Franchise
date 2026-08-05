@@ -24,11 +24,13 @@
  * A caller that passes its own `inputAccessoryViewID` opts out — we honor
  * it and skip rendering our bar. A caller can also pass `hideAccessory` to
  * suppress the bar entirely (e.g. the chat composer, where the message list
- * already dismisses the keyboard via interactive swipe-down).
+ * already dismisses the keyboard via interactive swipe-down; or a field
+ * wired up with `returnKeyType` + `onSubmitEditing`, where the keyboard's
+ * own return key already dismisses and the extra bar is just clutter).
  */
 import { Ionicons } from '@expo/vector-icons';
 import { GlassView, isLiquidGlassAvailable } from 'expo-glass-effect';
-import React, { forwardRef, useId } from 'react';
+import React, { forwardRef, useId, useMemo } from 'react';
 import {
   InputAccessoryView,
   Keyboard,
@@ -57,36 +59,31 @@ export const AppTextInput = forwardRef<TextInput, AppTextInputProps>(function Ap
 
   // useId can contain colons (":r0:"), which are not valid nativeIDs.
   const reactId = useId().replace(/:/g, '');
-
-  // Only iOS supports InputAccessoryView. Elsewhere the system keyboard
-  // already offers a dismiss control, so pass straight through.
-  if (Platform.OS !== 'ios') {
-    return <TextInput ref={ref} {...props} />;
-  }
-
-  // Respect a caller-supplied accessory, or an explicit opt-out — either way
-  // don't render our bar.
-  if (props.inputAccessoryViewID != null || hideAccessory) {
-    return <TextInput ref={ref} {...props} />;
-  }
-
   const accessoryID = `kbd-done-${reactId}`;
 
-  // On iOS 26+ the Done control is a Liquid Glass pill that frosts over the
-  // content behind it, matching the keyboard's own material. Older iOS falls
-  // back to a plain accent-colored text button over a transparent band.
-  const glass = isLiquidGlassAvailable();
+  // Memoized so the bar keeps a stable element identity across the parent's
+  // re-renders. A controlled TextInput re-renders its whole screen on every
+  // keystroke; without this the accessory re-commits each time, UIKit rebuilds
+  // the keyboard to re-host it, and the rebuild resets the keyboard to its
+  // primary plane — which is what kicked users off the "123" layout after
+  // every digit they typed into the email field on the auth screen.
+  const accessory = useMemo(() => {
+    // Only iOS supports InputAccessoryView (and expo-glass-effect).
+    if (Platform.OS !== 'ios') return null;
 
-  const label = (
-    <>
-      <Ionicons name="chevron-down" size={ms(16)} color={c.accent} />
-      <ThemedText style={[styles.doneText, { color: c.accent }]}>Done</ThemedText>
-    </>
-  );
+    // On iOS 26+ the Done control is a Liquid Glass pill that frosts over the
+    // content behind it, matching the keyboard's own material. Older iOS falls
+    // back to a plain accent-colored text button over a transparent band.
+    const glass = isLiquidGlassAvailable();
 
-  return (
-    <>
-      <TextInput ref={ref} {...props} inputAccessoryViewID={accessoryID} />
+    const label = (
+      <>
+        <Ionicons name="chevron-down" size={ms(16)} color={c.accent} />
+        <ThemedText style={[styles.doneText, { color: c.accent }]}>Done</ThemedText>
+      </>
+    );
+
+    return (
       <InputAccessoryView nativeID={accessoryID}>
         <View style={styles.bar}>
           <TouchableOpacity
@@ -113,6 +110,20 @@ export const AppTextInput = forwardRef<TextInput, AppTextInputProps>(function Ap
           </TouchableOpacity>
         </View>
       </InputAccessoryView>
+    );
+  }, [accessoryID, c.accent, c.card]);
+
+  // Elsewhere the system keyboard already offers a dismiss control, so pass
+  // straight through. Same for a caller-supplied accessory or an explicit
+  // opt-out — either way we don't render our bar.
+  if (accessory == null || props.inputAccessoryViewID != null || hideAccessory) {
+    return <TextInput ref={ref} {...props} />;
+  }
+
+  return (
+    <>
+      <TextInput ref={ref} {...props} inputAccessoryViewID={accessoryID} />
+      {accessory}
     </>
   );
 });

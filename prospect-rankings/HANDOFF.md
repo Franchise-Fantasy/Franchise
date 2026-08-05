@@ -1,5 +1,34 @@
 # Programmer Handoff — Prospect Rankings Pipeline
 
+## Changes to pull (since the version currently deployed)
+
+Pull all of these — the first one is a correctness bug that is live right now.
+
+1. **Split-player fix (important).** Sources disagree on generational suffixes:
+   NBADraft.net prints "Darius Acuff", RotoBaller prints "Darius Acuff Jr."
+   Those produced different slugs, so one player became two board entries, each
+   penalized for being "missing" from the other source. Acuff should be #7 in
+   the 2026 class; the live board has him at #35 and #57. Seven players are
+   affected. `buildConsensus` now merges on a suffix-stripped key
+   (`canonicalSlug` in `src/lib/names.js`) and keeps the fuller name for
+   display. Verified locally: Acuff back to #7, board 112 -> 105.
+2. **Field enrichment** (`src/lib/enrich.js`, wired into `sync-contentful.js`).
+   Ranking sources publish wildly different fields — RotoBaller has no
+   measurables at all — so new entries were arriving without height, weight,
+   school or hometown. Gaps are now backstopped from ESPN roster data at
+   creation time, and heights are normalized to `6-9` style.
+3. **DOB + age** (`src/lib/dob.js`). Contentful's `classYear` field is gone,
+   replaced by `dob`; see the age section below.
+4. **Headshots** (`src/sync-headshots.js`). Fills blank `photo` fields with
+   official ESPN transparent-PNG cutouts. Vendored here as a MANUAL tool
+   (`npm run headshots`) rather than wired into `run.js` as Noah shipped it —
+   it re-hosts ESPN/Getty-licensed images, so we run it deliberately. See
+   README.md.
+
+After pulling, a manual "Run workflow" will correct the live rankings without
+waiting for Monday.
+
+
 This folder is a complete, working Node 24 project (already tested end-to-end
 in dry-run mode against the live sites). Your job is the infrastructure and
 the app-side read path; Noah is handling everything inside Contentful
@@ -77,7 +106,36 @@ npm run dry-run
    (`react-native-youtube-iframe` on native, `<iframe>` on web) and hide the
    section on embed error (videos get taken down; card shouldn't break).
 
-5. **"Recent games" card section** — the job also syncs each player's last 3
+5. **Age display (replaces "Class Year")** — the Contentful content type no
+   longer has `classYear`. It now has **`dob`** (a date-only field, e.g.
+   `2007-07-18`), auto-filled by the pipeline from ESPN (drafted players) and
+   Wikidata (everyone else), and left blank when neither has a reliable
+   birthday.
+
+   Store the birthday, compute the age at render time — that way it stays
+   correct without ever re-syncing:
+
+   ```js
+   // dob: "2007-07-18" from Contentful, or null/undefined
+   export function ageFromDob(dob) {
+     if (!dob) return null;
+     const b = new Date(dob);                      // parsed as UTC midnight
+     const now = new Date();
+     let age = now.getUTCFullYear() - b.getUTCFullYear();
+     const m = now.getUTCMonth() - b.getUTCMonth();
+     if (m < 0 || (m === 0 && now.getUTCDate() < b.getUTCDate())) age--;
+     return age;
+   }
+   ```
+
+   Use `getUTC*` throughout — mixing local and UTC getters makes the age flip
+   by a day around midnight in western timezones. Render `null` as no age chip
+   at all rather than "0" or "—".
+
+   If you want the decimal age dynasty readers are used to seeing (Tankathon
+   shows "19.7 yrs"), it's `((Date.now() - new Date(dob)) / 31557600000).toFixed(1)`.
+
+6. **"Recent games" card section** — the job also syncs each player's last 3
    game lines from ESPN's public APIs (college gamelogs in season, Las Vegas
    Summer League in July, NBA gamelogs once the season starts) into
    `recent_games`. Read the `player_last_games` view (anon key):

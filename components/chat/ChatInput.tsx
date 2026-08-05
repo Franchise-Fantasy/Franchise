@@ -27,6 +27,9 @@ interface Props {
   isLeagueChat?: boolean;
   onCreatePoll?: () => void;
   onCreateSurvey?: () => void;
+  /** Saved poll/survey drafts for this conversation — 0 hides the menu entry. */
+  savedDraftCount?: number;
+  onOpenDrafts?: () => void;
   onPickImage?: (source: 'gallery' | 'camera') => void;
   onOpenGifPicker?: () => void;
   isUploading?: boolean;
@@ -34,7 +37,7 @@ interface Props {
 
 const DRAFT_PREFIX = 'chat_draft_';
 
-export function ChatInput({ conversationId, onSend, sending, isCommissioner, isLeagueChat, onCreatePoll, onCreateSurvey, onPickImage, onOpenGifPicker, isUploading }: Props) {
+export function ChatInput({ conversationId, onSend, sending, isCommissioner, isLeagueChat, onCreatePoll, onCreateSurvey, savedDraftCount = 0, onOpenDrafts, onPickImage, onOpenGifPicker, isUploading }: Props) {
   const c = useColors();
   const pickAction = useActionPicker();
   const [text, setText] = useState('');
@@ -130,6 +133,13 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
         icon: 'clipboard-outline',
         hidden: !showCommishOptions || !onCreateSurvey,
         onPress: () => onCreateSurvey?.(),
+      },
+      {
+        id: 'drafts',
+        label: `Saved Drafts (${savedDraftCount})`,
+        icon: 'document-outline',
+        hidden: !showCommishOptions || !onOpenDrafts || savedDraftCount === 0,
+        onPress: () => onOpenDrafts?.(),
       },
     ];
     pickAction({ title: 'Attach', actions: attachActions });

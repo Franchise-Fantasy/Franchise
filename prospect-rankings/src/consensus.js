@@ -6,6 +6,8 @@
 // length + 10, so being unranked on one board costs more than being ranked low
 // — this keeps one site's omission from catapulting a player.
 // The blended score is internal; the app shows display_rank (1..N per year).
+import { canonicalSlug } from "./lib/names.js";
+
 export function buildConsensus(scrapes) {
   const byYear = new Map();
   for (const scrape of scrapes) {
@@ -19,10 +21,18 @@ export function buildConsensus(scrapes) {
     const players = new Map();
     for (const scrape of yearScrapes) {
       for (const p of scrape.players) {
-        if (!players.has(p.slug)) {
-          players.set(p.slug, { ...p, sourceRanks: {} });
+        // Keyed on the suffix-stripped slug so "Darius Acuff" and "Darius
+        // Acuff Jr." are recognized as one player rather than two half-ranked
+        // ones. The fuller name/slug wins for display.
+        const key = canonicalSlug(p.slug);
+        if (!players.has(key)) {
+          players.set(key, { ...p, sourceRanks: {} });
         }
-        const entry = players.get(p.slug);
+        const entry = players.get(key);
+        if (p.slug.length > entry.slug.length) {
+          entry.slug = p.slug;
+          entry.name = p.name;
+        }
         entry.sourceRanks[scrape.source] = p.rank;
         // Prefer richer metadata when a source has it
         entry.position ??= p.position;
@@ -30,6 +40,7 @@ export function buildConsensus(scrapes) {
         entry.height ??= p.height;
         entry.weight ??= p.weight;
         entry.team ??= p.team;
+        entry.hometown ??= p.hometown;
       }
     }
 

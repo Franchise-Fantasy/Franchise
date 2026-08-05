@@ -31,6 +31,8 @@ type Props = Omit<TextInputProps, 'style'> & {
   inputStyle?: StyleProp<TextStyle>;
   /** Optional element rendered inside the input on the right (e.g. password eye toggle). */
   rightAccessory?: React.ReactNode;
+  /** Suppress the iOS keyboard-dismiss bar — see AppTextInput's docs. */
+  hideAccessory?: boolean;
 };
 
 /**
@@ -52,6 +54,7 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
     onBlur,
     placeholderTextColor,
     rightAccessory,
+    accessibilityLabel,
     ...inputProps
   },
   ref,
@@ -72,6 +75,14 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
       <AppTextInput
         ref={ref}
         {...inputProps}
+        // The error renders as a separate text node below the field, so a
+        // screen reader focused on the input would never reach it. Fold it
+        // into the label instead — RN has no `aria-describedby` equivalent.
+        accessibilityLabel={
+          errorText && accessibilityLabel
+            ? `${accessibilityLabel}. ${errorText}`
+            : accessibilityLabel
+        }
         placeholderTextColor={placeholderTextColor ?? c.secondaryText}
         onFocus={(e) => {
           setFocused(true);

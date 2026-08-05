@@ -57,6 +57,12 @@ console.log("\nSyncing...");
 await syncSupabase(boards);
 await syncContentful(boards);
 
+// NOTE: src/sync-headshots.js is deliberately NOT part of the weekly run. It
+// re-hosts ESPN/Getty-licensed images in our Contentful assets, so filling a
+// few hundred blank photos is a decision to make deliberately, not a side
+// effect of a cron. Run it by hand (`npm run headshots -- --dry-run`) and
+// review what it resolves before letting it upload.
+
 try {
   await syncStats(boards);
 } catch (err) {

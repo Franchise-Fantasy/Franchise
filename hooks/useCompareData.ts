@@ -5,6 +5,7 @@ import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
 import { useLeagueScoringType } from '@/hooks/useLeagueScoringType';
 import { usePlayerProjections } from '@/hooks/usePlayerProjections';
+import { usePlayerRankingsMap } from '@/hooks/usePlayerRankings';
 import { usePlayerSeasonStats } from '@/hooks/usePlayerSeasonStats';
 import { useRosterGameLogs } from '@/hooks/useRosterGameLogs';
 import type { PlayerSeasonStats } from '@/types/player';
@@ -20,7 +21,6 @@ import {
   windowFantasyPoints,
 } from '@/utils/scoring/fantasyPoints';
 import { NFL_GAME_COLUMNS } from '@/utils/scoring/nflStatLine';
-import { computeRankings } from '@/utils/scoring/playerRankings';
 import { shootingPct } from '@/utils/scoring/shootingPct';
 import { averageGames, lastNPlayedGames } from '@/utils/scoring/windowAverages';
 
@@ -71,10 +71,9 @@ export function useCompareData(
     return map;
   }, [allPlayers]);
 
-  const rankingsMap = useMemo(() => {
-    if (!allPlayers || !scoringWeights || scoringWeights.length === 0) return null;
-    return computeRankings(allPlayers, scoringWeights, sport);
-  }, [allPlayers, scoringWeights, sport]);
+  // Shared with the player-detail header's rank badges so the two can't disagree
+  // about the basis — pre-tipoff both rank on projections, not empty averages.
+  const rankingsMap = usePlayerRankingsMap(scoringWeights, leagueId);
 
   const resolved = useMemo<ResolvedComparePlayer[]>(() => {
     return candidates.map((cand) => {

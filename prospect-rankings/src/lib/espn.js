@@ -23,7 +23,15 @@ const WEB = "https://site.web.api.espn.com/apis/common/v3/sports/basketball";
 export async function getRoster(league, teamSlug) {
   // league: "mens-college-basketball" | "nba"; teamSlug: "kansas" | "mem"
   const d = await fetchJson(`${SITE}/${league}/teams/${encodeURIComponent(teamSlug)}/roster`);
-  return (d.athletes || []).map((a) => ({ id: String(a.id), name: a.displayName }));
+  return (d.athletes || []).map((a) => ({
+    id: String(a.id),
+    name: a.displayName,
+    height: a.displayHeight ?? null,
+    weight: a.displayWeight ?? null,
+    position: a.position?.abbreviation ?? null,
+    college: a.college?.name ?? null,
+    birthPlace: a.birthPlace ?? null,
+  }));
 }
 
 // Per-game log for the athlete's most recent season. Works for

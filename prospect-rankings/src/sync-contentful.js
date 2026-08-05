@@ -1,4 +1,6 @@
 import * as contentfulManagement from "contentful-management";
+import { resolveDob } from "./lib/dob.js";
+import { enrichPlayer } from "./lib/enrich.js";
 
 // For every ranked player with no Contentful entry yet, create an UNPUBLISHED
 // draft with the machine-known fields filled in (name, slug, position, school,
@@ -35,8 +37,11 @@ export async function syncContentful(boards) {
 
   let created = 0;
   for (const board of boards) {
-    for (const p of board.players) {
-      if (existing.has(p.slug)) continue;
+    for (const rawPlayer of board.players) {
+      if (existing.has(rawPlayer.slug)) continue;
+      // Sources disagree on what they publish; backstop the gaps from ESPN so
+      // new entries arrive complete instead of needing a manual cleanup pass.
+      const p = await enrichPlayer(rawPlayer);
       const fields = {};
       const maybe = (id, value) => {
         if (fieldIds.has(id) && value != null) fields[id] = { [locale]: value };
@@ -50,6 +55,14 @@ export async function syncContentful(boards) {
       maybe("draftYear", board.draftYear);
       maybe("height", p.height);
       maybe("weight", p.weight);
+      maybe("hometown", p.hometown);
+
+      // Only a handful of players are new in any given week, so resolving a
+      // birthday here is cheap. Unresolved players are left blank for an editor.
+      if (fieldIds.has("dob")) {
+        const { dob } = await resolveDob(p, board.draftYear, null, console.log);
+        maybe("dob", dob);
+      }
       await client.entry.create({ ...ctx, contentTypeId: typeId }, { fields }); // stays a draft on purpose
       existing.add(p.slug);
       created++;

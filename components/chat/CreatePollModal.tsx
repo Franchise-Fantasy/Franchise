@@ -17,8 +17,15 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { ToggleRow } from '@/components/ui/ToggleRow';
 import { Brand, Fonts } from '@/constants/Colors';
 import { useToast } from '@/context/ToastProvider';
-import { useCreatePoll } from '@/hooks/chat';
+import { useCreatePoll, useDeleteContentDraft, useSaveContentDraft } from '@/hooks/chat';
 import { useColors } from '@/hooks/useColors';
+import {
+  hydrateCustomDate,
+  parsePollDraft,
+  presetIndexForHours,
+  type CommissionerContentDraft,
+  type PollDraftForm,
+} from '@/utils/chat/contentDraftBody';
 import { containsBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
@@ -35,38 +42,49 @@ interface Props {
   leagueId: string;
   conversationId: string;
   teamId: string;
+  /** Saved composer state to resume. Publishing deletes it. */
+  draft?: CommissionerContentDraft | null;
   onClose: () => void;
 }
 
+/**
+ * Note for call sites: this component seeds its state from `draft` on mount,
+ * so it must be mounted when opened (`{show && <CreatePollModal … />}`) rather
+ * than kept alive with `visible` toggling — otherwise a resumed draft would
+ * render the previous session's form.
+ */
 export function CreatePollModal({
   visible,
   leagueId,
   conversationId,
   teamId,
+  draft,
   onClose,
 }: Props) {
   const c = useColors();
   const { showToast } = useToast();
   const createPoll = useCreatePoll();
+  const saveDraft = useSaveContentDraft();
+  const deleteDraft = useDeleteContentDraft();
 
-  const [question, setQuestion] = useState('');
-  const [options, setOptions] = useState(['', '']);
-  const [pollTypeIdx, setPollTypeIdx] = useState(0);
-  const [presetIdx, setPresetIdx] = useState<number | null>(null);
-  const [customDate, setCustomDate] = useState<Date | null>(null);
+  const draftId = draft?.id ?? null;
+  const [initial] = useState(() => parsePollDraft(draft?.body));
+
+  const [question, setQuestion] = useState(initial.question);
+  const [options, setOptions] = useState(initial.options);
+  const [pollTypeIdx, setPollTypeIdx] = useState(initial.pollType === 'multi' ? 1 : 0);
+  const [presetIdx, setPresetIdx] = useState<number | null>(() =>
+    presetIndexForHours(PRESETS, initial.presetHours),
+  );
+  const [customDate, setCustomDate] = useState<Date | null>(() =>
+    hydrateCustomDate(initial.closesAt),
+  );
   const [showDatePicker, setShowDatePicker] = useState(false);
-  const [isAnonymous, setIsAnonymous] = useState(false);
-  const [showLiveResults, setShowLiveResults] = useState(true);
+  const [isAnonymous, setIsAnonymous] = useState(initial.isAnonymous);
+  const [showLiveResults, setShowLiveResults] = useState(initial.showLiveResults);
 
   function handleClose() {
-    setQuestion('');
-    setOptions(['', '']);
-    setPollTypeIdx(0);
-    setPresetIdx(null);
-    setCustomDate(null);
     setShowDatePicker(false);
-    setIsAnonymous(false);
-    setShowLiveResults(true);
     onClose();
   }
 
@@ -112,12 +130,51 @@ export function CreatePollModal({
   const closesAt = getClosesAt();
   const trimmedQ = question.trim();
   const filledOptions = options.filter((o) => o.trim().length > 0);
+  const busy = createPoll.isPending || saveDraft.isPending;
   const canSubmit =
     trimmedQ.length > 0 &&
     filledOptions.length >= 2 &&
     closesAt != null &&
     closesAt > new Date() &&
-    !createPoll.isPending;
+    !busy;
+
+  // A draft only needs to hold something worth coming back to — the closing
+  // time and the second option are the composer's job, not the stash's.
+  const canSaveDraft = (trimmedQ.length > 0 || filledOptions.length > 0) && !busy;
+
+  function currentForm(): PollDraftForm {
+    return {
+      question,
+      options,
+      pollType: pollTypeIdx === 0 ? 'single' : 'multi',
+      presetHours: presetIdx != null ? PRESETS[presetIdx].hours : null,
+      closesAt: presetIdx == null && customDate ? customDate.toISOString() : null,
+      isAnonymous,
+      showLiveResults,
+    };
+  }
+
+  function handleSaveDraft() {
+    if (!canSaveDraft) return;
+    saveDraft.mutate(
+      {
+        id: draftId,
+        league_id: leagueId,
+        conversation_id: conversationId,
+        kind: 'poll',
+        body: currentForm(),
+      },
+      {
+        onSuccess: () => {
+          showToast('success', 'Draft saved');
+          handleClose();
+        },
+        onError: (err: any) => {
+          Alert.alert('Error', err.message ?? 'Failed to save draft');
+        },
+      },
+    );
+  }
 
   async function handleCreate() {
     if (!canSubmit || !closesAt) return;
@@ -140,6 +197,12 @@ export function CreatePollModal({
       },
       {
         onSuccess: () => {
+          // The draft has served its purpose — the poll is live. A failed
+          // cleanup would only leave a stale row in the commissioner's own
+          // list, so it doesn't block the success path.
+          if (draftId) {
+            deleteDraft.mutate({ id: draftId, conversationId });
+          }
           showToast('success', 'Poll created');
           handleClose();
         },
@@ -154,28 +217,56 @@ export function CreatePollModal({
     <BottomSheet
       visible={visible}
       onClose={handleClose}
-      title="Create Poll"
+      title={draftId ? 'Edit Draft Poll' : 'Create Poll'}
       keyboardAvoiding
       footer={
-        <TouchableOpacity
-          onPress={handleCreate}
-          disabled={!canSubmit}
-          style={[
-            styles.createBtn,
-            { backgroundColor: canSubmit ? c.gold : c.buttonDisabled },
-          ]}
-          accessibilityRole="button"
-          accessibilityLabel="Create poll"
-          accessibilityState={{ disabled: !canSubmit }}
-        >
-          {createPoll.isPending ? (
-            <LogoSpinner size={18} />
-          ) : (
-            <ThemedText style={[styles.createBtnText, { color: Brand.ink }]}>
-              CREATE POLL
-            </ThemedText>
-          )}
-        </TouchableOpacity>
+        <View style={styles.footerRow}>
+          <TouchableOpacity
+            onPress={handleSaveDraft}
+            disabled={!canSaveDraft}
+            style={[
+              styles.draftBtn,
+              { borderColor: canSaveDraft ? c.gold : c.border },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Save poll as draft"
+            accessibilityHint="Keeps this poll private so you can finish it later"
+            accessibilityState={{ disabled: !canSaveDraft }}
+          >
+            {saveDraft.isPending ? (
+              <LogoSpinner size={18} />
+            ) : (
+              <ThemedText
+                style={[
+                  styles.createBtnText,
+                  { color: canSaveDraft ? c.gold : c.secondaryText },
+                ]}
+              >
+                SAVE DRAFT
+              </ThemedText>
+            )}
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={handleCreate}
+            disabled={!canSubmit}
+            style={[
+              styles.createBtn,
+              { backgroundColor: canSubmit ? c.gold : c.buttonDisabled },
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel="Create poll"
+            accessibilityState={{ disabled: !canSubmit }}
+          >
+            {createPoll.isPending ? (
+              <LogoSpinner size={18} />
+            ) : (
+              <ThemedText style={[styles.createBtnText, { color: Brand.ink }]}>
+                CREATE POLL
+              </ThemedText>
+            )}
+          </TouchableOpacity>
+        </View>
       }
     >
       {/* Question */}
@@ -433,7 +524,20 @@ const styles = StyleSheet.create({
     marginTop: s(16),
     paddingTop: s(8),
   },
+  footerRow: {
+    flexDirection: 'row',
+    gap: s(8),
+  },
+  draftBtn: {
+    borderRadius: 10,
+    borderWidth: 1,
+    paddingVertical: s(12),
+    paddingHorizontal: s(14),
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   createBtn: {
+    flex: 1,
     borderRadius: 10,
     paddingVertical: s(12),
     alignItems: 'center',

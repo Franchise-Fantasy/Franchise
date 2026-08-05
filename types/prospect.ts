@@ -11,7 +11,9 @@ export interface ProspectCardData {
   name: string;
   position: string;
   school: string;
-  classYear?: string;
+  /** Date-only birthday ("2007-07-18") from Contentful; blank when unresolved.
+   *  Age is computed at render time via `ageFromDob` — never store the age. */
+  dob?: string;
   photoUrl?: string;
   /** Draft class (integer year) — the ProspectProfile.draftYear field. */
   draftYear?: number;

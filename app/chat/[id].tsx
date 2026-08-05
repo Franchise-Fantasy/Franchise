@@ -22,6 +22,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { ChatFilterStrip, type ChatFilter } from '@/components/chat/ChatFilterStrip';
 import { ChatInput } from '@/components/chat/ChatInput';
+import { ContentDraftsSheet } from '@/components/chat/ContentDraftsSheet';
 import { CreatePollModal } from '@/components/chat/CreatePollModal';
 import { CreateSurveyModal } from '@/components/chat/CreateSurveyModal';
 import { GifPicker } from '@/components/chat/GifPicker';
@@ -45,6 +46,8 @@ import { useAppState } from '@/context/AppStateProvider';
 import { useConfirm } from '@/context/ConfirmProvider';
 import {
   useChatSubscription,
+  useContentDrafts,
+  useDeleteContentDraft,
   useMarkRead,
   useMessages,
   usePinnedMessages,
@@ -61,6 +64,7 @@ import type { ReadReceipt } from '@/hooks/chat/useReadReceipts';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import type { ChatMessage, ReactionGroup } from '@/types/chat';
+import type { CommissionerContentDraft } from '@/utils/chat/contentDraftBody';
 import { isSystemAuthored } from '@/utils/chat/messageTypes';
 import { KeyboardAvoidingView } from '@/utils/keyboardController';
 import { logger } from '@/utils/logger';
@@ -371,6 +375,9 @@ export default function ConversationScreen() {
   const flatListRef = useRef<FlatList<ChatMessage>>(null);
   const [showCreatePoll, setShowCreatePoll] = useState(false);
   const [showCreateSurvey, setShowCreateSurvey] = useState(false);
+  const [showDrafts, setShowDrafts] = useState(false);
+  // The saved draft the open composer is editing — null when composing fresh.
+  const [activeDraft, setActiveDraft] = useState<CommissionerContentDraft | null>(null);
   const [showPresenceList, setShowPresenceList] = useState(false);
   const [showGifPicker, setShowGifPicker] = useState(false);
   const [activeFilter, setActiveFilter] = useState<ChatFilter>('all');
@@ -754,6 +761,22 @@ export default function ConversationScreen() {
   const isLeagueChat = convMeta?.type === 'league';
   const isTradeChat = convMeta?.type === 'trade';
   const isDM = convMeta?.type === 'dm';
+
+  // Saved poll/survey composer state. RLS already limits the table to the
+  // caller's own drafts; the enabled flag just avoids the request for the ~all
+  // of chat that isn't a commissioner in league chat.
+  const { data: contentDrafts } = useContentDrafts(
+    conversationId ?? null,
+    !!isCommissioner && isLeagueChat,
+  );
+  const deleteContentDraft = useDeleteContentDraft();
+
+  const openDraft = useCallback((draft: CommissionerContentDraft) => {
+    setShowDrafts(false);
+    setActiveDraft(draft);
+    if (draft.kind === 'poll') setShowCreatePoll(true);
+    else setShowCreateSurvey(true);
+  }, []);
   // Trade chats show sender names like league chat (multiple participants)
   const showSenders = isLeagueChat || isTradeChat;
 
@@ -954,8 +977,16 @@ export default function ConversationScreen() {
           sending={sendMessage.isPending}
           isCommissioner={isCommissioner ?? false}
           isLeagueChat={isLeagueChat}
-          onCreatePoll={() => setShowCreatePoll(true)}
-          onCreateSurvey={() => setShowCreateSurvey(true)}
+          onCreatePoll={() => {
+            setActiveDraft(null);
+            setShowCreatePoll(true);
+          }}
+          onCreateSurvey={() => {
+            setActiveDraft(null);
+            setShowCreateSurvey(true);
+          }}
+          savedDraftCount={contentDrafts?.length ?? 0}
+          onOpenDrafts={() => setShowDrafts(true)}
           onPickImage={pickImage}
           onOpenGifPicker={() => setShowGifPicker(true)}
           isUploading={isUploading}
@@ -1034,13 +1065,19 @@ export default function ConversationScreen() {
       />
 
 
+      {/* Both composers seed from `draft` on mount, so they stay conditionally
+          mounted rather than living behind a `visible` toggle. */}
       {showCreatePoll && leagueId && conversationId && teamId && (
         <CreatePollModal
           visible={showCreatePoll}
           leagueId={leagueId}
           conversationId={conversationId}
           teamId={teamId}
-          onClose={() => setShowCreatePoll(false)}
+          draft={activeDraft?.kind === 'poll' ? activeDraft : null}
+          onClose={() => {
+            setShowCreatePoll(false);
+            setActiveDraft(null);
+          }}
         />
       )}
 
@@ -1050,7 +1087,29 @@ export default function ConversationScreen() {
           leagueId={leagueId}
           conversationId={conversationId}
           teamId={teamId}
-          onClose={() => setShowCreateSurvey(false)}
+          draft={activeDraft?.kind === 'survey' ? activeDraft : null}
+          onClose={() => {
+            setShowCreateSurvey(false);
+            setActiveDraft(null);
+          }}
+        />
+      )}
+
+      {showDrafts && conversationId && (
+        <ContentDraftsSheet
+          visible={showDrafts}
+          drafts={contentDrafts ?? []}
+          onSelect={openDraft}
+          onDelete={(draft) =>
+            deleteContentDraft.mutate(
+              { id: draft.id, conversationId },
+              {
+                onError: (err: any) =>
+                  Alert.alert('Error', err.message ?? 'Failed to delete draft'),
+              },
+            )
+          }
+          onClose={() => setShowDrafts(false)}
         />
       )}
 

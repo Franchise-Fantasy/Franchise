@@ -7,6 +7,10 @@ import { ms, s } from "@/utils/scale";
 
 interface SectionEyebrowProps {
   label: string;
+  /** `large` keeps ThemedText's own `sectionLabel` sizing (17px, tight
+   *  tracking) — the heading scale the player detail sheet uses. Default is the
+   *  compact 13px caps of the Home / Free Agent / roster sections. */
+  size?: 'default' | 'large';
   /** Optional element rendered inline immediately after the label. */
   leftAccessory?: ReactNode;
   /** Optional content rendered right-aligned in the eyebrow row (pills, badges). */
@@ -18,7 +22,12 @@ interface SectionEyebrowProps {
  * right slot. Matches the pattern used in Home (StandingsSection) and Free
  * Agents (RosterNeedsStrip).
  */
-export function SectionEyebrow({ label, leftAccessory, right }: SectionEyebrowProps) {
+export function SectionEyebrow({
+  label,
+  size = 'default',
+  leftAccessory,
+  right,
+}: SectionEyebrowProps) {
   const c = useColors();
 
   return (
@@ -27,7 +36,7 @@ export function SectionEyebrow({ label, leftAccessory, right }: SectionEyebrowPr
         <View style={[styles.rule, { backgroundColor: c.gold }]} />
         <ThemedText
           type="sectionLabel"
-          style={[styles.label, { color: c.text }]}
+          style={[size === 'large' ? undefined : styles.label, { color: c.text }]}
           accessibilityRole="header"
         >
           {label}

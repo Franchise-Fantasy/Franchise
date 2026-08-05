@@ -27,6 +27,7 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useProspect } from '@/hooks/useProspect';
 import { useSubscription } from '@/hooks/useSubscription';
 import { scoutingReportPreview } from '@/lib/prospect-mappers';
+import { ageFromDob } from '@/utils/dates';
 import { ms, s } from '@/utils/scale';
 
 // Embroidered F watermark — same asset used by HomeHero. Bundled at module
@@ -80,12 +81,14 @@ export default function ProspectProfileScreen() {
     .slice(0, 2)
     .toUpperCase();
 
-  // Eyebrow: "PG · DUKE · FRESHMAN" — varsity caps tied together by
-  // mid-dots, gold-tinted, sits above the Alfa Slab name.
+  // Eyebrow: "PG · DUKE · 19 YRS" — varsity caps tied together by mid-dots,
+  // gold-tinted, sits above the Alfa Slab name. Age is derived from the
+  // birthday at render time; an unresolved dob simply drops the segment.
+  const age = ageFromDob(prospect.dob);
   const eyebrowSegments = [
     prospect.position,
     prospect.school,
-    prospect.classYear,
+    age !== null ? `${age} yrs` : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -168,7 +171,7 @@ export default function ProspectProfileScreen() {
           {[
             { label: 'Height', value: prospect.height },
             { label: 'Weight', value: prospect.weight },
-            { label: 'Class', value: prospect.classYear },
+            { label: 'Age', value: age !== null ? String(age) : undefined },
             { label: 'Team', value: prospect.currentTeam },
           ].map((stat, i) => (
             <View

@@ -7,7 +7,8 @@
     "test": "echo \"Error: no test specified\" && exit 1",
     "scrape": "node --env-file-if-exists=.env src/run.js",
     "dry-run": "node src/run.js --dry-run",
-    "seed": "node --env-file-if-exists=.env src/seed-cms.js"
+    "seed": "node --env-file-if-exists=.env src/seed-cms.js",
+    "headshots": "node --env-file-if-exists=.env src/sync-headshots.js"
   },
   "keywords": [],
   "author": "",

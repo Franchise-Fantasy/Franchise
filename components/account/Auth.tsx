@@ -3,7 +3,7 @@ import * as AppleAuthentication from 'expo-apple-authentication';
 import * as Crypto from 'expo-crypto';
 import { Image } from 'expo-image';
 import { useRouter } from 'expo-router';
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Alert,
   AppState,
@@ -14,6 +14,7 @@ import {
   StyleSheet,
   TouchableOpacity,
   View,
+  type TextInput,
 } from 'react-native';
 
 import { BrandButton } from '@/components/ui/BrandButton';
@@ -24,8 +25,19 @@ import { ThemedView } from '@/components/ui/ThemedView';
 import { Fonts } from '@/constants/Colors';
 import { useColors } from '@/hooks/useColors';
 import { useColorScheme } from '@/hooks/useColorScheme';
+import { useResendCooldown } from '@/hooks/useResendCooldown';
 import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
+import {
+  OTP_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  emailError,
+  isBadCredentialsError,
+  isUnconfirmedEmailError,
+  newPasswordError,
+  normalizeEmail,
+  sanitizeOtp,
+} from '@/utils/auth/emailAuth';
 import { isExpoGo } from '@/utils/buildConfig';
 import { ms, s } from '@/utils/scale';
 
@@ -101,12 +113,16 @@ export default function Auth() {
   const [pendingVerification, setPendingVerification] = useState(false);
   const [modeLabel, setModeLabel] = useState<ModeLabel>('Sign In');
   const [showPassword, setShowPassword] = useState(false);
+  const [emailErr, setEmailErr] = useState<string | null>(null);
+  const [passwordErr, setPasswordErr] = useState<string | null>(null);
+  const passwordRef = useRef<TextInput>(null);
+  const resend = useResendCooldown();
   const isSignUp = modeLabel === 'Create Account';
 
-  async function signInWithEmail() {
+  async function signInWithEmail(cleanEmail: string) {
     setLoading(true);
     const { data, error } = await supabase.auth.signInWithPassword({
-      email,
+      email: cleanEmail,
       password,
     });
     if (error) {
@@ -114,20 +130,25 @@ export default function Auth() {
       // verifying, Supabase returns "Email not confirmed". Send a fresh
       // OTP and drop into the existing verification screen instead of
       // showing a dead-end alert.
-      const isUnconfirmed =
-        (error as any).code === 'email_not_confirmed'
-        || /email\s+not\s+confirmed/i.test(error.message);
-      if (isUnconfirmed) {
-        await supabase.auth.resend({ type: 'signup', email }).catch(() => {});
+      if (isUnconfirmedEmailError(error)) {
+        await supabase.auth.resend({ type: 'signup', email: cleanEmail }).catch(() => {});
+        resend.start();
         setPendingVerification(true);
         Alert.alert(
           'Verify your email',
-          `Enter the code we just sent to ${email} to finish signing in.`,
+          `Enter the code we just sent to ${cleanEmail} to finish signing in.`,
         );
         setLoading(false);
         return;
       }
-      Alert.alert(error.message);
+      // A wrong password is the most common failure here, and it belongs
+      // under the field the user has to retype — not behind an alert they
+      // must dismiss first.
+      if (isBadCredentialsError(error)) {
+        setPasswordErr('Email or password is incorrect.');
+      } else {
+        Alert.alert(error.message);
+      }
       setLoading(false);
       return;
     }
@@ -149,15 +170,14 @@ export default function Auth() {
   }
 
   async function handleResetPassword() {
-    if (!email.trim()) {
-      Alert.alert(
-        'Enter your email',
-        'Please enter your email address above, then tap Forgot Password.',
-      );
+    const err = emailError(email);
+    if (err) {
+      setEmailErr(err);
       return;
     }
+    const cleanEmail = normalizeEmail(email);
     setLoading(true);
-    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
       redirectTo: 'franchisev2://reset-password',
     });
     setLoading(false);
@@ -165,13 +185,13 @@ export default function Auth() {
       Alert.alert('Error', error.message);
     } else {
       setResetSent(true);
-      Alert.alert('Check your email', `We sent a password reset link to ${email.trim()}`);
+      Alert.alert('Check your email', `We sent a password reset link to ${cleanEmail}`);
     }
   }
 
-  async function signUpWithEmail() {
+  async function signUpWithEmail(cleanEmail: string) {
     setLoading(true);
-    const { data, error } = await supabase.auth.signUp({ email, password });
+    const { data, error } = await supabase.auth.signUp({ email: cleanEmail, password });
     if (error) {
       Alert.alert(error.message);
       setLoading(false);
@@ -184,31 +204,34 @@ export default function Auth() {
       setLoading(false);
       Alert.alert(
         'Account already exists',
-        `An account with ${email.trim()} already exists. Sign in instead, or reset your password if you've forgotten it.`,
+        `An account with ${cleanEmail} already exists. Sign in instead, or reset your password if you've forgotten it.`,
         [
           { text: 'Cancel', style: 'cancel' },
           {
             text: 'Sign in',
-            onPress: () => setModeLabel('Sign In'),
+            onPress: () => switchMode('Sign In'),
           },
         ],
       );
       return;
     }
     capture('sign_up', { method: 'email' });
+    resend.start();
     setPendingVerification(true);
     setLoading(false);
   }
 
-  async function verifyOtp() {
-    if (!otpToken.trim()) {
-      Alert.alert('Enter the code', 'Please enter the 8-digit code from your email.');
+  // Takes the code explicitly so the auto-submit below can pass the value it
+  // just computed rather than racing the state update.
+  async function verifyOtp(code: string) {
+    if (code.length < OTP_LENGTH) {
+      Alert.alert('Enter the code', `Please enter the ${OTP_LENGTH}-digit code from your email.`);
       return;
     }
     setLoading(true);
     const { error } = await supabase.auth.verifyOtp({
       email,
-      token: otpToken.trim(),
+      token: code,
       type: 'signup',
     });
     if (error) {
@@ -227,9 +250,10 @@ export default function Auth() {
     setLoading(false);
     if (error) {
       Alert.alert('Error', error.message);
-    } else {
-      Alert.alert('Code resent', 'Check your email for a new verification code.');
+      return;
     }
+    resend.start();
+    Alert.alert('Code resent', 'Check your email for a new verification code.');
   }
 
   async function signInWithGoogle() {
@@ -272,7 +296,7 @@ export default function Auth() {
         .select('league_id')
         .eq('user_id', data.session.user.id)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       capture('sign_in', { method: 'google' });
       Keyboard.dismiss();
@@ -334,7 +358,7 @@ export default function Auth() {
         .select('league_id')
         .eq('user_id', data.session.user.id)
         .limit(1)
-        .single();
+        .maybeSingle();
 
       capture('sign_in', { method: 'apple' });
       Keyboard.dismiss();
@@ -351,11 +375,36 @@ export default function Auth() {
   }
 
   const primaryAction = () => {
+    const nextEmailErr = emailError(email);
+    // Only enforce the length rule when creating an account — an existing
+    // account may predate the current policy and must still be able to sign in.
+    const nextPasswordErr = isSignUp
+      ? newPasswordError(password)
+      : (password ? null : 'Enter your password.');
+
+    setEmailErr(nextEmailErr);
+    setPasswordErr(nextPasswordErr);
+    if (nextEmailErr || nextPasswordErr) return;
+
+    // Normalize into state so the verification screen and the resend both use
+    // the same address the account was actually created with.
+    const cleanEmail = normalizeEmail(email);
+    setEmail(cleanEmail);
+
     if (isSignUp) {
-      signUpWithEmail();
+      signUpWithEmail(cleanEmail);
     } else {
-      signInWithEmail();
+      signInWithEmail(cleanEmail);
     }
+  };
+
+  const switchMode = (next: ModeLabel) => {
+    setModeLabel(next);
+    setEmailErr(null);
+    setPasswordErr(null);
+    // Otherwise the button still reads "Resend reset email" after a round trip
+    // through Create Account.
+    setResetSent(false);
   };
 
   return (
@@ -386,6 +435,7 @@ export default function Auth() {
               <ThemedText
                 type="display"
                 style={[styles.heading, { color: c.text }]}
+                accessibilityRole="header"
               >
                 Verify your email.
               </ThemedText>
@@ -393,28 +443,38 @@ export default function Auth() {
                 type="varsitySmall"
                 style={[styles.subheading, { color: c.secondaryText }]}
               >
-                {`8-DIGIT CODE SENT TO ${email.toUpperCase()}`}
+                {`${OTP_LENGTH}-DIGIT CODE SENT TO ${email.toUpperCase()}`}
               </ThemedText>
 
               <View style={styles.formField}>
                 <BrandTextInput
                   value={otpToken}
-                  onChangeText={setOtpToken}
-                  placeholder="00000000"
+                  onChangeText={(next) => {
+                    // Codes get pasted out of an email, so they arrive with
+                    // spaces and stray formatting characters that the server
+                    // rejects. Strip to digits, then cap — a `maxLength` prop
+                    // would truncate "1234 5678" before the space came out.
+                    const code = sanitizeOtp(next).slice(0, OTP_LENGTH);
+                    setOtpToken(code);
+                    // Submit the moment the code is complete. Nobody wants to
+                    // reach for a button after typing the last digit, and a
+                    // paste fills the whole field in one change.
+                    if (code.length === OTP_LENGTH && !loading) verifyOtp(code);
+                  }}
+                  placeholder={'0'.repeat(OTP_LENGTH)}
                   keyboardType="number-pad"
                   textContentType="oneTimeCode"
                   autoComplete="one-time-code"
-                  maxLength={8}
                   autoFocus
                   accessibilityLabel="Verification code"
-                  accessibilityHint="Enter the 8-digit code from your email"
+                  accessibilityHint={`Enter the ${OTP_LENGTH}-digit code from your email. Verifies automatically when complete.`}
                   inputStyle={styles.otpInput}
                 />
               </View>
 
               <BrandButton
                 label="Verify"
-                onPress={verifyOtp}
+                onPress={() => verifyOtp(otpToken)}
                 loading={loading}
                 disabled={loading}
                 fullWidth
@@ -423,10 +483,16 @@ export default function Auth() {
 
               <View style={styles.linkRow}>
                 <BrandButton
-                  label="Resend code"
+                  label={resend.canResend ? 'Resend code' : `Resend in ${resend.secondsLeft}s`}
                   onPress={resendOtp}
                   variant="ghost"
-                  disabled={loading}
+                  disabled={loading || !resend.canResend}
+                  accessibilityLabel="Resend verification code"
+                  accessibilityHint={
+                    resend.canResend
+                      ? undefined
+                      : `Available in ${resend.secondsLeft} seconds`
+                  }
                 />
                 <BrandButton
                   label="Back to sign in"
@@ -445,31 +511,61 @@ export default function Auth() {
                 <BrandSegmented
                   options={MODE_OPTIONS}
                   selected={modeLabel}
-                  onSelect={setModeLabel}
+                  onSelect={switchMode}
                   noBaseline
                 />
               </View>
 
-              {/* Form */}
+              {/* Form.
+
+                  Both fields set `hideAccessory`: their keyboards carry a
+                  return key (wired below to advance/submit), so our Done bar
+                  is redundant — and leaving it attached made UIKit rebuild the
+                  keyboard as the user typed, which snapped it back off the
+                  "123" layout after every digit in an email address. */}
               <View style={styles.formField}>
                 <BrandTextInput
                   value={email}
-                  onChangeText={setEmail}
+                  onChangeText={(next) => {
+                    setEmail(next);
+                    if (emailErr) setEmailErr(null);
+                  }}
                   placeholder="Email"
                   autoCapitalize="none"
+                  autoCorrect={false}
+                  spellCheck={false}
                   keyboardType="email-address"
                   textContentType="emailAddress"
+                  autoComplete="email"
+                  returnKeyType="next"
+                  submitBehavior="submit"
+                  onSubmitEditing={() => passwordRef.current?.focus()}
+                  errorText={emailErr ?? undefined}
+                  hideAccessory
                   accessibilityLabel="Email"
                 />
               </View>
               <View style={styles.formField}>
                 <BrandTextInput
+                  ref={passwordRef}
                   value={password}
-                  onChangeText={setPassword}
+                  onChangeText={(next) => {
+                    setPassword(next);
+                    if (passwordErr) setPasswordErr(null);
+                  }}
                   placeholder="Password"
                   secureTextEntry={!showPassword}
                   autoCapitalize="none"
+                  autoCorrect={false}
                   textContentType={isSignUp ? 'newPassword' : 'password'}
+                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                  returnKeyType="go"
+                  onSubmitEditing={primaryAction}
+                  helperText={
+                    isSignUp ? `At least ${PASSWORD_MIN_LENGTH} characters.` : undefined
+                  }
+                  errorText={passwordErr ?? undefined}
+                  hideAccessory
                   accessibilityLabel="Password"
                   rightAccessory={
                     <TouchableOpacity
@@ -539,7 +635,7 @@ export default function Auth() {
                 onPress={signInWithGoogle}
                 activeOpacity={0.8}
                 accessibilityRole="button"
-                accessibilityLabel="Sign in with Google"
+                accessibilityLabel={isSignUp ? 'Sign up with Google' : 'Sign in with Google'}
                 accessibilityHint={GOOGLE_ENABLED ? undefined : 'Coming soon'}
                 accessibilityState={{ disabled: !GOOGLE_ENABLED || loading }}
               >
@@ -550,8 +646,11 @@ export default function Auth() {
                   style={styles.googleIcon}
                   accessible={false}
                 />
+                {/* Google's brand guidelines sanction both strings; matching
+                    the mode keeps it consistent with Apple's button, which
+                    already switches to SIGN_UP below. */}
                 <ThemedText style={styles.googleLabel}>
-                  Sign in with Google
+                  {isSignUp ? 'Sign up with Google' : 'Sign in with Google'}
                 </ThemedText>
               </TouchableOpacity>
 
