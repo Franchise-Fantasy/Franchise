@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
 import {
   Platform,
@@ -123,9 +122,33 @@ export function NumberStepper({
       else if (key === 'ArrowDown') bump(-1);
     };
 
+    const stepButton = (direction: 1 | -1) => {
+      const blocked = direction === 1 ? atMax : atMin;
+      return (
+        <Pressable
+          onPress={() => bump(direction)}
+          disabled={blocked}
+          style={({ hovered }: { hovered?: boolean }) => [
+            sheet.stepBtn,
+            { borderColor: blocked ? c.border : c.text },
+            blocked ? sheet.stepBtnDisabled : null,
+            hovered && !blocked ? { backgroundColor: c.cardAlt } : null,
+          ]}
+          accessibilityRole="button"
+          accessibilityLabel={`${direction === 1 ? 'Increase' : 'Decrease'} ${a11yBase}`}
+          accessibilityState={{ disabled: blocked }}
+        >
+          <Text style={[sheet.stepBtnText, { color: blocked ? c.secondaryText : c.text }]}>
+            {direction === 1 ? '+' : '−'}
+          </Text>
+        </Pressable>
+      );
+    };
+
     return (
       <SheetRow label={label} helper={helperText} last={last}>
         <View style={sheet.row}>
+          {stepButton(-1)}
           <View
             style={[
               sheet.box,
@@ -150,35 +173,8 @@ export function NumberStepper({
               style={[sheet.input, { color: c.text }]}
               accessibilityLabel={`${a11yBase}, ${displayValue}${suffix ?? ''}`}
             />
-            <View style={[sheet.spinner, { borderLeftColor: c.border }]}>
-              <Pressable
-                onPress={() => bump(1)}
-                disabled={atMax}
-                style={({ hovered }: { hovered?: boolean }) => [
-                  sheet.spinBtn,
-                  hovered && !atMax ? { backgroundColor: c.cardAlt } : null,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Increase ${a11yBase}`}
-                accessibilityState={{ disabled: atMax }}
-              >
-                <Ionicons name="chevron-up" size={11} color={atMax ? c.border : c.secondaryText} />
-              </Pressable>
-              <Pressable
-                onPress={() => bump(-1)}
-                disabled={atMin}
-                style={({ hovered }: { hovered?: boolean }) => [
-                  sheet.spinBtn,
-                  hovered && !atMin ? { backgroundColor: c.cardAlt } : null,
-                ]}
-                accessibilityRole="button"
-                accessibilityLabel={`Decrease ${a11yBase}`}
-                accessibilityState={{ disabled: atMin }}
-              >
-                <Ionicons name="chevron-down" size={11} color={atMin ? c.border : c.secondaryText} />
-              </Pressable>
-            </View>
           </View>
+          {stepButton(1)}
           <ThemedText style={[sheet.range, { color: c.secondaryText }]}>
             {min}–{max}
           </ThemedText>
@@ -277,28 +273,39 @@ export function NumberStepper({
   );
 }
 
-// Desktop charter-sheet field.
+// Desktop charter-sheet field: −  [ value ]  +  range.
 const sheet = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   box: {
     flexDirection: 'row',
     alignItems: 'stretch',
-    width: 116,
+    width: 84,
     height: 36,
     borderWidth: 1.5,
     borderRadius: 8,
     overflow: 'hidden',
   },
+  // Centered because the field is flanked on both sides now — left-aligned
+  // text would sit off-centre between the two buttons.
   input: {
     flex: 1,
-    paddingHorizontal: 11,
+    paddingHorizontal: 8,
     fontFamily: Fonts.mono,
     fontSize: 14,
     letterSpacing: 0.5,
+    textAlign: 'center',
   },
-  spinner: { width: 24, borderLeftWidth: StyleSheet.hairlineWidth },
-  spinBtn: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  range: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 0.4 },
+  stepBtn: {
+    width: 36,
+    height: 36,
+    borderWidth: 1.5,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepBtnDisabled: { opacity: 0.5 },
+  stepBtnText: { fontSize: 18, fontWeight: '600', lineHeight: 22 },
+  range: { fontFamily: Fonts.mono, fontSize: 11, letterSpacing: 0.4, marginLeft: 4 },
 });
 
 const styles = StyleSheet.create({

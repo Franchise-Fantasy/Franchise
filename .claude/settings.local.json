@@ -20,7 +20,21 @@
       "Bash(grep -rlE \"eyJ[A-Za-z0-9_-]{20,}|CFPAT-|sbp_|service_role\" prospect-rankings --include=\"*.js\" --include=\"*.json\" --include=\"*.md\" --include=\"*.yml\")",
       "Bash(grep -nE \"eyJ[A-Za-z0-9_-]{20,}|CFPAT-|sbp_|service_role\" prospect-rankings/CREDENTIALS-TEMPLATE.md prospect-rankings/HANDOFF.md)",
       "mcp__claude_ai_Supabase__get_advisors",
-      "Bash(python3 - /Users/joe/.claude/projects/-Users-joe-Desktop-Franchise/256da29c-762f-41c6-9a7d-3cc0ebafac00/tool-results/mcp-claude_ai_Supabase-get_advisors-1785890766351.txt)"
+      "Bash(python3 - /Users/joe/.claude/projects/-Users-joe-Desktop-Franchise/256da29c-762f-41c6-9a7d-3cc0ebafac00/tool-results/mcp-claude_ai_Supabase-get_advisors-1785890766351.txt)",
+      "Bash(npx expo *)",
+      "Bash(curl -sf -o /dev/null http://localhost:8082)",
+      "Bash(curl -s http://localhost:8082)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" http://localhost:8082)",
+      "Bash(curl -s -o /dev/null -w \"server: %{http_code}\\\\n\" http://localhost:8082)",
+      "Bash(git -C /Users/joe/Desktop/Franchise diff --stat components/web/Sidebar.tsx)",
+      "Bash(python3 -)",
+      "Bash(echo \"tsc-exit:$?\")",
+      "Bash(node -e ' *)",
+      "Bash(curl -s \"http://localhost:8082/node_modules/expo-router/entry.bundle?platform=web&dev=true&hot=false&transform.routerRoot=app\" -o /tmp/b.js -w \"bundle HTTP: %{http_code}  size: %{size_download} bytes\\\\n\")",
+      "Read(//tmp/**)",
+      "Read(//private/tmp/**)",
+      "Bash(echo \"--- exit $?\")",
+      "Bash(node /private/tmp/claude-501/-Users-joe-Desktop-Franchise/043498a8-ebff-4863-97d5-5b531fc157c1/scratchpad/find.mjs)"
     ],
     "additionalDirectories": [
       "/tmp"

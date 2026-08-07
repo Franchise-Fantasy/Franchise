@@ -26,9 +26,11 @@ import {
   computeTeamZScores,
 } from '@/utils/scoring/categoryAnalytics';
 import { ANALYTICS_MIN_CURRENT_SEASON_GAMES } from '@/utils/scoring/fantasyPoints';
+import { isWebRouteLive } from '@/utils/web/webRouteStatus';
 
 import { IconSymbol } from '../ui/IconSymbol';
 import { ThemedText } from '../ui/ThemedText';
+import { InProgressChip } from '../web/InProgress';
 
 /**
  * Analytics preview — one solid card matching the rest of the home
@@ -184,8 +186,14 @@ export function AnalyticsPreviewCard({
     !!profile &&
     profile.totalWithAge >= 3;
 
-  const CardWrapper = hasData ? TouchableOpacity : View;
-  const wrapperProps = hasData
+  // The full analytics screen isn't ported to web yet. Native is unaffected —
+  // isWebRouteLive is only consulted on web, where the card keeps its preview
+  // but drops the tap and says why.
+  const analyticsLive = Platform.OS !== 'web' || isWebRouteLive('/analytics');
+  const tappable = hasData && analyticsLive;
+
+  const CardWrapper = tappable ? TouchableOpacity : View;
+  const wrapperProps = tappable
     ? {
         onPress: () => router.push('/analytics' as never),
         activeOpacity: 0.78,
@@ -201,6 +209,7 @@ export function AnalyticsPreviewCard({
         <ThemedText type="sectionLabel" style={{ color: c.text }}>
           Analytics
         </ThemedText>
+        {!analyticsLive && <InProgressChip style={styles.gateChip} />}
       </View>
 
       <CardWrapper
@@ -228,7 +237,7 @@ export function AnalyticsPreviewCard({
 
         {/* Subtle disclosure affordance — the whole card is tappable, so a
             corner chevron reads "there's more" without stealing a row. */}
-        {hasData && (
+        {tappable && (
           <IconSymbol
             name="chevron.right"
             size={14}
@@ -383,6 +392,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: s(10),
     gap: s(10),
+  },
+  gateChip: {
+    marginLeft: 'auto',
   },
   rule: {
     height: 2,

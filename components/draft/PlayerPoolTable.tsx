@@ -365,7 +365,7 @@ export function PlayerPoolTable({
                   >
                     <Ionicons
                       name={queued ? "checkmark-circle" : "add-circle-outline"}
-                      size={20}
+                      size={22}
                       color={queued ? c.secondaryText : c.accent}
                       accessible={false}
                     />
@@ -464,11 +464,11 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingLeft: 16,
     paddingRight: 12,
-    paddingVertical: 7,
+    paddingVertical: 8,
     borderBottomWidth: 1,
   },
   headText: {
-    fontSize: 10,
+    fontSize: 10.5,
     letterSpacing: 1.2,
   },
   headStat: {
@@ -486,19 +486,22 @@ const styles = StyleSheet.create({
     marginBottom: 1,
   },
 
+  // Draft rows are read at a glance under a pick clock, so they're sized for
+  // scanning rather than density — a taller row and a larger name than the
+  // dense stat tables elsewhere in the app.
   row: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
-    height: 42,
+    height: 52,
     paddingLeft: 16,
     paddingRight: 12,
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   rank: {
-    width: 22,
+    width: 24,
     fontFamily: Fonts.mono,
-    fontSize: 11,
+    fontSize: 12,
     textAlign: "right",
   },
   playerCell: {
@@ -509,9 +512,9 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   headshot: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     borderWidth: 1,
     overflow: "hidden",
   },
@@ -520,17 +523,17 @@ const styles = StyleSheet.create({
     bottom: -1,
     left: 0,
     right: 0,
-    height: 24,
+    height: 31,
   },
   boardRank: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: "800",
   },
   playerNameBox: {
     flexShrink: 1,
   },
   playerName: {
-    fontSize: 13.5,
+    fontSize: 15,
   },
   badge: {
     paddingHorizontal: 4,
@@ -538,18 +541,18 @@ const styles = StyleSheet.create({
     borderRadius: 3,
   },
   badgeText: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontWeight: "800",
     letterSpacing: 0.5,
   },
   projTag: {
-    fontSize: 8,
+    fontSize: 8.5,
     fontWeight: "700",
     letterSpacing: 0.5,
   },
   pos: {
     width: 62,
-    fontSize: 11.5,
+    fontSize: 12.5,
   },
   teamCell: {
     width: 56,
@@ -558,40 +561,40 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   teamLogo: {
-    width: 14,
-    height: 14,
+    width: 16,
+    height: 16,
   },
   team: {
     fontFamily: Fonts.mono,
-    fontSize: 11,
+    fontSize: 12,
   },
   stat: {
     fontFamily: Fonts.mono,
-    fontSize: 12,
+    fontSize: 13,
     textAlign: "right",
   },
   actions: {
-    width: 96,
+    width: 102,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "flex-end",
     gap: 6,
   },
   draftBtn: {
-    minWidth: 62,
+    minWidth: 66,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
     borderWidth: 1,
     borderRadius: 5,
   },
   draftBtnText: {
-    fontSize: 10,
+    fontSize: 10.5,
     letterSpacing: 0.9,
   },
   queueBtn: {
-    width: 20,
+    width: 22,
     alignItems: "center",
     justifyContent: "center",
   },

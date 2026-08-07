@@ -45,7 +45,10 @@ export function StepBasics({ state, onChange, ignoreCreationWindow, lockSport }:
       <FieldGroup label="Sport">
         {lockSport ? (
           <View
-            style={[styles.sportChip, { borderColor: c.border, backgroundColor: c.card }]}
+            // cardAlt, not card: this chip sits on the phone's Section card and
+            // on the desktop wizard sheet, both of which are `card` — matching
+            // it left the chip readable only by its border.
+            style={[styles.sportChip, { borderColor: c.border, backgroundColor: c.cardAlt }]}
             accessibilityLabel={`Sport: ${state.sport.toUpperCase()} (from imported league)`}
           >
             <ThemedText type="varsity" style={[styles.sportChipText, { color: c.text }]}>

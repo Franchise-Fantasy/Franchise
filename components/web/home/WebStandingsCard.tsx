@@ -17,6 +17,7 @@ import {
   resolveStandings,
   type TeamStanding,
 } from "@/utils/league/standingsQueries";
+import { isWebRouteLive } from "@/utils/web/webRouteStatus";
 
 const DEFAULT_TIEBREAKER = ["head_to_head", "points_for"];
 
@@ -51,6 +52,9 @@ export function WebStandingsCard({ leagueId, playoffTeams, scoringType, tiebreak
   const { teamId } = useAppState();
   const tiebreakers = tiebreakerOrder ?? DEFAULT_TIEBREAKER;
   const isCategories = scoringType === "h2h_categories";
+  // Rows drill into a team's roster, which isn't ported yet — keep the table
+  // readable but inert rather than sending anyone to a phone-first screen.
+  const rosterLive = isWebRouteLive("/team-roster");
 
   const { data: rawTeams, isLoading } = useQuery({
     queryKey: queryKeys.standings(leagueId),
@@ -166,17 +170,23 @@ export function WebStandingsCard({ leagueId, playoffTeams, scoringType, tiebreak
                     </View>
                   )}
                   <Pressable
-                    onPress={() =>
-                      isMe ? router.push("/(tabs)/roster" as never) : router.push(`/team-roster/${t.id}` as never)
+                    onPress={
+                      rosterLive
+                        ? () =>
+                            isMe
+                              ? router.push("/(tabs)/roster" as never)
+                              : router.push(`/team-roster/${t.id}` as never)
+                        : undefined
                     }
-                    accessibilityRole="button"
+                    disabled={!rosterLive}
+                    accessibilityRole={rosterLive ? "button" : "text"}
                     accessibilityLabel={`${t.name}, rank ${t.rank}, ${rec}${streak ? `, streak ${streak}` : ""}`}
                     style={({ hovered }: { hovered?: boolean }) => [
                       styles.row,
                       { borderBottomColor: c.border },
                       idx === standings.length - 1 && styles.rowLast,
                       isMe && { backgroundColor: c.activeCard },
-                      hovered && !isMe && { backgroundColor: c.cardAlt },
+                      hovered && rosterLive && !isMe && { backgroundColor: c.cardAlt },
                     ]}
                   >
                     {isMe && <View style={[styles.meBar, { backgroundColor: c.gold }]} />}

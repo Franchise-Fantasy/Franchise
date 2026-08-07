@@ -25,6 +25,12 @@ type Props = Omit<TextInputProps, 'style'> & {
   helperText?: string;
   /** When set, replaces helperText and paints the border/text danger red. */
   errorText?: string;
+  /**
+   * Keep one line of space under the field even when there's no helper or
+   * error, so a field whose helper comes and goes (a mode toggle, a
+   * validation error) doesn't shift everything below it.
+   */
+  reserveHelperSpace?: boolean;
   /** Wrapper style override — rarely needed. */
   containerStyle?: StyleProp<ViewStyle>;
   /** Input style override — use for font size / height adjustments. */
@@ -48,6 +54,7 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
     label,
     helperText,
     errorText,
+    reserveHelperSpace,
     containerStyle,
     inputStyle,
     onFocus,
@@ -119,14 +126,18 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
     </View>
   );
 
+  const helperNode = helper ? (
+    <ThemedText style={[styles.helper, { color: helperColor }]}>{helper}</ThemedText>
+  ) : reserveHelperSpace ? (
+    <View style={styles.helperSpacer} />
+  ) : null;
+
   // Inside the desktop charter sheet the label moves to the row's gutter.
   if (inSheet && label) {
     return (
       <SheetRow label={label}>
         {field}
-        {helper ? (
-          <ThemedText style={[styles.helper, { color: helperColor }]}>{helper}</ThemedText>
-        ) : null}
+        {helperNode}
       </SheetRow>
     );
   }
@@ -142,11 +153,7 @@ export const BrandTextInput = forwardRef<TextInput, Props>(function BrandTextInp
         </ThemedText>
       )}
       {field}
-      {helper && (
-        <ThemedText style={[styles.helper, { color: helperColor }]}>
-          {helper}
-        </ThemedText>
-      )}
+      {helperNode}
     </View>
   );
 });
@@ -194,5 +201,10 @@ const styles = StyleSheet.create({
     marginTop: s(4),
     fontSize: ms(11),
     lineHeight: ms(15),
+  },
+  // Same box as one line of `helper`, minus the text.
+  helperSpacer: {
+    marginTop: s(4),
+    height: ms(15),
   },
 });

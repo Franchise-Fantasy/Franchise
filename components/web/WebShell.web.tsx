@@ -5,8 +5,10 @@ import { StyleSheet, View } from "react-native";
 import { useAppState } from "@/context/AppStateProvider";
 import { useSession } from "@/context/AuthProvider";
 import { useColors } from "@/hooks/useColors";
+import { isWebRouteLive, webRouteLabel } from "@/utils/web/webRouteStatus";
 
 import "./globalWebStyles";
+import { InProgressScreen } from "./InProgress";
 import { Sidebar } from "./Sidebar";
 
 // Phone-width column for pre-login / setup / standalone screens so they don't
@@ -40,6 +42,13 @@ const NO_SIDEBAR_PREFIXES = ["/legal", "/reset-password"];
  * Only renders the sidebar once the user is signed in AND has a league (so the
  * auth + setup flows stay clean); immersive routes (draft/lottery rooms) go
  * full-bleed.
+ *
+ * It's also the beta's route guard. The sidebar won't link to an unported
+ * screen, but a typed URL, a deep link or a notification tap still can — so
+ * anything outside utils/web/webRouteStatus.ts shows the In Progress page here
+ * instead of its phone-first layout. Covering the route in place (rather than
+ * redirecting) keeps the sidebar up, so the user can see where they landed and
+ * navigate on.
  */
 export function WebShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
@@ -47,7 +56,22 @@ export function WebShell({ children }: { children: React.ReactNode }) {
   const { leagueId } = useAppState();
   const c = useColors();
 
-  const immersive = IMMERSIVE_PREFIXES.some((p) => pathname.startsWith(p));
+  const live = isWebRouteLive(pathname);
+
+  // `children` is the router's <Stack>, so a gated route must HIDE it, never
+  // swap it out — dropping it would unmount the whole navigator and take the
+  // navigation state with it. display:none keeps the tree mounted and costs no
+  // layout, and the In Progress panel renders in its place.
+  const content = (
+    <>
+      <View style={live ? styles.fill : styles.hidden}>{children}</View>
+      {!live && <InProgressScreen label={webRouteLabel(pathname)} />}
+    </>
+  );
+
+  // Only a *live* immersive route goes full-bleed — a gated one (the lottery
+  // room) needs the shell's chrome so there's a way back out.
+  const immersive = live && IMMERSIVE_PREFIXES.some((p) => pathname.startsWith(p));
   if (immersive) return <>{children}</>;
 
   const isWizard = WIZARD_PREFIXES.some((p) => pathname.startsWith(p));
@@ -58,7 +82,7 @@ export function WebShell({ children }: { children: React.ReactNode }) {
     !NO_SIDEBAR_PREFIXES.some((p) => pathname.startsWith(p));
 
   if (!showSidebar) {
-    return <View style={isWizard ? styles.wizardStandalone : styles.narrow}>{children}</View>;
+    return <View style={isWizard ? styles.wizardStandalone : styles.narrow}>{content}</View>;
   }
 
   const contentMax = isWizard ? WIZARD_MAX : WIDE_ROUTES.has(pathname) ? WIDE_MAX : CONTENT_MAX;
@@ -67,13 +91,15 @@ export function WebShell({ children }: { children: React.ReactNode }) {
     <View style={styles.row}>
       <Sidebar />
       <View style={[styles.contentCell, { backgroundColor: c.background }]}>
-        <View style={[styles.contentInner, { maxWidth: contentMax }]}>{children}</View>
+        <View style={[styles.contentInner, { maxWidth: contentMax }]}>{content}</View>
       </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
+  hidden: { display: "none" },
   narrow: { flex: 1, width: "100%", maxWidth: NARROW_MAX, alignSelf: "center" },
   wizardStandalone: { flex: 1, width: "100%", maxWidth: WIZARD_MAX, alignSelf: "center" },
   row: { flex: 1, flexDirection: "row" },

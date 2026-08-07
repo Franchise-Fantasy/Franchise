@@ -66,15 +66,20 @@ export function SheetRow({ label, helper, last, children }: SheetRowProps) {
 }
 
 const styles = StyleSheet.create({
+  // The rule between rows is a hairline at ~12% opacity, which carries far less
+  // weight on a wide sheet than the phone's card borders do. Vertical air is
+  // what actually separates these rows on a monitor — keep it generous.
   row: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 24,
-    paddingVertical: 13,
+    paddingVertical: 16,
   },
   // paddingTop nudges the label's cap-height onto the control's first baseline.
-  gutter: { width: SHEET_GUTTER, paddingTop: 9 },
-  label: { fontSize: 11, letterSpacing: 1.1, lineHeight: 15 },
-  control: { flex: 1, minWidth: 0, gap: 7, alignItems: 'flex-start' },
-  helper: { fontSize: 12, lineHeight: 17 },
+  gutter: { width: SHEET_GUTTER, paddingTop: 10 },
+  // Tracked varsity caps in muted ink: at 11px the tracking was fighting
+  // legibility rather than helping it, so the size went up and tracking down.
+  label: { fontSize: 12, letterSpacing: 0.9, lineHeight: 16 },
+  control: { flex: 1, minWidth: 0, gap: 8, alignItems: 'flex-start' },
+  helper: { fontSize: 12.5, lineHeight: 18 },
 });

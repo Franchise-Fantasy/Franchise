@@ -10,6 +10,9 @@ import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
 import { useLeagueScoring } from "@/hooks/useLeagueScoring";
 import { useSportToday } from "@/utils/dates";
+import { isWebRouteLive } from "@/utils/web/webRouteStatus";
+
+import { InProgressChip } from "../InProgress";
 
 /**
  * Desktop web "This Week" matchup scoreboard — the home dashboard centerpiece.
@@ -29,6 +32,9 @@ function record(w: number, l: number, t: number): string {
 export function WebMatchupCard() {
   const c = useColors();
   const router = useRouter();
+  // The full matchup screen isn't ported yet. The live score is still worth
+  // showing here — it just doesn't go anywhere, and says so.
+  const matchupLive = isWebRouteLive("/matchup");
   const { teamId, leagueId } = useAppState();
   const sport = useActiveLeagueSport();
   const today = useSportToday(sport);
@@ -51,6 +57,10 @@ export function WebMatchupCard() {
   const myLead = !!opp && myScore > oppScore;
   const oppLead = !!opp && oppScore > myScore;
 
+  // A plain View while the matchup screen is gated, so the scoreboard carries
+  // no press affordance (no hover, no focus ring) it can't honour.
+  const Card = matchupLive ? TouchableOpacity : View;
+
   return (
     <View style={styles.container}>
       <View style={styles.headerRow}>
@@ -60,21 +70,29 @@ export function WebMatchupCard() {
             This Week
           </ThemedText>
         </View>
-        <TouchableOpacity
-          onPress={() => router.push("/matchup" as never)}
-          accessibilityRole="link"
-          accessibilityLabel="View full matchup"
-        >
-          <ThemedText type="varsitySmall" style={{ color: c.accent }}>
-            View →
-          </ThemedText>
-        </TouchableOpacity>
+        {matchupLive ? (
+          <TouchableOpacity
+            onPress={() => router.push("/matchup" as never)}
+            accessibilityRole="link"
+            accessibilityLabel="View full matchup"
+          >
+            <ThemedText type="varsitySmall" style={{ color: c.accent }}>
+              View →
+            </ThemedText>
+          </TouchableOpacity>
+        ) : (
+          <InProgressChip />
+        )}
       </View>
 
-      <TouchableOpacity
-        activeOpacity={0.85}
-        onPress={() => router.push("/matchup" as never)}
-        accessibilityRole="button"
+      <Card
+        {...(matchupLive
+          ? {
+              activeOpacity: 0.85,
+              onPress: () => router.push("/matchup" as never),
+              accessibilityRole: "button" as const,
+            }
+          : {})}
         accessibilityLabel={
           me && opp
             ? `${me.teamName} ${fmtScore(myScore)} versus ${opp.teamName} ${fmtScore(oppScore)}, ${isFinal ? "final" : "in progress"}`
@@ -150,7 +168,7 @@ export function WebMatchupCard() {
             </View>
           </>
         )}
-      </TouchableOpacity>
+      </Card>
     </View>
   );
 }

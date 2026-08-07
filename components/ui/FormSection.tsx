@@ -59,11 +59,15 @@ export function FormSection({ title, children }: FormSectionProps) {
   );
 }
 
+// With no card to draw the boundary, a section is grouped by exactly two
+// things: the head above it and the gap before the next head. Both have to be
+// unambiguous — the gap between sections must clearly beat the gap between the
+// rows inside one, or the whole sheet reads as a single undifferentiated list.
 const sheet = StyleSheet.create({
-  section: { marginBottom: 30 },
-  head: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 2 },
-  tick: { height: 2, width: 18 },
-  headLabel: { fontSize: 14, letterSpacing: 0.8 },
+  section: { marginBottom: 44 },
+  head: { flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 10 },
+  tick: { height: 3, width: 22 },
+  headLabel: { fontSize: 15.5, letterSpacing: 1 },
   headRule: { flex: 1, height: StyleSheet.hairlineWidth },
 });
 

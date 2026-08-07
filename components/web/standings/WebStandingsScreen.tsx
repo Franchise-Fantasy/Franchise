@@ -11,6 +11,7 @@ import { useColors } from "@/hooks/useColors";
 import { type TeamStanding } from "@/utils/league/standingsQueries";
 import { type AllPlayResult } from "@/utils/scoring/allPlayRecord";
 import { type SoSResult } from "@/utils/scoring/strengthOfSchedule";
+import { isWebRouteLive } from "@/utils/web/webRouteStatus";
 
 type InfoKey = "luck" | "allplay" | "sos";
 
@@ -252,6 +253,9 @@ function AllPlayPanel({
   onInfo: (k: InfoKey) => void;
 }) {
   const router = useRouter();
+  // Rows drill into a team's roster, which isn't ported yet — the table stays
+  // readable, the drill-down goes quiet until the roster screen lands.
+  const rosterLive = isWebRouteLive("/team-roster");
   return (
     <View style={styles.panel}>
       <PanelHeader title="All-Play" onInfo={() => onInfo("allplay")} />
@@ -274,13 +278,18 @@ function AllPlayPanel({
               return (
                 <Pressable
                   key={r.teamId}
-                  onPress={() => router.push((isMe ? "/(tabs)/roster" : `/team-roster/${r.teamId}`) as never)}
+                  onPress={
+                    rosterLive
+                      ? () => router.push((isMe ? "/(tabs)/roster" : `/team-roster/${r.teamId}`) as never)
+                      : undefined
+                  }
+                  disabled={!rosterLive}
                   style={({ hovered }: { hovered?: boolean }) => [
                     styles.row,
                     { borderBottomColor: c.border },
                     idx === allPlayRanked.length - 1 && styles.rowLast,
                     isMe && { backgroundColor: c.activeCard },
-                    hovered && !isMe && { backgroundColor: c.cardAlt },
+                    hovered && rosterLive && !isMe && { backgroundColor: c.cardAlt },
                   ]}
                 >
                   <View style={[styles.apTeam, styles.teamCell]}>

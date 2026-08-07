@@ -12,6 +12,9 @@ import { useAppState } from "@/context/AppStateProvider";
 import { useTotalUnread } from "@/hooks/chat";
 import { useColors } from "@/hooks/useColors";
 import { useLeague } from "@/hooks/useLeague";
+import { isWebRouteLive } from "@/utils/web/webRouteStatus";
+
+import { InProgressChip } from "./InProgress";
 
 const PATCH = require("@/assets/images/F_patch.png");
 
@@ -83,6 +86,30 @@ export function Sidebar() {
 
   const renderItem = (item: NavItem) => {
     const active = item.isActive(pathname);
+
+    // Not ported to desktop yet — render the row as a static, unfocusable
+    // label so the nav still shows the full shape of the app without offering
+    // a tap that lands on a phone-first screen. WebShell backstops the URL.
+    if (!isWebRouteLive(item.href)) {
+      return (
+        <View
+          key={item.href}
+          style={styles.item}
+          accessibilityRole="text"
+          accessibilityLabel={`${item.label}, in progress, not yet available on web`}
+        >
+          <Ionicons name={item.icon} size={19} color={c.secondaryText} style={styles.gatedIcon} />
+          <ThemedText
+            numberOfLines={1}
+            style={[styles.label, styles.gatedLabel, { color: c.secondaryText }]}
+          >
+            {item.label}
+          </ThemedText>
+          <InProgressChip style={styles.gatedChip} />
+        </View>
+      );
+    }
+
     return (
       <Link key={item.href} href={item.href as never} asChild>
         <TouchableOpacity
@@ -292,6 +319,18 @@ const styles = StyleSheet.create({
     fontFamily: Fonts.varsitySemibold,
     fontSize: 13,
     letterSpacing: 0.5,
+  },
+  // Gated rows sit at the same rhythm as live ones but read as inert: dimmed,
+  // and the label yields to the chip instead of pushing it off the rail.
+  gatedIcon: {
+    opacity: 0.45,
+  },
+  gatedLabel: {
+    opacity: 0.55,
+    flexShrink: 1,
+  },
+  gatedChip: {
+    marginLeft: "auto",
   },
   footer: {
     borderTopWidth: StyleSheet.hairlineWidth,

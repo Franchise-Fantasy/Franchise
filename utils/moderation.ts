@@ -1,7 +1,9 @@
 /**
  * Client-side text moderation using a local word list + character normalization.
- * Mirrors the logic in supabase/functions/_shared/moderate.ts.
- * Keep both in sync when adding/removing terms.
+ * The word list is shared with supabase/functions/_shared/moderate.ts and with
+ * the check_blocked_content() trigger in SQL — the trigger is what actually
+ * enforces this, so any change to the terms OR the matching rules has to land
+ * in a migration in the same commit. Keep all three in sync.
  */
 
 // Common character substitutions used to evade filters
@@ -27,7 +29,7 @@ function normalize(text: string): string {
   return out;
 }
 
-const BLOCKED_WORDS: string[] = [
+export const BLOCKED_WORDS: string[] = [
   // Racial slurs
   "nigger", "nigga", "niggas", "niga", "nigg",
   "chink", "gook", "spic", "wetback",
@@ -51,15 +53,40 @@ const BLOCKED_REGEX = new RegExp(
   "i",
 );
 
-// No word boundaries — used for space-stripped check where boundaries don't apply
-const BLOCKED_SUBSTRING_REGEX = new RegExp(
-  `(${BLOCKED_WORDS.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})`,
-  "i",
-);
+// Pure-alpha entries only. A multi-word phrase ("white power") can never equal a
+// whitespace-free join, and a digit entry ("1488") can't survive normalize(),
+// which maps 1 -> i and 4 -> a. Both are already covered by the checks above.
+// Mirrored by the blocked_words array in check_blocked_content() — see
+// __tests__/moderation.test.ts for the parity assertion.
+export const SPLITTABLE_WORDS = BLOCKED_WORDS.filter((w) => /^[a-z]+$/.test(w));
+const LONGEST_BLOCKED_WORD = Math.max(...SPLITTABLE_WORDS.map((w) => w.length));
+const SPLITTABLE_SET = new Set(SPLITTABLE_WORDS);
+
+/**
+ * Catches a slur split across whitespace ("f a g g o t", "n igger") by joining
+ * runs of adjacent words and testing each join for an exact match.
+ *
+ * The span must consume WHOLE words. An earlier version stripped every space
+ * and substring-matched the result, which flagged any word pair that happened
+ * to straddle a slur — "supports picks" and "hours/pick" both contain "spic",
+ * so ordinary league surveys were rejected as hate speech.
+ */
+function containsSplitBlockedWord(normalized: string): boolean {
+  const words = normalized.split(" ").filter(Boolean);
+  for (let start = 0; start < words.length; start++) {
+    let joined = words[start];
+    for (let end = start + 1; end < words.length; end++) {
+      joined += words[end];
+      if (joined.length > LONGEST_BLOCKED_WORD) break;
+      if (SPLITTABLE_SET.has(joined)) return true;
+    }
+  }
+  return false;
+}
 
 /**
  * Returns true if the text contains blocked language.
- * Checks raw, normalized (leet-speak), and space-stripped versions.
+ * Checks raw, normalized (leet-speak), and whitespace-split versions.
  */
 export function containsBlockedContent(text: string): boolean {
   if (!text || text.trim().length === 0) return false;
@@ -68,8 +95,6 @@ export function containsBlockedContent(text: string): boolean {
   // 2. Normalized leet-speak check
   const norm = normalize(text);
   if (BLOCKED_REGEX.test(norm)) return true;
-  // 3. Space-stripped check (catches "n igger", "f a g", etc.)
-  const noSpaces = norm.replace(/\s/g, "");
-  if (BLOCKED_SUBSTRING_REGEX.test(noSpaces)) return true;
-  return false;
+  // 3. Whitespace-split check (catches "n igger", "f a g", etc.)
+  return containsSplitBlockedWord(norm);
 }

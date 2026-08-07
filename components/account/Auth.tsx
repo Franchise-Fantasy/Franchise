@@ -522,68 +522,74 @@ export default function Auth() {
                   return key (wired below to advance/submit), so our Done bar
                   is redundant — and leaving it attached made UIKit rebuild the
                   keyboard as the user typed, which snapped it back off the
-                  "123" layout after every digit in an email address. */}
-              <View style={styles.formField}>
-                <BrandTextInput
-                  value={email}
-                  onChangeText={(next) => {
-                    setEmail(next);
-                    if (emailErr) setEmailErr(null);
-                  }}
-                  placeholder="Email"
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  spellCheck={false}
-                  keyboardType="email-address"
-                  textContentType="emailAddress"
-                  autoComplete="email"
-                  returnKeyType="next"
-                  submitBehavior="submit"
-                  onSubmitEditing={() => passwordRef.current?.focus()}
-                  errorText={emailErr ?? undefined}
-                  hideAccessory
-                  accessibilityLabel="Email"
-                />
-              </View>
-              <View style={styles.formField}>
-                <BrandTextInput
-                  ref={passwordRef}
-                  value={password}
-                  onChangeText={(next) => {
-                    setPassword(next);
-                    if (passwordErr) setPasswordErr(null);
-                  }}
-                  placeholder="Password"
-                  secureTextEntry={!showPassword}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  textContentType={isSignUp ? 'newPassword' : 'password'}
-                  autoComplete={isSignUp ? 'new-password' : 'current-password'}
-                  returnKeyType="go"
-                  onSubmitEditing={primaryAction}
-                  helperText={
-                    isSignUp ? `At least ${PASSWORD_MIN_LENGTH} characters.` : undefined
-                  }
-                  errorText={passwordErr ?? undefined}
-                  hideAccessory
-                  accessibilityLabel="Password"
-                  rightAccessory={
-                    <TouchableOpacity
-                      onPress={() => setShowPassword((v) => !v)}
-                      hitSlop={8}
-                      accessibilityRole="button"
-                      accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
-                      accessibilityState={{ selected: showPassword }}
-                    >
-                      <Ionicons
-                        name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                        size={ms(20)}
-                        color={c.secondaryText}
-                      />
-                    </TouchableOpacity>
-                  }
-                />
-              </View>
+                  "123" layout after every digit in an email address.
+
+                  Neither field takes a wrapper margin: `reserveHelperSpace`
+                  already keeps a helper line under each one, and that line IS
+                  the gap. Stacking the usual formField margin on top of it
+                  double-spaced the form. */}
+              <BrandTextInput
+                value={email}
+                onChangeText={(next) => {
+                  setEmail(next);
+                  if (emailErr) setEmailErr(null);
+                }}
+                placeholder="Email"
+                autoCapitalize="none"
+                autoCorrect={false}
+                spellCheck={false}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+                returnKeyType="next"
+                submitBehavior="submit"
+                onSubmitEditing={() => passwordRef.current?.focus()}
+                errorText={emailErr ?? undefined}
+                reserveHelperSpace
+                hideAccessory
+                accessibilityLabel="Email"
+              />
+              <BrandTextInput
+                ref={passwordRef}
+                value={password}
+                onChangeText={(next) => {
+                  setPassword(next);
+                  if (passwordErr) setPasswordErr(null);
+                }}
+                placeholder="Password"
+                secureTextEntry={!showPassword}
+                autoCapitalize="none"
+                autoCorrect={false}
+                textContentType={isSignUp ? 'newPassword' : 'password'}
+                autoComplete={isSignUp ? 'new-password' : 'current-password'}
+                returnKeyType="go"
+                onSubmitEditing={primaryAction}
+                helperText={
+                  isSignUp ? `At least ${PASSWORD_MIN_LENGTH} characters.` : undefined
+                }
+                errorText={passwordErr ?? undefined}
+                // The hint only exists in signup mode and the error only on a
+                // failed submit, so without a reserved line the tabs and the
+                // buttons under them jump every time either one appears.
+                reserveHelperSpace
+                hideAccessory
+                accessibilityLabel="Password"
+                rightAccessory={
+                  <TouchableOpacity
+                    onPress={() => setShowPassword((v) => !v)}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                    accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                    accessibilityState={{ selected: showPassword }}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={ms(20)}
+                      color={c.secondaryText}
+                    />
+                  </TouchableOpacity>
+                }
+              />
 
               <BrandButton
                 label={isSignUp ? 'Create Account' : 'Sign In'}
@@ -680,9 +686,13 @@ export default function Auth() {
                 style={[styles.legalText, { color: c.secondaryText }]}
               >
                 By creating an account, you agree to our{' '}
+                {/* `suppressHighlighting` — without it iOS paints its grey tap
+                    highlight across the whole enclosing line, not just the
+                    pressed link. */}
                 <ThemedText
                   style={[styles.legalLink, { color: c.gold }]}
                   onPress={() => router.push('/legal?tab=terms' as any)}
+                  suppressHighlighting
                   accessibilityRole="link"
                 >
                   Terms of Service
@@ -691,6 +701,7 @@ export default function Auth() {
                 <ThemedText
                   style={[styles.legalLink, { color: c.gold }]}
                   onPress={() => router.push('/legal?tab=privacy' as any)}
+                  suppressHighlighting
                   accessibilityRole="link"
                 >
                   Privacy Policy

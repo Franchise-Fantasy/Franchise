@@ -7,6 +7,9 @@ import { LogoSpinner } from "@/components/ui/LogoSpinner";
 import { ThemedText } from "@/components/ui/ThemedText";
 import { useColors } from "@/hooks/useColors";
 import { mergeTransactionGroups, useTransactions } from "@/hooks/useTransactions";
+import { isWebRouteLive } from "@/utils/web/webRouteStatus";
+
+import { InProgressChip } from "../InProgress";
 
 const PREVIEW_COUNT = 5;
 
@@ -38,15 +41,21 @@ export function WebActivityCard() {
             Recent Activity
           </ThemedText>
         </View>
-        <TouchableOpacity
-          onPress={() => router.push("/activity" as never)}
-          accessibilityRole="link"
-          accessibilityLabel="View all league activity"
-        >
-          <ThemedText type="varsitySmall" style={{ color: c.accent }}>
-            View all →
-          </ThemedText>
-        </TouchableOpacity>
+        {/* The full activity screen isn't ported yet — the preview stays, the
+            link becomes a tag. */}
+        {isWebRouteLive("/activity") ? (
+          <TouchableOpacity
+            onPress={() => router.push("/activity" as never)}
+            accessibilityRole="link"
+            accessibilityLabel="View all league activity"
+          >
+            <ThemedText type="varsitySmall" style={{ color: c.accent }}>
+              View all →
+            </ThemedText>
+          </TouchableOpacity>
+        ) : (
+          <InProgressChip />
+        )}
       </View>
 
       {isLoading ? (
