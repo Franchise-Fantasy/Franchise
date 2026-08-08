@@ -18,12 +18,13 @@ import { BrandTextInput } from '@/components/ui/BrandTextInput';
 import { LogoSpinner } from '@/components/ui/LogoSpinner';
 import { NumberStepper } from '@/components/ui/NumberStepper';
 import { ThemedText } from '@/components/ui/ThemedText';
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { useConfirm } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
 import { supabase } from '@/lib/supabase';
 import { formatPickLabel, formatProtectionStory } from '@/types/trade';
+import { rookiePickSeasons } from '@/utils/draft/pickSeasons';
 import { ms, s } from '@/utils/scale';
 
 interface Props {
@@ -100,7 +101,7 @@ export function ManagePickConditionsModal({
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('max_future_seasons, teams, rookie_draft_rounds, season, offseason_step')
+        .select('max_future_seasons, teams, rookie_draft_rounds, season, sport, offseason_step')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -113,21 +114,13 @@ export function ManagePickConditionsModal({
   const teamCount = leagueSettings?.teams ?? 10;
   const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
 
-  const validSeasons = (() => {
-    const leagueSeason = leagueSettings?.season ?? CURRENT_NBA_SEASON;
-    const leagueStartYear = parseInt(leagueSeason.split('-')[0], 10);
-    const stepKey = leagueSettings?.offseason_step as string | null;
-    const draftDone = !stepKey || stepKey === 'rookie_draft_complete';
-    const startYear = draftDone ? leagueStartYear + 1 : leagueStartYear;
-    const seasons: string[] = [];
-    const count = draftDone ? maxFuture : maxFuture + 1;
-    for (let i = 0; i < count; i++) {
-      const sy = startYear + i;
-      const ey = (sy + 1) % 100;
-      seasons.push(`${sy}-${String(ey).padStart(2, '0')}`);
-    }
-    return seasons;
-  })();
+  const sport = (leagueSettings?.sport as Sport | null) ?? 'nba';
+  const validSeasons = rookiePickSeasons(
+    leagueSettings?.season ?? getCurrentSeason(sport),
+    maxFuture,
+    leagueSettings?.offseason_step as string | null,
+    sport,
+  );
 
   // Fetch all draft picks for selecting
   const { data: allPicks, isLoading: picksLoading } = useQuery({
@@ -147,7 +140,11 @@ export function ManagePickConditionsModal({
     enabled:
       visible &&
       (step === 'protection_pick' || step === 'reassign_pick') &&
-      !!leagueId,
+      !!leagueId &&
+      // `validSeasons` filters this query but isn't in its key, so a fetch
+      // that beat the settings query would cache picks for the fallback
+      // (NBA, 3-year) window and never refetch once the real league lands.
+      !!leagueSettings,
   });
 
   // Group the flat pick list into one section per draft year. Without this the

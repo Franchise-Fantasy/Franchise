@@ -115,6 +115,25 @@ function chatPreview(type: string | undefined, content: string | undefined): str
   return text.length > 100 ? `${text.slice(0, 100)}…` : text;
 }
 
+// Message types whose creator already sends its own push. A chat-style push is
+// always wrong for these: `content` holds a UUID or a JSON blob rather than
+// prose, so chatPreview() renders it raw — and the "<team>: …" prefix names the
+// author of a post the UI attributes to nobody (a `rumor` comes from an
+// anonymous "league source").
+//
+// Mirrors SYSTEM_AUTHORED_TYPES in utils/chat/messageTypes.ts, which Deno can't
+// import because of the `@/` alias, plus `announcement` — authorless too, but
+// absent from that list since it already stores team_id: null. Kept honest by
+// the parity assertion in __tests__/chatMessageTypes.test.ts.
+const SELF_NOTIFIED_TYPES = new Set([
+  'poll',
+  'survey',
+  'trade',
+  'trade_update',
+  'rumor',
+  'announcement',
+]);
+
 async function handleChatMessage(
   supabase: any,
   record: {
@@ -126,9 +145,7 @@ async function handleChatMessage(
     content?: string;
   },
 ) {
-  // Poll, trade, and announcement messages are notified by their own edge
-  // functions — skip to avoid duplicates
-  if (record.type === 'poll' || record.type === 'trade' || record.type === 'announcement') return;
+  if (SELF_NOTIFIED_TYPES.has(record.type ?? '')) return;
 
   const { conversation_id, team_id, league_id } = record;
 

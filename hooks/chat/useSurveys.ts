@@ -152,7 +152,19 @@ export function useSubmitSurvey(surveyId: string | null) {
       const { data, error } = await supabase.functions.invoke('submit-survey', {
         body: { survey_id: surveyId, answers },
       });
-      if (error) throw error;
+      if (error) {
+        // FunctionsHttpError stashes the Response on .context and reports only
+        // "non-2xx status code" as its message — surface submit-survey's actual
+        // reason ("Question … is required", "already submitted") instead.
+        let detail = error.message ?? 'Failed to submit survey';
+        try {
+          const body = await (error as { context?: Response }).context?.json?.();
+          if (body?.error) detail = body.error;
+        } catch {
+          // Body wasn't JSON or context unavailable — keep the generic message.
+        }
+        throw new Error(detail);
+      }
       if (data?.error) throw new Error(data.error);
       return data;
     },

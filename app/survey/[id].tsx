@@ -33,6 +33,19 @@ import { ms } from "@/utils/scale";
 
 const RESULTS_TABS = ['Results', 'Completion'] as const;
 
+/**
+ * An answer counts as unanswered when it's absent, an empty string, or an empty
+ * selection. Mirrors the `isBlank` check in the submit-survey edge function —
+ * the two have to agree or the screen lets you submit something the server
+ * rejects.
+ */
+function isBlankAnswer(value: SurveyAnswerValue | undefined): boolean {
+  if (value === undefined || value === null) return true;
+  if (typeof value === 'string') return value.trim().length === 0;
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
 export default function SurveyScreen() {
   const { id, tab } = useLocalSearchParams<{ id: string; tab?: string }>();
   const surveyId = id!;
@@ -77,22 +90,12 @@ export default function SurveyScreen() {
   // Check if current answer satisfies required
   const currentAnswered = useMemo(() => {
     if (!currentQuestion) return false;
-    const val = answers.get(currentQuestion.id);
-    if (val === undefined || val === null) return !currentQuestion.required;
-    if (Array.isArray(val)) return val.length > 0;
-    if (typeof val === 'string') return val.trim().length > 0;
+    if (isBlankAnswer(answers.get(currentQuestion.id))) return !currentQuestion.required;
     return true;
   }, [currentQuestion, answers]);
 
   const allRequiredAnswered = useMemo(() => {
-    return questions.every((q) => {
-      if (!q.required) return true;
-      const val = answers.get(q.id);
-      if (val === undefined || val === null) return false;
-      if (Array.isArray(val)) return val.length > 0;
-      if (typeof val === 'string') return val.trim().length > 0;
-      return true;
-    });
+    return questions.every((q) => q.required !== true || !isBlankAnswer(answers.get(q.id)));
   }, [questions, answers]);
 
   function handleNext() {
@@ -113,10 +116,12 @@ export default function SurveyScreen() {
       return;
     }
 
-    const answerArray = Array.from(answers.entries()).map(([question_id, value]) => ({
-      question_id,
-      value,
-    }));
+    // Only send questions that were actually answered. Visiting a question puts
+    // it in the map even if the input ends up empty, and an empty value is not
+    // an answer — submitting one made the whole survey fail server-side.
+    const answerArray = Array.from(answers.entries())
+      .filter(([, value]) => !isBlankAnswer(value))
+      .map(([question_id, value]) => ({ question_id, value }));
     submitMutation.mutate(answerArray, {
       onSuccess: () => {
         setMode('results');

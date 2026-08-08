@@ -20,6 +20,7 @@ import { Fonts } from "@/constants/Colors";
 import { DialogHost, useConfirm } from "@/context/ConfirmProvider";
 import { useActiveLeagueSport } from "@/hooks/useActiveLeagueSport";
 import { useColors } from "@/hooks/useColors";
+import { usePlayerStatBasis } from "@/hooks/usePlayerStatBasis";
 import { PlayerSeasonStats } from "@/types/player";
 import { formatPosition } from "@/utils/formatting";
 import { GameTimeMap, isGameStarted } from "@/utils/nba/gameStarted";
@@ -27,6 +28,8 @@ import { getInjuryBadge } from "@/utils/nba/injuryBadge";
 import { getTeamLogoUrl } from "@/utils/nba/playerHeadshot";
 import { ms, s } from "@/utils/scale";
 import { calculateAvgFantasyPoints } from "@/utils/scoring/fantasyPoints";
+import { shootingPct } from "@/utils/scoring/shootingPct";
+import { displayGamesPlayed, spokenStatBasis } from "@/utils/scoring/statBasis";
 
 import { playerDetailStyles as sheetStyles } from "./playerDetailStyles";
 
@@ -52,13 +55,15 @@ interface DropPickerModalProps {
   onSubmitWaiverClaim: (dropPlayerId?: string) => Promise<void>;
 }
 
-function pct(made: number | null, attempted: number | null): string {
-  if (!attempted || attempted <= 0) return "–";
-  return (((made ?? 0) / attempted) * 100).toFixed(1);
-}
-
 function fmt(v: number | null | undefined, digits = 1): string {
   return v == null ? "–" : v.toFixed(digits);
+}
+
+/** Bare one-decimal rate — the grid cell's own "FG%" label carries the unit.
+ *  Goes through `shootingPct` rather than dividing totals, so a last-season
+ *  row's stored rate wins over its 1dp-rounded reconstructed makes/attempts. */
+function fmtPct(value: number | null): string {
+  return value == null ? "–" : value.toFixed(1);
 }
 
 export function DropPickerModal({
@@ -91,6 +96,11 @@ export function DropPickerModal({
   const dropCandidates = (rosterPlayers ?? []).filter(
     (p) => !isGameStarted(p.pro_team, gameTimeMap),
   );
+
+  // Between seasons the matview is empty for everyone, so every row's real
+  // stats are NULL — deciding who to cut off a grid of dashes isn't a decision.
+  // Falls back to the season projection, then last season, both labelled.
+  const { resolve } = usePlayerStatBasis(sport, rosterPlayers);
 
   const eyebrow = activateFromIR
     ? "ACTIVATE FROM IR"
@@ -161,25 +171,42 @@ export function DropPickerModal({
     item: PlayerSeasonStats;
     index: number;
   }) => {
-    const fpts = scoringWeights && !isCategories
-      ? calculateAvgFantasyPoints(item, scoringWeights, sport)
+    // `row` is the line to READ — current season, or a projection / last season
+    // when the current sample is empty. `item` stays the player for identity
+    // and every drop action.
+    const stat = resolve(item);
+    const { row, hasStats, label: basisLabel } = stat;
+    const fpts = hasStats && scoringWeights && !isCategories
+      ? calculateAvgFantasyPoints(row, scoringWeights, sport)
       : null;
     const badge = getInjuryBadge(item.status);
     const logoUrl = getTeamLogoUrl(item.pro_team, sport);
     const isExpanded = expandedId === item.player_id;
     const isLast = index === dropCandidates.length - 1;
+    const gamesPlayed = displayGamesPlayed(stat);
+    const spokenStats = !hasStats
+      ? ", no stats yet this season"
+      : fpts !== null
+        ? `, ${fpts} ${spokenStatBasis(stat.basis)}fantasy points`
+        : "";
+    const gridLabel =
+      stat.basis === "projected"
+        ? `Projected averages for ${item.name}`
+        : stat.basis === "prev"
+          ? `Last season averages for ${item.name}`
+          : `Season averages for ${item.name}`;
 
     const topStats = [
-      { label: "MIN", value: fmt(item.avg_min) },
-      { label: "FG%", value: pct(item.total_fgm, item.total_fga) },
-      { label: "3P%", value: pct(item.total_3pm, item.total_3pa) },
-      { label: "FT%", value: pct(item.total_ftm, item.total_fta) },
+      { label: "MIN", value: fmt(row.avg_min) },
+      { label: "FG%", value: fmtPct(shootingPct(row, "fg")) },
+      { label: "3P%", value: fmtPct(shootingPct(row, "fg3")) },
+      { label: "FT%", value: fmtPct(shootingPct(row, "ft")) },
     ];
     const bottomStats = [
-      { label: "STL", value: fmt(item.avg_stl) },
-      { label: "BLK", value: fmt(item.avg_blk) },
-      { label: "TOV", value: fmt(item.avg_tov) },
-      { label: "GP", value: item.games_played != null ? String(item.games_played) : "–" },
+      { label: "STL", value: fmt(row.avg_stl) },
+      { label: "BLK", value: fmt(row.avg_blk) },
+      { label: "TOV", value: fmt(row.avg_tov) },
+      { label: "GP", value: gamesPlayed != null ? String(gamesPlayed) : "–" },
     ];
 
     return (
@@ -196,7 +223,7 @@ export function DropPickerModal({
         <TouchableOpacity
           style={styles.row}
           accessibilityRole="button"
-          accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.pro_team}${fpts !== null ? `, ${fpts} fantasy points` : ""}`}
+          accessibilityLabel={`${item.name}, ${formatPosition(item.position)}, ${item.pro_team}${spokenStats}`}
           accessibilityHint={
             isExpanded
               ? "Double tap to collapse preview"
@@ -275,6 +302,14 @@ export function DropPickerModal({
                 {fpts} FPTS
               </ThemedText>
             )}
+            {basisLabel && (
+              <ThemedText
+                style={[styles.basisTag, { color: c.accent }]}
+                accessibilityElementsHidden
+              >
+                {basisLabel}
+              </ThemedText>
+            )}
           </View>
           <Ionicons
             name={isExpanded ? "chevron-up" : "chevron-down"}
@@ -293,7 +328,7 @@ export function DropPickerModal({
           >
             <View
               style={[styles.statGrid, { borderColor: c.border }]}
-              accessibilityLabel={`Season averages for ${item.name}`}
+              accessibilityLabel={gridLabel}
             >
               {topStats.map((stat, i) => (
                 <View
@@ -588,6 +623,12 @@ const styles = StyleSheet.create({
     fontSize: ms(11),
     fontWeight: "600",
     marginTop: s(1),
+  },
+  basisTag: {
+    fontSize: ms(8),
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    marginTop: 1,
   },
   chevron: {
     marginLeft: s(2),

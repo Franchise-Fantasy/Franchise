@@ -26,7 +26,7 @@ import {
   type CommissionerContentDraft,
   type PollDraftForm,
 } from '@/utils/chat/contentDraftBody';
-import { containsBlockedContent } from '@/utils/moderation';
+import { blockedContentMessage, findBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 const POLL_TYPES = ['Single Choice', 'Multi-Select'] as const;
@@ -179,8 +179,9 @@ export function CreatePollModal({
   async function handleCreate() {
     if (!canSubmit || !closesAt) return;
     const allText = [trimmedQ, ...filledOptions].join(' ');
-    if (containsBlockedContent(allText)) {
-      Alert.alert('Content blocked', 'Your poll contains language that isn’t allowed.');
+    const blocked = findBlockedContent(allText);
+    if (blocked) {
+      Alert.alert('Content blocked', blockedContentMessage(blocked, 'poll'));
       return;
     }
 

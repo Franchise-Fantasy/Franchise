@@ -9,11 +9,16 @@ import { ThemedText } from '@/components/ui/ThemedText';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
 import { useLeagueScoring } from '@/hooks/useLeagueScoring';
+import { usePlayerStatBasis } from '@/hooks/usePlayerStatBasis';
 import { TradeRosterPlayer, useTeamRosterForTrade } from '@/hooks/useTeamRosterForTrade';
 import { foldSearchText, formatPosition } from '@/utils/formatting';
 import { getInjuryBadge } from '@/utils/nba/injuryBadge';
 import { ms, s } from '@/utils/scale';
 import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { formatShootingPct, shootingPct } from '@/utils/scoring/shootingPct';
+import { spokenStatBasis } from '@/utils/scoring/statBasis';
+
+const fixed1 = (v: number | null | undefined) => (v ?? 0).toFixed(1);
 
 interface TradePlayerPickerBodyProps {
   teamId: string;
@@ -61,6 +66,11 @@ export function TradePlayerPickerBody({
 
   const { data: roster, isLoading } = useTeamRosterForTrade(teamId, leagueId);
   const { data: scoringWeights } = useLeagueScoring(leagueId);
+  // Between seasons every matview row is empty, which would hand the fairness
+  // bar 0.0 for every player while draft picks keep their estimatePickFpts
+  // value — a lopsided offer reading as even. Falls back to the season
+  // projection, then last season, both labelled on the row.
+  const { resolve } = usePlayerStatBasis(sport, roster);
 
   const searchKey = foldSearchText(search);
   const filtered = (roster ?? []).filter((p) =>
@@ -74,16 +84,31 @@ export function TradePlayerPickerBody({
     const isOnIR = item.roster_slot === 'IR';
     const irBlocked = isOnIR && !irTradingEnabled;
     const isDisabled = isLocked || irBlocked || isPendingDrop;
+    // `row` is the line to READ — current season, or a projection / last season
+    // when the current sample is empty. `item` stays the asset being traded.
+    const { row, hasStats, basis, label: basisLabel } = resolve(item);
     // sport matters: without it an NFL row scores 0 (the NBA stat map finds
     // none of PASS_YD/RUSH_TD/...), and that 0 is what onToggle hands to the
     // trade's fairness bar — every NFL proposal would read as perfectly even.
-    const fpts = scoringWeights && !isCategories ? calculateAvgFantasyPoints(item, scoringWeights, sport) : null;
+    const fpts =
+      hasStats && scoringWeights && !isCategories
+        ? calculateAvgFantasyPoints(row, scoringWeights, sport)
+        : null;
     const badge = getInjuryBadge(item.status);
+    // Raw interpolation of these used to speak "null points" for the whole
+    // pool between seasons, when every avg_* column is NULL.
+    const spokenStats = !hasStats
+      ? ', no stats yet this season'
+      : isCategories
+        ? `, ${spokenStatBasis(basis)}${fixed1(row.avg_pts)} points, ${fixed1(row.avg_reb)} rebounds, ${fixed1(row.avg_ast)} assists, ${fixed1(row.avg_stl)} steals, ${fixed1(row.avg_blk)} blocks`
+        : fpts !== null
+          ? `, ${fpts} ${spokenStatBasis(basis)}fantasy points`
+          : '';
 
     return (
       <TouchableOpacity
         accessibilityRole="button"
-        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isOnIR ? ', on injured reserve' : ''}${isLocked ? ', in active trade' : ''}${isPendingDrop ? ', queued for drop' : ''}${fpts !== null ? `, ${fpts} fantasy points` : ''}${isCategories ? `, ${item.avg_pts} points, ${item.avg_reb} rebounds, ${item.avg_ast} assists, ${item.avg_stl} steals, ${item.avg_blk} blocks` : ''}`}
+        accessibilityLabel={`${item.name}, ${formatPosition(item.position)}${isOnIR ? ', on injured reserve' : ''}${isLocked ? ', in active trade' : ''}${isPendingDrop ? ', queued for drop' : ''}${spokenStats}`}
         accessibilityState={{ selected: isSelected, disabled: isDisabled }}
         disabled={isDisabled}
         style={[
@@ -140,16 +165,33 @@ export function TradePlayerPickerBody({
         {isCategories ? (
           <View style={styles.catStats}>
             <ThemedText style={[styles.catStatLine, { color: c.secondaryText }]}>
-              {item.avg_pts}/{item.avg_reb}/{item.avg_ast}/{item.avg_stl}/{item.avg_blk}
+              {hasStats
+                ? `${fixed1(row.avg_pts)}/${fixed1(row.avg_reb)}/${fixed1(row.avg_ast)}/${fixed1(row.avg_stl)}/${fixed1(row.avg_blk)}`
+                : '—'}
             </ThemedText>
-            <ThemedText style={[styles.catSubLine, { color: c.secondaryText }]}>
-              {item.avg_fga > 0 ? ((item.avg_fgm / item.avg_fga) * 100).toFixed(1) : '0.0'}% FG ·{' '}
-              {item.avg_fta > 0 ? ((item.avg_ftm / item.avg_fta) * 100).toFixed(1) : '0.0'}% FT ·{' '}
-              {item.avg_tov} TO
-            </ThemedText>
+            {hasStats && (
+              <ThemedText style={[styles.catSubLine, { color: c.secondaryText }]}>
+                {formatShootingPct(shootingPct(row, 'fg'))} FG ·{' '}
+                {formatShootingPct(shootingPct(row, 'ft'))} FT · {fixed1(row.avg_tov)} TO
+              </ThemedText>
+            )}
+            {basisLabel && (
+              <ThemedText style={[styles.basisTag, { color: c.gold }]} accessibilityElementsHidden>
+                {basisLabel}
+              </ThemedText>
+            )}
           </View>
-        ) : fpts !== null ? (
-          <ThemedText style={[styles.fpts, { color: c.gold }]}>{fpts}</ThemedText>
+        ) : scoringWeights ? (
+          <View style={styles.fptsCol}>
+            <ThemedText style={[styles.fpts, { color: c.gold }]}>
+              {fpts !== null ? fpts : '—'}
+            </ThemedText>
+            {basisLabel && (
+              <ThemedText style={[styles.basisTag, { color: c.gold }]} accessibilityElementsHidden>
+                {basisLabel}
+              </ThemedText>
+            )}
+          </View>
         ) : null}
         {isSelected ? (
           <Ionicons name="checkmark-circle" size={20} color={c.gold} accessible={false} />
@@ -226,10 +268,13 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   sub: { fontSize: ms(11), marginTop: s(1) },
+  fptsCol: {
+    alignItems: 'flex-end' as const,
+    marginRight: s(10),
+  },
   fpts: {
     fontSize: ms(13),
     fontWeight: '600',
-    marginRight: s(10),
   },
   catStats: {
     alignItems: 'flex-end' as const,
@@ -237,5 +282,11 @@ const styles = StyleSheet.create({
   },
   catStatLine: { fontSize: ms(11) },
   catSubLine: { fontSize: ms(9), marginTop: s(1) },
+  basisTag: {
+    fontSize: ms(8),
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginTop: 1,
+  },
   checkSpacer: { width: s(20) },
 });

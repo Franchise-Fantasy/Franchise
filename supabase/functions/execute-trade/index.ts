@@ -11,6 +11,7 @@ import { fetchIllegalIRPlayers, formatIllegalIRError } from '../_shared/illegalI
 import { createLogger } from '../_shared/log.ts';
 import { parseBody, z } from '../_shared/validate.ts';
 import { nextSlateRollover } from '../../../utils/leagueTime.ts';
+import { projectPickHoldings, swapPartiesWithoutPick } from '../../../utils/league/swapEligibility.ts';
 import { isActiveSlot } from '../../../utils/roster/rosterCutsShared.ts';
 import type { Database } from '../../../types/database.types.ts';
 
@@ -303,6 +304,58 @@ Deno.serve(async (req) => {
             `A pick swap between these teams already exists for the ${formatPickLabel(sw.season, sw.round)} pick — resolve or reverse it before adding another.`,
           );
         }
+      }
+
+      // 4. Both sides must actually HOLD a pick in the round once THIS trade's
+      //    own pick moves apply. If either side holds nothing there, resolveSwap
+      //    voids the swap at the lottery — so committing it would take real
+      //    assets for a right that can never convey.
+      const swapSeasons = [...new Set(swaps.map((s) => s.season))];
+      const swapTeamIds = [...new Set(swaps.flatMap((s) => [s.benef, s.counter]))];
+      // A failed lookup must NOT read as "nobody holds a pick" — that would
+      // reject a legitimate trade with a misleading message. Fail as a 500.
+      const { data: heldPicks, error: heldError } = await supabaseAdmin
+        .from('draft_picks')
+        .select('season, round, current_team_id')
+        .eq('league_id', proposal.league_id)
+        .in('season', swapSeasons)
+        .in('current_team_id', swapTeamIds)
+        .lte('round', rookieRounds)
+        .is('player_id', null);
+      if (heldError) throw heldError;
+
+      const movedById = new Map<string, { season: string; round: number }>();
+      if (allPickIds.length > 0) {
+        const { data: movedPicks, error: movedError } = await supabaseAdmin
+          .from('draft_picks').select('id, season, round').in('id', allPickIds);
+        if (movedError) throw movedError;
+        for (const p of movedPicks ?? []) movedById.set(p.id, { season: p.season, round: p.round });
+      }
+
+      const holdings = projectPickHoldings(
+        heldPicks ?? [],
+        pickItems.flatMap((i: any) => {
+          const moved = movedById.get(i.draft_pick_id);
+          return moved
+            ? [{ season: moved.season, round: moved.round, from_team_id: i.from_team_id, to_team_id: i.to_team_id }]
+            : [];
+        }),
+      );
+      for (const sw of swaps) {
+        const missing = swapPartiesWithoutPick(holdings, {
+          season: sw.season,
+          round: sw.round,
+          beneficiary_team_id: sw.benef,
+          counterparty_team_id: sw.counter,
+        });
+        if (missing.length === 0) continue;
+        const { data: missingTeams } = await supabaseAdmin
+          .from('teams').select('id, name').in('id', missing);
+        const names = (missingTeams ?? []).map((t) => t.name).join(' and ') || 'A team';
+        throw new HttpError(
+          `${names} ${missing.length > 1 ? 'have' : 'has'} no ${formatPickLabel(sw.season, sw.round)} pick ` +
+          `after this trade, so that swap could never convey. Remove it and re-propose.`,
+        );
       }
     }
 

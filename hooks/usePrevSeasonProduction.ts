@@ -67,6 +67,35 @@ export function usePrevSeasonFpts(
   });
 }
 
+/** Raw previous-season rows for the given players, keyed by player_id.
+ *
+ *  The two hooks either side of this one collapse each row to a single number
+ *  (fpts, cat contribution). Surfaces that render a whole stat line — the drop
+ *  picker's MIN / shooting splits / STL / BLK / TOV grid — need the row itself,
+ *  so this returns it untouched and lets the caller merge it via
+ *  `resolveStatBasis`. Not league-scoped: nothing here depends on a league's
+ *  scoring settings. */
+export function usePrevSeasonRows(sport: Sport, playerIds: string[]) {
+  const previousSeason = getPreviousSeason(sport);
+  const digest = inputsDigest(playerIds);
+
+  return useQuery<Map<string, Record<string, unknown>>>({
+    queryKey: queryKeys.prevSeasonRows(sport, previousSeason, digest),
+    queryFn: async () => {
+      const map = new Map<string, Record<string, unknown>>();
+      if (playerIds.length === 0) return map;
+      const rows = await fetchPrevSeasonRows(sport, previousSeason, playerIds);
+      for (const row of rows) {
+        const pid = (row as { player_id?: string }).player_id;
+        if (pid) map.set(pid, row as Record<string, unknown>);
+      }
+      return map;
+    },
+    enabled: playerIds.length > 0,
+    staleTime: 1000 * 60 * 30,
+  });
+}
+
 /** Categories twin of `usePrevSeasonFpts`: previous-season composite cat
  *  contribution per game, keyed by player_id. Fantasy points aren't a
  *  categories league's currency, so its analytics need this shape instead to

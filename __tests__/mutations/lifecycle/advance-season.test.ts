@@ -176,6 +176,144 @@ describe('advance-season', () => {
     );
   });
 
+  describe('Tradable pick horizon', () => {
+    let league: LifecycleBootstrap;
+
+    // `max_future_seasons` = "N rookie drafts ahead of the league's season are
+    // tradable", i.e. the inclusive range [season, season + N]. The bootstrap
+    // seeds only the upcoming season (2027-28), so after advancing 2026-27 →
+    // 2027-28 the newly-in-range seasons are offsets 1..3: 2028-29 through
+    // 2030-31. Nothing used to create them, so the horizon shrank a year on
+    // every rollover until a long-running dynasty had nothing left to trade.
+    const MAX_FUTURE = 3;
+    const HORIZON = ['2028-29', '2029-30', '2030-31'];
+    const PICKS_PER_SEASON = 8; // 4 teams × 2 rounds
+
+    beforeAll(async () => {
+      league = await bootstrapLifecycleLeague('dynasty');
+    }, TIMEOUT);
+
+    beforeEach(async () => {
+      await resetToSeasonComplete(league);
+      await clearRateLimits(league.commissionerUserId, ['advance-season']);
+      await adminClient()
+        .from('leagues')
+        .update({ max_future_seasons: MAX_FUTURE })
+        .eq('id', league.leagueId);
+    }, TIMEOUT);
+
+    it(
+      'seeds the seasons that just came into range, owned by their own team',
+      async () => {
+        const admin = adminClient();
+        const { leagueId, teams } = league;
+
+        const { data: before } = await admin
+          .from('draft_picks')
+          .select('id')
+          .eq('league_id', leagueId)
+          .in('season', HORIZON);
+        expect(before).toHaveLength(0);
+
+        const { error } = await invokeAdvanceSeason(leagueId);
+        expect(error).toBeNull();
+
+        const { data: picks } = await admin
+          .from('draft_picks')
+          .select('season, round, slot_number, pick_number, current_team_id, original_team_id, draft_id')
+          .eq('league_id', leagueId)
+          .in('season', HORIZON);
+        expect(picks).toHaveLength(HORIZON.length * PICKS_PER_SEASON);
+
+        for (const season of HORIZON) {
+          expect(picks!.filter((p) => p.season === season)).toHaveLength(PICKS_PER_SEASON);
+        }
+
+        // A future pick has no draft position yet — the lottery / reverse
+        // standings assign slot + pick number in the season it's drafted, and
+        // `formatPickLabel` renders "2030 1st" while pick_number is null.
+        for (const pick of picks!) {
+          expect(pick.slot_number).toBeNull();
+          expect(pick.pick_number).toBeNull();
+          expect(pick.draft_id).toBeNull();
+          expect(pick.current_team_id).toBe(pick.original_team_id);
+        }
+
+        // Every team gets one pick per round in every horizon season.
+        for (const team of teams) {
+          expect(picks!.filter((p) => p.original_team_id === team.id))
+            .toHaveLength(HORIZON.length * 2);
+        }
+      },
+      TIMEOUT,
+    );
+
+    it(
+      'skips a horizon season that already has picks instead of duplicating it',
+      async () => {
+        const admin = adminClient();
+        const { leagueId, teams } = league;
+
+        // Pre-seed the middle season the way league creation would, but with
+        // one pick already traded — a duplicate insert would both double the
+        // count and hand the trading team a second copy of what it sold.
+        const preSeeded = HORIZON[1];
+        const rows = teams.flatMap((team, idx) =>
+          [1, 2].map((round) => ({
+            league_id: leagueId,
+            season: preSeeded,
+            round,
+            original_team_id: team.id,
+            // Team 0's round-1 pick already belongs to team 1.
+            current_team_id: idx === 0 && round === 1 ? teams[1].id : team.id,
+            slot_number: null,
+            pick_number: null,
+          })),
+        );
+        const { error: seedErr } = await admin.from('draft_picks').insert(rows);
+        expect(seedErr).toBeNull();
+
+        const { error } = await invokeAdvanceSeason(leagueId);
+        expect(error).toBeNull();
+
+        const { data: picks } = await admin
+          .from('draft_picks')
+          .select('round, current_team_id, original_team_id')
+          .eq('league_id', leagueId)
+          .eq('season', preSeeded);
+        expect(picks).toHaveLength(PICKS_PER_SEASON);
+
+        // The traded pick still belongs to its buyer.
+        const traded = picks!.find(
+          (p) => p.original_team_id === teams[0].id && p.round === 1,
+        );
+        expect(traded!.current_team_id).toBe(teams[1].id);
+      },
+      TIMEOUT,
+    );
+
+    it(
+      'leaves the upcoming season alone — that stays the rookie-draft branch\'s job',
+      async () => {
+        const admin = adminClient();
+        const { leagueId } = league;
+
+        const { error } = await invokeAdvanceSeason(leagueId);
+        expect(error).toBeNull();
+
+        // 2027-28 is offset 0 and was seeded by the bootstrap; the horizon
+        // pass starts at offset 1, so it must not have doubled.
+        const { data: upcoming } = await admin
+          .from('draft_picks')
+          .select('id')
+          .eq('league_id', leagueId)
+          .eq('season', '2027-28');
+        expect(upcoming).toHaveLength(PICKS_PER_SEASON);
+      },
+      TIMEOUT,
+    );
+  });
+
   describe('Keeper', () => {
     let league: LifecycleBootstrap;
 

@@ -15,7 +15,7 @@ import { Brand } from '@/constants/Colors';
 import { useActionPicker } from '@/context/ConfirmProvider';
 import { useColors } from '@/hooks/useColors';
 import { logger } from '@/utils/logger';
-import { containsBlockedContent } from '@/utils/moderation';
+import { blockedContentMessage, findBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 
@@ -89,8 +89,9 @@ export function ChatInput({ conversationId, onSend, sending, isCommissioner, isL
   const handleSend = async () => {
     if (!canSend) return;
     const msg = text.trim();
-    if (containsBlockedContent(msg)) {
-      Alert.alert('Message blocked', 'Your message contains language that isn’t allowed.');
+    const blocked = findBlockedContent(msg);
+    if (blocked) {
+      Alert.alert('Message blocked', blockedContentMessage(blocked, 'message'));
       return;
     }
     if (saveTimer.current) clearTimeout(saveTimer.current);

@@ -6,18 +6,23 @@ import { BrandButton } from '@/components/ui/BrandButton';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { useColors } from '@/hooks/useColors';
 import { formatPickLabel } from '@/types/trade';
+import { swapPartiesWithoutPick } from '@/utils/league/swapEligibility';
 import { ms, s } from '@/utils/scale';
 
 interface TradeSwapPickerBodyProps {
   validSeasons: string[];
   rookieDraftRounds: number;
   /** The team giving up the swap advantage (counterparty). */
+  counterpartyTeamId: string;
   counterpartyTeamName: string;
   /** The team receiving the swap advantage (beneficiary) — used for 2-team trades. */
   beneficiaryTeamId?: string;
   beneficiaryTeamName?: string;
   /** Other teams in the trade to pick beneficiary from — used for multi-team trades. */
   beneficiaryOptions?: { id: string; name: string }[];
+  /** Post-trade pick counts per team/season/round — see `projectPickHoldings`. */
+  holdings: Map<string, number>;
+  holdingsStatus: 'loading' | 'ready' | 'error';
   onAdd: (season: string, round: number, beneficiaryTeamId?: string) => void;
 }
 
@@ -36,10 +41,13 @@ interface TradeSwapPickerBodyProps {
 export function TradeSwapPickerBody({
   validSeasons,
   rookieDraftRounds,
+  counterpartyTeamId,
   counterpartyTeamName,
   beneficiaryTeamId,
   beneficiaryTeamName,
   beneficiaryOptions,
+  holdings,
+  holdingsStatus,
   onAdd,
 }: TradeSwapPickerBodyProps) {
   const c = useColors();
@@ -54,6 +62,26 @@ export function TradeSwapPickerBody({
     : beneficiaryTeamName ?? '';
 
   const rounds = Array.from({ length: rookieDraftRounds }, (_, i) => i + 1);
+
+  // A swap only conveys if BOTH teams hold a pick in the round — otherwise it
+  // voids at the lottery, after someone already paid for it. Block it here and
+  // name who's short; execute-trade re-checks at commit time.
+  const nameOf = (teamId: string) =>
+    teamId === counterpartyTeamId ? counterpartyTeamName : resolvedBeneficiaryName;
+  const missingTeamIds = swapPartiesWithoutPick(holdings, {
+    season: selectedSeason,
+    round: selectedRound,
+    beneficiary_team_id: selectedBeneficiary,
+    counterparty_team_id: counterpartyTeamId,
+  });
+  const blockedReason =
+    holdingsStatus === 'error'
+      ? "Couldn't check which picks these teams hold. Try again."
+      : holdingsStatus === 'ready' && missingTeamIds.length > 0
+        ? `${missingTeamIds.map(nameOf).join(' and ')} ${missingTeamIds.length > 1 ? 'have' : 'has'} no ` +
+          `${formatPickLabel(selectedSeason, selectedRound)} pick, so this swap could never convey.`
+        : null;
+  const canAdd = holdingsStatus === 'ready' && !blockedReason;
 
   return (
     <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
@@ -120,6 +148,14 @@ export function TradeSwapPickerBody({
         >
           {counterpartyTeamName} ↔ {resolvedBeneficiaryName}
         </ThemedText>
+        {blockedReason && (
+          <View style={styles.blockedRow}>
+            <Ionicons name="alert-circle" size={16} color={c.danger} accessible={false} />
+            <ThemedText style={[styles.blockedText, { color: c.danger }]}>
+              {blockedReason}
+            </ThemedText>
+          </View>
+        )}
       </View>
 
       <BrandButton
@@ -127,10 +163,13 @@ export function TradeSwapPickerBody({
         icon="add"
         variant="primary"
         fullWidth
+        loading={holdingsStatus === 'loading'}
+        disabled={!canAdd}
         onPress={() =>
           onAdd(selectedSeason, selectedRound, beneficiaryOptions ? selectedBeneficiary : undefined)
         }
         accessibilityLabel="Add swap"
+        accessibilityHint={blockedReason ?? undefined}
       />
     </ScrollView>
   );
@@ -281,4 +320,11 @@ const styles = StyleSheet.create({
     fontSize: ms(9),
     letterSpacing: 1.0,
   },
+  blockedRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: s(6),
+    marginTop: s(6),
+  },
+  blockedText: { flex: 1, fontSize: ms(12), lineHeight: ms(17) },
 });

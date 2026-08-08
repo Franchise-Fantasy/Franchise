@@ -14,16 +14,19 @@ const Body = z.object({
   league_id: z.string().uuid(),
 });
 
-/** Sport-aware "next season" string. NBA seasons span two calendar years
- *  ("2025-26" → "2026-27"); WNBA and NFL seasons are single-year ("2026" →
- *  "2027"). Hardcoding NBA format produced "2026-27" for WNBA leagues, which
- *  then didn't match the rest of the app's season-format expectations. */
+/** Sport-aware season string `offset` years after `current`. NBA seasons span
+ *  two calendar years ("2025-26" → "2026-27"); WNBA and NFL seasons are
+ *  single-year ("2026" → "2027"). Hardcoding NBA format produced "2026-27" for
+ *  WNBA leagues, which then didn't match the rest of the app's season-format
+ *  expectations. Mirrors `formatSeason` in constants/LeagueDefaults.ts. */
+function seasonAtOffset(current: string, sport: string, offset: number): string {
+  const startYear = parseInt(current.split('-')[0], 10) + offset;
+  if (getSportModule(sport).seasonFormat === 'single-year') return String(startYear);
+  return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`;
+}
+
 function nextSeason(current: string, sport: string): string {
-  const [startStr] = current.split('-');
-  const startYear = parseInt(startStr, 10);
-  const next = startYear + 1;
-  if (getSportModule(sport).seasonFormat === 'single-year') return String(next);
-  return `${next}-${String(next + 1).slice(2)}`;
+  return seasonAtOffset(current, sport, 1);
 }
 
 Deno.serve(async (req) => {
@@ -46,7 +49,7 @@ Deno.serve(async (req) => {
     // Fetch league config
     const { data: league, error: leagueErr } = await supabaseAdmin
       .from('leagues')
-      .select('created_by, name, sport, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, lottery_draws, lottery_odds, waiver_type, faab_budget, waiver_priority_reset, offseason_step, league_type, taxi_slots, taxi_max_experience')
+      .select('created_by, name, sport, season, teams, playoff_teams, playoff_weeks, rookie_draft_order, rookie_draft_rounds, max_future_seasons, lottery_draws, lottery_odds, waiver_type, faab_budget, waiver_priority_reset, offseason_step, league_type, taxi_slots, taxi_max_experience')
       .eq('id', league_id)
       .single();
     if (leagueErr || !league) throw new HttpError('League not found', 404);
@@ -245,6 +248,7 @@ Deno.serve(async (req) => {
           const pick_number = (round - 1) * reversedTeams.length + (pos + 1);
           if (!existingPicks || existingPicks.length === 0) {
             newPicks.push({
+              season: newSeason,
               round,
               slot_number: pos + 1,
               pick_number,
@@ -264,6 +268,66 @@ Deno.serve(async (req) => {
         }
       }
       leagueUpdates.offseason_step = 'rookie_draft_pending';
+    }
+
+    // ── 6b. Roll the tradable pick horizon forward ──
+    // `max_future_seasons` means "N rookie drafts ahead of the league's current
+    // season are tradable", so the horizon is the inclusive start-year range
+    // [newSeason, newSeason + N] — the same range `execute-trade` validates
+    // swaps against and the draft hub / trade builder render. It's seeded once
+    // at league creation (`buildFutureDraftPicks`, offsets 1..N) and nothing
+    // used to extend it, so every rollover shortened it by a year until a
+    // long-running dynasty had no future picks left to trade at all.
+    //
+    // Offsets 1..N only: offset 0 is `newSeason` itself, already owned by the
+    // branch above (and by `buildFutureDraftPicks` for the lottery path).
+    // Seasons that already have picks are skipped, so this is idempotent and
+    // also back-fills a league that rolled over several times before this
+    // existed. Dynasty only — it's the one type that trades future picks
+    // (`buildFutureDraftPicks` has the same gate at league creation), and
+    // redraft's orphan picks are cleared by the RPC anyway.
+    const maxFuture = league.max_future_seasons ?? 0;
+    if (leagueType === 'dynasty' && maxFuture > 0) {
+      const rounds = league.rookie_draft_rounds ?? 2;
+      const horizonSeasons = Array.from(
+        { length: maxFuture },
+        (_, i) => seasonAtOffset(newSeason, league.sport, i + 1),
+      );
+
+      // One bounded existence probe per season rather than a single `.in(...)`
+      // over all of them: that response scales with teams × rounds × N and
+      // would silently truncate at PostgREST's 1000-row cap, which reads as
+      // "this season has no picks" and duplicates a whole season.
+      const seededFlags = await Promise.all(horizonSeasons.map(async (season) => {
+        const { data, error } = await supabaseAdmin
+          .from('draft_picks')
+          .select('id')
+          .eq('league_id', league_id)
+          .eq('season', season)
+          .limit(1);
+        if (error) throw error;
+        return (data?.length ?? 0) > 0;
+      }));
+
+      for (const [i, season] of horizonSeasons.entries()) {
+        if (seededFlags[i]) continue;
+        for (const team of allTeams) {
+          for (let round = 1; round <= rounds; round++) {
+            // A future pick carries no draft position — `slot_number` is a
+            // placeholder until the lottery or reverse standings set the order
+            // in the season it's actually drafted, and `pick_number` stays null
+            // so `formatPickLabel` renders "2031 1st" with no pick number.
+            newPicks.push({
+              season,
+              round,
+              slot_number: null,
+              pick_number: null,
+              current_team_id: team.id,
+              original_team_id: team.id,
+            });
+          }
+        }
+      }
     }
 
     // ── 7. Work out which taxi-squad players have aged out ──

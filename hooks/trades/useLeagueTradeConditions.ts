@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 
-import { CURRENT_NBA_SEASON } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
+import { rookiePickSeasons } from '@/utils/draft/pickSeasons';
 
 /**
  * League-level trade rules for the trade builder: the `leagues` columns that
@@ -17,7 +18,7 @@ export function useLeagueTradeConditions(leagueId: string) {
     queryFn: async () => {
       const { data, error } = await supabase
         .from('leagues')
-        .select('pick_protections_enabled, pick_swaps_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, offseason_step, scoring_type, ir_trading_enabled')
+        .select('pick_protections_enabled, pick_swaps_enabled, draft_pick_trading_enabled, teams, max_future_seasons, rookie_draft_rounds, league_type, season, sport, offseason_step, scoring_type, ir_trading_enabled')
         .eq('id', leagueId)
         .single();
       if (error) throw error;
@@ -41,23 +42,19 @@ export function useLeagueTradeConditions(leagueId: string) {
   const teamCount = leagueSettings?.teams ?? 10;
   const maxFutureSeasons = leagueSettings?.max_future_seasons ?? 3;
   const rookieDraftRounds = leagueSettings?.rookie_draft_rounds ?? 2;
+  const sport = (leagueSettings?.sport as Sport | null) ?? 'nba';
 
-  // Build valid seasons for swap picker — skip the current season if its draft already happened
-  const validSeasons = useMemo(() => {
-    const leagueSeason = leagueSettings?.season ?? CURRENT_NBA_SEASON;
-    const leagueStartYear = parseInt(leagueSeason.split('-')[0], 10);
-    const step = leagueSettings?.offseason_step as string | null;
-    const draftDone = !step || step === 'rookie_draft_complete';
-    const startYear = draftDone ? leagueStartYear + 1 : leagueStartYear;
-    const seasons: string[] = [];
-    const count = draftDone ? maxFutureSeasons : maxFutureSeasons + 1;
-    for (let i = 0; i < count; i++) {
-      const sy = startYear + i;
-      const ey = (sy + 1) % 100;
-      seasons.push(`${sy}-${String(ey).padStart(2, '0')}`);
-    }
-    return seasons;
-  }, [leagueSettings?.season, leagueSettings?.offseason_step, maxFutureSeasons]);
+  // Valid seasons for the swap picker — the same rookie-draft window the draft
+  // hub renders, so a swap can't be offered on a year the hub doesn't show.
+  const validSeasons = useMemo(
+    () => rookiePickSeasons(
+      leagueSettings?.season ?? getCurrentSeason(sport),
+      maxFutureSeasons,
+      leagueSettings?.offseason_step as string | null,
+      sport,
+    ),
+    [leagueSettings?.season, leagueSettings?.offseason_step, maxFutureSeasons, sport],
+  );
 
   return {
     isCategories,

@@ -1,15 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
 
 import {
-  formatSeason,
   getCurrentSeason,
   isRookieDraftComplete,
-  parseSeasonStartYear,
-  rookieDraftStartOffset,
   type Sport,
 } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
+import { rookiePickSeasons } from '@/utils/draft/pickSeasons';
 
 export interface DraftHubPick {
   id: string;
@@ -110,27 +108,17 @@ export function useDraftHub(leagueId: string | null) {
       const rookieDraftComplete = isRookieDraftComplete(offseasonStep);
 
       const maxFuture = league?.max_future_seasons ?? 3;
-      const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
 
-      // Future rookie drafts: NBA 2026 draft = '2026-27' season, etc.
-      // WNBA seasons are single-year ('2027', '2028').
-      //
-      // During the regular season `league.season` is the active *playing*
-      // season, so the next rookie draft is offset +1. But `advance-season`
-      // flips `league.season` to the new season at the START of the offseason,
-      // and the upcoming rookie draft (the one the lottery seeds via
-      // `start-lottery`/`run-lottery`, both keyed on `league.season`) is for
-      // `league.season` ITSELF — offset 0. Until that draft completes we must
-      // start the window at offset 0 so its picks AND the lottery results stay
-      // visible; otherwise they fall outside the `.in('season', validSeasons)`
-      // filter and disappear, and the hub appears to jump a year ahead. The
-      // two windows cover the same absolute seasons across the boundary because
-      // `league.season` incremented while the start offset decremented.
-      const startOffset = rookieDraftStartOffset(offseasonStep);
-      const validSeasons: string[] = [];
-      for (let i = 0; i < maxFuture; i++) {
-        validSeasons.push(formatSeason(currentStartYear + startOffset + i, sport));
-      }
+      // Future rookie drafts, from the upcoming one out to the end of the
+      // tradable horizon. Shared with the trade builder and the commissioner's
+      // pick-conditions tool so the hub can't show a different set of years
+      // than the surfaces those picks are traded on.
+      const validSeasons = rookiePickSeasons(
+        league?.season ?? getCurrentSeason(sport),
+        maxFuture,
+        offseasonStep,
+        sport,
+      );
 
       const rookieDraftRounds = league?.rookie_draft_rounds ?? 2;
 

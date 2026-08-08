@@ -20,7 +20,7 @@ import { buildDraftPicks, buildFutureDraftPicks } from '@/lib/draft';
 import { supabase } from '@/lib/supabase';
 import { Json, TablesUpdate } from '@/types/database.types';
 import { sanitizeHandle } from '@/utils/league/paymentLinks';
-import { containsBlockedContent } from '@/utils/moderation';
+import { blockedContentMessage, findBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 interface EditBasicsModalProps {
@@ -83,8 +83,9 @@ export function EditBasicsModal({ visible, onClose, league, leagueId, canChangeS
       Alert.alert('Error', 'League name cannot be empty.');
       return;
     }
-    if (containsBlockedContent(name)) {
-      Alert.alert('Invalid name', 'That league name contains language that isn’t allowed.');
+    const blocked = findBlockedContent(name);
+    if (blocked) {
+      Alert.alert('Invalid name', blockedContentMessage(blocked, 'league name'));
       return;
     }
     setSaving(true);

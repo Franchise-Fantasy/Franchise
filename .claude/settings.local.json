@@ -34,10 +34,29 @@
       "Read(//tmp/**)",
       "Read(//private/tmp/**)",
       "Bash(echo \"--- exit $?\")",
-      "Bash(node /private/tmp/claude-501/-Users-joe-Desktop-Franchise/043498a8-ebff-4863-97d5-5b531fc157c1/scratchpad/find.mjs)"
+      "Bash(node /private/tmp/claude-501/-Users-joe-Desktop-Franchise/043498a8-ebff-4863-97d5-5b531fc157c1/scratchpad/find.mjs)",
+      "Bash(npx deno *)",
+      "Bash(supabase functions *)",
+      "Bash(python3 -c ' *)",
+      "mcp__claude_ai_Supabase__get_edge_function",
+      "Bash(deno check *)",
+      "Read(//Users/joe/.deno/bin/**)",
+      "Read(//opt/homebrew/bin/**)",
+      "Read(//Users/joe/**)",
+      "Read(//usr/local/bin/**)",
+      "Bash(echo \"EXIT=$?\")",
+      "Read(//tmp/claude-501/-Users-joe-Desktop-Franchise/5537b8e9-0d72-41e4-b0d3-fd92ff4918f0/scratchpad/**)",
+      "Bash(ls -la ~/.deno/ 2>/dev/null | head; echo \"---bin---\"; ls ~/.deno/bin 2>/dev/null | head)",
+      "Read(//Users/joe/.deno/**)",
+      "Bash(/usr/local/bin/deno --version)",
+      "Bash(grep -v \"^--$\")",
+      "Bash(ls -d \"/Users/joe/Desktop/Franchise Wiki\" 2>/dev/null || echo \"no wiki on this machine \\(path in CLAUDE.md is a Windows path\\)\")",
+      "Bash(grep -n \"sync-headshots.js\\\\` is deliberately NOT wired\" CLAUDE.md)",
+      "mcp__claude_ai_Supabase__get_logs"
     ],
     "additionalDirectories": [
-      "/tmp"
+      "/tmp",
+      "/tmp/claude-501/-Users-joe-Desktop-Franchise/5537b8e9-0d72-41e4-b0d3-fd92ff4918f0/scratchpad"
     ]
   }
 }

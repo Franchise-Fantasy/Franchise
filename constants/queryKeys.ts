@@ -238,6 +238,11 @@ export const queryKeys = {
   // cat contribution is scoring-settings independent, so only the id set varies.
   prevSeasonCatProduction: (leagueId: string, season: string, inputsDigest: string) =>
     ["prevSeasonCatProduction", leagueId, season, inputsDigest] as const,
+  // Raw previous-season rows. Deliberately NOT league-scoped: unlike its two
+  // siblings above, nothing here is computed with a league's scoring weights,
+  // so two leagues sharing a player share the cached row.
+  prevSeasonRows: (sport: string, season: string, inputsDigest: string) =>
+    ["prevSeasonRows", sport, season, inputsDigest] as const,
   // Season is part of the key because the queryFn pins it — without it a
   // mid-session season_config flip serves the OLD season's cached map for up
   // to staleTime (audit 2026-07-27).
@@ -272,6 +277,14 @@ export const queryKeys = {
     leagueId: string,
     enabled: boolean | undefined
   ) => ["tradablePicks", teamId, leagueId, enabled] as const,
+  /** Unused picks held by the teams in a trade — swap eligibility. */
+  tradePickHoldings: (
+    leagueId: string,
+    teamIds: string[],
+    seasons: string[],
+    maxRound: number
+  ) =>
+    ["tradePickHoldings", leagueId, teamIds.join(","), seasons.join(","), maxRound] as const,
   pendingTradeCount: (teamId: string, leagueId: string) =>
     ["pendingTradeCount", teamId, leagueId] as const,
   tradeBlock: (leagueId: string) => ["tradeBlock", leagueId] as const,

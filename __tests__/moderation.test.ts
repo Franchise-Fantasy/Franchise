@@ -1,68 +1,137 @@
 import fs from 'fs';
 import path from 'path';
 
-import { containsBlockedContent, SPLITTABLE_WORDS } from '@/utils/moderation';
+import {
+  blockedContentMessage,
+  findBlockedContent,
+  SPLITTABLE_WORDS,
+} from '@/utils/moderation';
 
-describe('containsBlockedContent', () => {
-  it('returns false for empty / whitespace input', () => {
-    expect(containsBlockedContent('')).toBe(false);
-    expect(containsBlockedContent('   ')).toBe(false);
+const isBlocked = (text: string) => findBlockedContent(text) !== null;
+
+describe('findBlockedContent', () => {
+  it('returns null for empty / whitespace input', () => {
+    expect(findBlockedContent('')).toBeNull();
+    expect(findBlockedContent('   ')).toBeNull();
   });
 
-  it('returns false for clean text', () => {
-    expect(containsBlockedContent('hello world')).toBe(false);
-    expect(containsBlockedContent('great trade!')).toBe(false);
-    expect(containsBlockedContent('good luck')).toBe(false);
+  it('returns null for clean text', () => {
+    expect(isBlocked('hello world')).toBe(false);
+    expect(isBlocked('great trade!')).toBe(false);
+    expect(isBlocked('good luck')).toBe(false);
   });
 
   it('blocks explicit slurs', () => {
-    expect(containsBlockedContent('you faggot')).toBe(true);
-    expect(containsBlockedContent('what a retard')).toBe(true);
-    expect(containsBlockedContent('cunt')).toBe(true);
+    expect(isBlocked('you faggot')).toBe(true);
+    expect(isBlocked('what a retard')).toBe(true);
+    expect(isBlocked('cunt')).toBe(true);
   });
 
   it('blocks leet-speak / character substitution', () => {
-    expect(containsBlockedContent('f@ggot')).toBe(true);
-    expect(containsBlockedContent('r3tard')).toBe(true);
+    expect(isBlocked('f@ggot')).toBe(true);
+    expect(isBlocked('r3tard')).toBe(true);
   });
 
   it('blocks space-evasion attempts', () => {
-    expect(containsBlockedContent('f a g g o t')).toBe(true);
-    expect(containsBlockedContent('n igger')).toBe(true);
-    expect(containsBlockedContent('you are a re tard')).toBe(true);
-    expect(containsBlockedContent('sp ic')).toBe(true);
+    expect(isBlocked('f a g g o t')).toBe(true);
+    expect(isBlocked('n igger')).toBe(true);
+    expect(isBlocked('you are a re tard')).toBe(true);
+    expect(isBlocked('sp ic')).toBe(true);
+  });
+
+  it('blocks accent-stripped slurs', () => {
+    expect(isBlocked('rétard')).toBe(true);
   });
 
   // Regression: the old space-stripped substring pass flagged any word pair whose
   // join straddled a slur, which blocked a real league survey ("supports picks").
   it('does not flag slurs straddling a word boundary', () => {
-    expect(containsBlockedContent('a platform that supports pick swaps')).toBe(false);
-    expect(containsBlockedContent('1.5 hours/pick')).toBe(false);
-    expect(containsBlockedContent('that trade was suspicious')).toBe(false);
-    expect(containsBlockedContent('Nets picks')).toBe(false);
-    expect(containsBlockedContent('he missed half a game')).toBe(false);
-    expect(containsBlockedContent('would a raccoon be a better GM')).toBe(false);
-    expect(containsBlockedContent('Chicago okay')).toBe(false);
-  });
-
-  it('blocks accent-stripped slurs', () => {
-    expect(containsBlockedContent('rétard')).toBe(true);
-  });
-
-  it('does not flag substrings inside legitimate words (boundary check)', () => {
-    // "scunthorpe" or "analysis" should not flag — boundary regex prevents this.
-    expect(containsBlockedContent('analysis of the trade')).toBe(false);
-    expect(containsBlockedContent('classic move')).toBe(false);
+    expect(isBlocked('a platform that supports pick swaps')).toBe(false);
+    expect(isBlocked('1.5 hours/pick')).toBe(false);
+    expect(isBlocked('that trade was suspicious')).toBe(false);
+    expect(isBlocked('Nets picks')).toBe(false);
+    expect(isBlocked('he missed half a game')).toBe(false);
+    expect(isBlocked('would a raccoon be a better GM')).toBe(false);
+    expect(isBlocked('Chicago okay')).toBe(false);
   });
 
   it('blocks white supremacy slogans', () => {
-    expect(containsBlockedContent('1488')).toBe(true);
-    expect(containsBlockedContent('white power')).toBe(true);
+    expect(isBlocked('1488')).toBe(true);
+    expect(isBlocked('white power')).toBe(true);
   });
 
   it('is case-insensitive', () => {
-    expect(containsBlockedContent('CUNT')).toBe(true);
-    expect(containsBlockedContent('Faggot')).toBe(true);
+    expect(isBlocked('CUNT')).toBe(true);
+    expect(isBlocked('Faggot')).toBe(true);
+  });
+
+  it('does not flag substrings inside legitimate words (boundary check)', () => {
+    expect(isBlocked('analysis of the trade')).toBe(false);
+    expect(isBlocked('classic move')).toBe(false);
+  });
+});
+
+// The whole point of reporting a span: a cross-word match is unrecognizable
+// without it, and quoting the normalized form would print a slur at a user who
+// never typed one. Every span below is a verbatim slice of the input.
+describe('findBlockedContent reported span', () => {
+  it('quotes the term as typed, not as normalized', () => {
+    expect(findBlockedContent('you are a f@ggot')).toEqual({
+      text: 'f@ggot',
+      kind: 'word',
+    });
+    expect(findBlockedContent('what a r3tard move')).toEqual({
+      text: 'r3tard',
+      kind: 'word',
+    });
+  });
+
+  it('preserves the original casing and accents', () => {
+    expect(findBlockedContent('Total Rétard')?.text).toBe('Rétard');
+  });
+
+  it('quotes the innocent words for a cross-word match', () => {
+    expect(findBlockedContent("let's go ok")).toEqual({ text: 'go ok', kind: 'split' });
+    expect(findBlockedContent('you are a f a g dude')).toEqual({
+      text: 'f a g',
+      kind: 'split',
+    });
+  });
+
+  it('reports a span that is always a verbatim slice of the input', () => {
+    const inputs = ['you faggot', 'f a g g o t', 'n igger', 'sp ic', 'white power', 'F@GS'];
+    for (const input of inputs) {
+      const match = findBlockedContent(input);
+      expect(match).not.toBeNull();
+      expect(input).toContain(match!.text);
+    }
+  });
+
+  it('finds the offending phrase inside a long survey', () => {
+    const survey = [
+      '2026 Offseason Survey',
+      'Do you want to eliminate conferences?',
+      'Is this guy a re tard or what',
+      'How many keepers should we have?',
+    ].join(' ');
+    expect(findBlockedContent(survey)).toEqual({ text: 're tard', kind: 'split' });
+  });
+});
+
+describe('blockedContentMessage', () => {
+  it('names the term for a directly-typed slur', () => {
+    const match = findBlockedContent('you retard')!;
+    expect(blockedContentMessage(match, 'message')).toBe(
+      'Your message contains language that isn’t allowed: “retard”.',
+    );
+  });
+
+  it('explains the join for a cross-word match', () => {
+    const match = findBlockedContent('go ok')!;
+    const msg = blockedContentMessage(match, 'survey');
+    expect(msg).toContain('“go ok”');
+    expect(msg).toContain('run together');
+    expect(msg).toContain('Rewording');
   });
 });
 

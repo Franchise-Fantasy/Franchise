@@ -19,8 +19,9 @@ const MAX_NEWS = 10;
 
 /**
  * News block for the player detail sheet — shows the single most recent item,
- * with a "More news (N)" button that expands the rest inline (no extra swipe
- * gesture). Renders nothing when the player has no news.
+ * with a "More News (N)" button that expands the rest inline (no extra swipe
+ * gesture) and collapses back via "Show Less". Renders nothing when the player
+ * has no news.
  */
 export function PlayerNewsSection({ news, isLoading }: PlayerNewsSectionProps) {
   const c = useColors();
@@ -49,17 +50,22 @@ export function PlayerNewsSection({ news, isLoading }: PlayerNewsSectionProps) {
           <NewsCard key={article.id} article={article} />
         ))}
       </View>
-      {!expanded && remaining > 0 && (
+      {remaining > 0 && (
         <Pressable
-          onPress={() => setExpanded(true)}
+          onPress={() => setExpanded((prev) => !prev)}
           style={styles.moreBtn}
           accessibilityRole="button"
-          accessibilityLabel={`Show ${remaining} more news ${remaining === 1 ? "item" : "items"}`}
+          accessibilityState={{ expanded }}
+          accessibilityLabel={
+            expanded
+              ? "Show fewer news items"
+              : `Show ${remaining} more news ${remaining === 1 ? "item" : "items"}`
+          }
         >
           <ThemedText type="varsity" style={[styles.moreText, { color: c.accent }]}>
-            More News ({remaining})
+            {expanded ? "Show Less" : `More News (${remaining})`}
           </ThemedText>
-          <Ionicons name="chevron-down" size={ms(14)} color={c.accent} />
+          <Ionicons name={expanded ? "chevron-up" : "chevron-down"} size={ms(14)} color={c.accent} />
         </Pressable>
       )}
     </Section>

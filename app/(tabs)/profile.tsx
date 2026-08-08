@@ -42,7 +42,7 @@ import { supabase } from '@/lib/supabase';
 import { isExpoGo } from '@/utils/buildConfig';
 import { isArchiveFlagOn, isNflArchiveFlagOn, isNhlArchiveFlagOn } from '@/utils/featureFlags';
 import { logger } from '@/utils/logger';
-import { containsBlockedContent } from '@/utils/moderation';
+import { blockedContentMessage, findBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 const PATCH_SOURCE = require('../../assets/images/patch_logo.png');
@@ -126,11 +126,9 @@ export default function ProfileScreen() {
             Alert.alert('Too long', 'Team name must be 30 characters or fewer.');
             return;
           }
-          if (containsBlockedContent(name)) {
-            Alert.alert(
-              'Invalid name',
-              'That team name contains language that isn’t allowed.',
-            );
+          const blocked = findBlockedContent(name);
+          if (blocked) {
+            Alert.alert('Invalid name', blockedContentMessage(blocked, 'team name'));
             return;
           }
           const { error } = await supabase

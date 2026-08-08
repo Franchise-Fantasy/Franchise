@@ -30,7 +30,7 @@ import {
   type CommissionerContentDraft,
   type SurveyDraftForm,
 } from '@/utils/chat/contentDraftBody';
-import { containsBlockedContent } from '@/utils/moderation';
+import { blockedContentMessage, findBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 const PRESETS = [
@@ -260,8 +260,9 @@ export function CreateSurveyModal({
       description.trim(),
       ...questions.flatMap((q) => [q.prompt.trim(), ...q.options.map((o) => o.trim())]),
     ].join(' ');
-    if (containsBlockedContent(allText)) {
-      Alert.alert('Content blocked', 'Your survey contains language that isn’t allowed.');
+    const blocked = findBlockedContent(allText);
+    if (blocked) {
+      Alert.alert('Content blocked', blockedContentMessage(blocked, 'survey'));
       return;
     }
 

@@ -76,7 +76,7 @@ import {
   deriveTradeDeadlineWeek,
 } from "@/utils/league/seasonWeeks";
 import { logger } from "@/utils/logger";
-import { containsBlockedContent } from "@/utils/moderation";
+import { blockedContentMessage, findBlockedContent } from "@/utils/moderation";
 import { ROSTER_SLOT } from "@/utils/roster/rosterSlotsShared";
 import { ms, s } from "@/utils/scale";
 import { getSportModule } from "@/utils/sports/registry";
@@ -601,8 +601,9 @@ export default function CreateLeague() {
   };
 
   const handleCreateLeague = async () => {
-    if (containsBlockedContent(state.name)) {
-      Alert.alert('Invalid name', 'That league name contains language that isn\u2019t allowed.');
+    const blocked = findBlockedContent(state.name);
+    if (blocked) {
+      Alert.alert('Invalid name', blockedContentMessage(blocked, 'league name'));
       return;
     }
     setLoading(true);

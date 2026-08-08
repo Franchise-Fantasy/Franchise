@@ -75,13 +75,21 @@ Deno.serve(async (req) => {
     for (const q of questions) {
       const val = answerMap.get(q.id);
 
-      // Check required
-      if (q.required && (val === undefined || val === null)) {
+      // A touched-then-emptied input arrives as "" (or []), not as an absent
+      // key — the survey screen keeps every question the user visited in its
+      // answer map. Blank has to mean UNANSWERED here: treating "" as an answer
+      // rejected the whole submission over an OPTIONAL free-text box the user
+      // typed in and then cleared, and left them unable to submit at all.
+      const isBlank =
+        val === undefined ||
+        val === null ||
+        (typeof val === 'string' && val.trim().length === 0) ||
+        (Array.isArray(val) && val.length === 0);
+
+      if (q.required && isBlank) {
         throw new HttpError(`Question "${q.prompt}" is required`);
       }
-
-      // Skip optional unanswered questions
-      if (val === undefined || val === null) continue;
+      if (isBlank) continue;
 
       const opts = q.options as string[] | null;
 

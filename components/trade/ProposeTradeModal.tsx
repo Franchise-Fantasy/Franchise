@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useReducer, useState } from 'react';
+import { useEffect, useMemo, useReducer, useState } from 'react';
 import { Alert, Modal, TouchableOpacity, View } from 'react-native';
 import {
   SafeAreaProvider,
@@ -28,6 +28,7 @@ import { SubmitOverlay } from '@/components/ui/SubmitOverlay';
 import { ThemedText } from '@/components/ui/ThemedText';
 import { queryKeys } from '@/constants/queryKeys';
 import { usePostTradeUpdate } from '@/hooks/chat/useTradeChat';
+import { useTradePickHoldings } from '@/hooks/trades/pickHoldings';
 import { useLeagueTradeConditions } from '@/hooks/trades/useLeagueTradeConditions';
 import { useActiveLeagueSport } from '@/hooks/useActiveLeagueSport';
 import { useColors } from '@/hooks/useColors';
@@ -38,9 +39,10 @@ import { capture } from '@/lib/posthog';
 import { supabase } from '@/lib/supabase';
 import { Json } from '@/types/database.types';
 import { PlayerSeasonStats } from '@/types/player';
-import { TradeBuilderTeam, estimatePickFpts } from '@/types/trade';
+import { TradeBuilderTeam, estimatePickFpts, formatPickLabel } from '@/types/trade';
+import { projectPickHoldings, swapPartiesWithoutPick } from '@/utils/league/swapEligibility';
 import { fetchActiveRosterCount, fetchInactiveSlotPlayerIds } from '@/utils/roster/rosterCounts';
-import { calculateAvgFantasyPoints } from '@/utils/scoring/fantasyPoints';
+import { fetchSeedPlayerStats } from '@/utils/trade/tradeSeedStats';
 
 type PickerType = 'player' | 'pick' | 'swap';
 
@@ -161,21 +163,10 @@ export function ProposeTradeModal({
         .filter((i) => i.player_id)
         .map((i) => i.player_id!);
       if (playerIds.length > 0 && scoringWeights) {
-        supabase
-          .from('player_season_stats')
-          .select('*')
-          .in('player_id', playerIds)
-          .then(({ data }) => {
-            if (!data) return;
-            const fptsMap: Record<string, number> = {};
-            const externalIdMap: Record<string, string | null> = {};
-            for (const row of data) {
-              if (!row.player_id) continue;
-              fptsMap[row.player_id] = calculateAvgFantasyPoints(row as PlayerSeasonStats, scoringWeights, sport);
-              externalIdMap[row.player_id] = (row as PlayerSeasonStats).external_id_nba ?? null;
-            }
-            dispatch({ type: 'UPDATE_PLAYER_FPTS', fptsMap, externalIdMap });
-          });
+        fetchSeedPlayerStats(playerIds, scoringWeights, sport).then(
+          ({ fptsMap, externalIdMap }) =>
+            dispatch({ type: 'UPDATE_PLAYER_FPTS', fptsMap, externalIdMap }),
+        );
       }
       return;
     }
@@ -186,16 +177,10 @@ export function ProposeTradeModal({
 
     if (preselectedPlayer) {
       let cancelled = false;
-      supabase
-        .from('player_season_stats')
-        .select('*')
-        .eq('player_id', preselectedPlayer.player_id)
-        .maybeSingle()
-        .then(({ data }) => {
+      fetchSeedPlayerStats([preselectedPlayer.player_id], scoringWeights, sport)
+        .then(({ fptsMap }) => {
           if (cancelled) return;
-          const avgFpts = data && scoringWeights
-            ? calculateAvgFantasyPoints(data as PlayerSeasonStats, scoringWeights, sport)
-            : 0;
+          const avgFpts = fptsMap[preselectedPlayer.player_id] ?? 0;
           dispatch({
             type: 'SEED_MY_TEAM',
             teamId: teamId,
@@ -234,6 +219,38 @@ export function ProposeTradeModal({
 
   const fairness = computeFairness(allBuilderTeams, teamId, isSimpleTrade);
   const allTradeTeamIds = [teamId, ...state.selectedTeamIds];
+
+  // Pick swaps need BOTH teams to hold a pick in the round, counted against
+  // what they'll hold AFTER this trade's own pick moves — otherwise the swap
+  // voids at the lottery and whoever paid for it gets nothing. Same core the
+  // execute-trade guard runs, so the picker can't promise what commit refuses.
+  const {
+    data: heldPicks,
+    isPending: holdingsPending,
+    isError: holdingsError,
+  } = useTradePickHoldings(
+    leagueId,
+    allTradeTeamIds,
+    validSeasons,
+    rookieDraftRounds,
+    pickSwapsEnabled,
+  );
+  const swapHoldings = useMemo(
+    () =>
+      projectPickHoldings(
+        heldPicks ?? [],
+        allBuilderTeams.flatMap((bt) =>
+          bt.sending_picks.map((pk) => ({
+            season: pk.season,
+            round: pk.round,
+            from_team_id: bt.team_id,
+            to_team_id: pk.to_team_id,
+          })),
+        ),
+      ),
+    [heldPicks, allBuilderTeams],
+  );
+  const holdingsStatus = holdingsError ? 'error' : holdingsPending ? 'loading' : 'ready';
 
   // Roster capacity warning — debounced live (was step-gated; now always-on
   // while assets exist).
@@ -349,6 +366,34 @@ export function ProposeTradeModal({
         Alert.alert('Draft Trades', 'Only 2-team trades can be made during the draft.');
         setSubmitting(false);
         return;
+      }
+
+      // Re-check every swap at submit. The picker validated each one when it
+      // was added, but adding a PICK afterwards can gut it (a team that ships
+      // its only pick in the round has nothing left to put up), and
+      // counteroffer/edit seeds carry swaps built against older ownership.
+      for (const bt of allBuilderTeams) {
+        for (const sw of bt.sending_swaps) {
+          const missing = holdingsStatus === 'ready'
+            ? swapPartiesWithoutPick(swapHoldings, {
+                season: sw.season,
+                round: sw.round,
+                beneficiary_team_id: sw.beneficiary_team_id,
+                counterparty_team_id: sw.counterparty_team_id,
+              })
+            : [];
+          if (missing.length > 0) {
+            const label = formatPickLabel(sw.season, sw.round);
+            Alert.alert(
+              "Swap can't convey",
+              `${missing.map((id) => teamNameMap[id] ?? 'A team').join(' and ')} ` +
+                `${missing.length > 1 ? 'have' : 'has'} no ${label} pick after this trade. ` +
+                `Remove the ${label} swap.`,
+            );
+            setSubmitting(false);
+            return;
+          }
+        }
       }
 
       // The proposal, its team rows, its items, and the cancellation of the
@@ -692,7 +737,10 @@ export function ProposeTradeModal({
               <TradeSwapPickerBody
                 validSeasons={validSeasons}
                 rookieDraftRounds={rookieDraftRounds}
+                counterpartyTeamId={pickerFor.teamId}
                 counterpartyTeamName={pickerTeamName}
+                holdings={swapHoldings}
+                holdingsStatus={holdingsStatus}
                 {...(isSimpleTrade
                   ? {
                       beneficiaryTeamId: allTradeTeamIds.find((id) => id !== pickerFor.teamId) ?? teamId,

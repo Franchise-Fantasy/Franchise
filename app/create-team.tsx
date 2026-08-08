@@ -25,7 +25,7 @@ import { useBreakpoint } from '@/hooks/useBreakpoint';
 import { useColorScheme } from '@/hooks/useColorScheme';
 import { checkAndAssignDraftSlots } from '@/lib/draft';
 import { logger } from '@/utils/logger';
-import { containsBlockedContent } from '@/utils/moderation';
+import { blockedContentMessage, findBlockedContent } from '@/utils/moderation';
 import { ms, s } from '@/utils/scale';
 
 import { supabase } from '../lib/supabase';
@@ -122,8 +122,9 @@ export default function CreateTeam() {
       setNameError('Enter a team name.');
       return;
     }
-    if (containsBlockedContent(teamName)) {
-      setNameError('That team name contains language that isn’t allowed.');
+    const blocked = findBlockedContent(teamName);
+    if (blocked) {
+      setNameError(blockedContentMessage(blocked, 'team name'));
       return;
     }
     const code = tricode.trim().toUpperCase();

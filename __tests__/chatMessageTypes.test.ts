@@ -68,3 +68,25 @@ describe('SQL parity: block-filter exemption migration', () => {
     expect(sql).toMatch(/CASE WHEN m\.type = 'rumor' THEN NULL ELSE m\.team_id END/);
   });
 });
+
+describe('push parity: webhook-notify SELF_NOTIFIED_TYPES', () => {
+  const WEBHOOK = join(__dirname, '../supabase/functions/webhook-notify/index.ts');
+
+  // The chat_messages INSERT trigger pushes a "<team>: <content>" preview for
+  // any type it doesn't skip. Every system-authored type already gets a push
+  // from whatever created it, and none of them store prose in `content` — so a
+  // missing entry means a duplicate notification whose body is a raw UUID or
+  // JSON blob. `survey` and `rumor` shipped that way.
+  it('skips every system-authored type', () => {
+    const src = readFileSync(WEBHOOK, 'utf8');
+    const block = src.match(/const SELF_NOTIFIED_TYPES = new Set\(\[([\s\S]*?)\]\)/);
+    expect(block).not.toBeNull();
+
+    const skipped = [...block![1].matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
+    for (const type of SYSTEM_AUTHORED_TYPES) {
+      expect(skipped).toContain(type);
+    }
+    // announcement is authorless too, just not in SYSTEM_AUTHORED_TYPES.
+    expect(skipped).toContain('announcement');
+  });
+});

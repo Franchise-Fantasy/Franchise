@@ -1,8 +1,9 @@
 import { useQuery } from '@tanstack/react-query';
 
-import { formatSeason, getCurrentSeason, parseSeasonStartYear, type Sport } from '@/constants/LeagueDefaults';
+import { getCurrentSeason, type Sport } from '@/constants/LeagueDefaults';
 import { queryKeys } from '@/constants/queryKeys';
 import { supabase } from '@/lib/supabase';
+import { tradablePickSeasons } from '@/utils/draft/pickSeasons';
 
 // Data source: draft_picks owned by a team (with drafts join).
 
@@ -20,14 +21,14 @@ export function useTeamTradablePicks(teamId: string | null, leagueId: string | n
 
       const sport = (league?.sport as Sport | null) ?? 'nba';
       const maxFuture = league?.max_future_seasons ?? 3;
-      const currentStartYear = parseSeasonStartYear(league?.season ?? getCurrentSeason(sport));
 
-      // Current season (for in-progress initial draft) + future rookie drafts.
-      // max_future_seasons=3 means the next 3 rookie drafts (offset 1..3 from current season).
-      const validSeasons: string[] = [];
-      for (let i = 0; i <= maxFuture; i++) {
-        validSeasons.push(formatSeason(currentStartYear + i, sport));
-      }
+      // Current season (for an in-progress startup draft) + every future
+      // rookie draft in the tradable horizon.
+      const validSeasons = tradablePickSeasons(
+        league?.season ?? getCurrentSeason(sport),
+        maxFuture,
+        sport,
+      );
 
       // Fetch picks owned by this team that haven't been used
       // Join drafts(type) to distinguish initial vs rookie draft picks
